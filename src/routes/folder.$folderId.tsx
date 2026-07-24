@@ -5,7 +5,12 @@ import { Workspace } from "@/components/markx/workspace"
 export const Route = createFileRoute("/folder/$folderId")({
   component: FolderPage,
   head: () => ({
-    meta: [{ title: "markx" }],
+    meta: [
+      {
+        name: "robots",
+        content: "noindex",
+      },
+    ],
   }),
 })
 

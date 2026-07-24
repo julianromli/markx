@@ -67,7 +67,11 @@ export function RenameDialog({
             />
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+            >
               Cancel
             </Button>
             <Button type="submit">Save</Button>
@@ -120,7 +124,11 @@ export function AddLinkDialog({
             />
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+            >
               Cancel
             </Button>
             <Button type="submit">Add</Button>
@@ -153,7 +161,7 @@ export function MoveToDialog({
             <button
               key={folder.id}
               type="button"
-              className="rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-black/5 active:scale-[0.99]"
+              className="rounded-lg px-3 py-2 text-left text-sm transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/5 active:scale-[0.99]"
               onClick={() => {
                 onSubmit(folder.id)
                 onOpenChange(false)
@@ -190,8 +198,8 @@ export function ConfirmDeleteFolderDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Delete folder?</AlertDialogTitle>
           <AlertDialogDescription>
-            This folder contains {count} bookmark{count === 1 ? "" : "s"}. Deleting
-            it will remove those bookmarks too.
+            This folder contains {count} bookmark{count === 1 ? "" : "s"}.
+            Deleting it will remove those bookmarks too.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

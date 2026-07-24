@@ -17,14 +17,14 @@ export function FolderIcon({
   return (
     <div
       className={cn(
-        "flex w-[200px] flex-col items-center px-3.5 pt-3 pb-3.5 transition-transform duration-150 ease-out active:scale-[0.96]",
-        className,
+        "flex w-[200px] flex-col items-center px-3.5 pt-3 pb-3.5 transition-transform duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96]",
+        className
       )}
     >
       <div
         className={cn(
-          "relative size-[92px] transition-transform duration-150 ease-out",
-          selected && "scale-95",
+          "relative size-[92px] transition-transform duration-150 ease-[var(--ease-out-strong)]",
+          selected && "scale-95"
         )}
       >
         <img

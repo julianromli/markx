@@ -1,15 +1,16 @@
 # Local development secrets — copy to .dev.vars (gitignored).
 # In dev the Cloudflare Vite plugin reads these via the `cloudflare:workers`
-# `env` object. Hyperdrive is not simulated locally, so DATABASE_URL is
-# used as a direct fallback.
+# `env` object.
 
-# Neon Postgres pooler connection string (used in dev when Hyperdrive is
-# absent, and as the Hyperdrive localConnectionString override).
+# Neon Postgres pooler connection string.
+# `bun run dev` maps this to CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE
+# (Wrangler requires that process env var to emulate the Hyperdrive binding locally).
 # Set this to your own Neon project's pooler connection string.
 DATABASE_URL="postgresql://USER:PASSWORD@HOST-pooler.REGION.aws.neon.tech/DBNAME?sslmode=require"
 
-# The Cloudflare Vite plugin reads this env var to emulate the Hyperdrive
-# binding locally. If unset, the plugin falls back to DATABASE_URL above.
+# Optional override for Hyperdrive local emulation. If unset, `bun run dev` uses
+# DATABASE_URL above. Must be exported in the process env (not only as a Worker
+# secret) — the launch script handles that for you.
 # CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE="<same as DATABASE_URL>"
 
 # Neon Auth — non-secret, also declared as `vars` in wrangler.jsonc.

@@ -2,7 +2,10 @@ import { useState } from "react"
 
 import { AuthDialog } from "@/components/markx/auth-dialog"
 import { AccountMenu } from "@/components/markx/account-menu"
-import { SyncStatusBadge, ConflictResolutionDialog } from "@/components/markx/sync-status"
+import {
+  SyncStatusBadge,
+  ConflictResolutionDialog,
+} from "@/components/markx/sync-status"
 import { useAuthSession } from "@/lib/markx/hooks"
 
 /**
@@ -38,7 +41,7 @@ export function HeaderAuth() {
       <button
         type="button"
         onClick={() => setAuthOpen(true)}
-        className="flex items-center gap-1.5 rounded-md bg-[rgba(32,32,32,0.9)] px-3 py-1.5 text-[13px] font-medium text-white transition-transform active:scale-[0.96] hover:bg-[rgba(32,32,32,1)]"
+        className="flex items-center gap-1.5 rounded-md bg-[rgba(32,32,32,0.9)] px-3 py-1.5 text-[13px] font-medium text-white transition-[transform,background-color] duration-150 ease-[var(--ease-out-strong)] hover:bg-[rgba(32,32,32,1)] active:scale-[0.96]"
       >
         Sign in to save
       </button>

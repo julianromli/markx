@@ -15,7 +15,7 @@ type NoteCardProps = {
   onCommit?: (content: string) => void
   onExitEdit?: () => void
   onStyleChange?: (
-    style: Partial<Pick<Note, "color" | "font" | "fontSize">>,
+    style: Partial<Pick<Note, "color" | "font" | "fontSize">>
   ) => void
   className?: string
 }
@@ -86,10 +86,7 @@ export function NoteCard({
       onBlur: ({ editor: ed, event }) => {
         if (committedRef.current) return
         const related = event.relatedTarget
-        if (
-          related instanceof Node &&
-          rootRef.current?.contains(related)
-        ) {
+        if (related instanceof Node && rootRef.current?.contains(related)) {
           return
         }
         committedRef.current = true
@@ -97,7 +94,7 @@ export function NoteCard({
         onExitEdit?.()
       },
     },
-    [editing, note.id],
+    [editing, note.id]
   )
 
   useEffect(() => {
@@ -135,7 +132,7 @@ export function NoteCard({
     >
       {editing && editor ? (
         <div
-          className="absolute -top-[52px] left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-[13px] border border-black/10 bg-white px-1.5 py-1 shadow-[0_2px_6px_rgba(0,0,0,0.08),0_8px_24px_rgba(0,0,0,0.12)]"
+          className="note-toolbar-in absolute -top-[52px] left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-[13px] border border-black/10 bg-white px-1.5 py-1 shadow-[0_2px_6px_rgba(0,0,0,0.08),0_8px_24px_rgba(0,0,0,0.12)]"
           onPointerDown={(e) => e.stopPropagation()}
         >
           <ToolbarDropdown
@@ -162,8 +159,10 @@ export function NoteCard({
                       close()
                     }}
                     className={cn(
-                      "size-7 rounded-full border-2 transition-transform hover:scale-110 active:scale-95",
-                      note.color === color ? "border-[#202020]" : "border-black/15",
+                      "size-7 rounded-full border-2 transition-transform active:scale-95 hover-fine:hover:scale-105",
+                      note.color === color
+                        ? "border-[#202020]"
+                        : "border-black/15"
                     )}
                     style={{ backgroundColor: NOTE_COLORS[color] }}
                   />
@@ -178,9 +177,7 @@ export function NoteCard({
             id="font"
             openMenu={openMenu}
             onOpenMenuChange={setOpenMenu}
-            triggerLabel={
-              <span className="text-[13px] font-medium">Aa</span>
-            }
+            triggerLabel={<span className="text-[13px] font-medium">Aa</span>}
           >
             {(close) => (
               <div className="min-w-[120px] p-0.5">
@@ -195,7 +192,7 @@ export function NoteCard({
                     }}
                     className={cn(
                       "flex h-8 w-full items-center rounded-md px-3 text-[13px] text-[#202020] transition-colors hover:bg-black/5",
-                      note.font === option.value && "bg-black/5",
+                      note.font === option.value && "bg-black/5"
                     )}
                     style={{ fontFamily: NOTE_FONTS[option.value] }}
                   >
@@ -232,7 +229,7 @@ export function NoteCard({
                     }}
                     className={cn(
                       "flex h-8 w-full items-center rounded-md px-3 text-[13px] text-[#202020] transition-colors hover:bg-black/5",
-                      note.fontSize === option.value && "bg-black/5",
+                      note.fontSize === option.value && "bg-black/5"
                     )}
                   >
                     {option.label}
@@ -271,12 +268,13 @@ export function NoteCard({
       <div
         className={cn(
           "group relative flex h-full flex-col overflow-hidden rounded-[12px] p-4 shadow-[3px_3px_8px_rgba(0,0,0,0.08),11px_10px_15px_rgba(0,0,0,0.06)]",
-          selected && "ring-2 ring-black/80 ring-offset-2 ring-offset-transparent",
+          selected &&
+            "ring-2 ring-black/80 ring-offset-2 ring-offset-transparent"
         )}
         style={{ backgroundColor: NOTE_COLORS[note.color] }}
       >
         <div
-          className="min-h-0 flex-1 overflow-y-auto text-[#202020] leading-snug"
+          className="min-h-0 flex-1 overflow-y-auto leading-snug text-[#202020]"
           style={{ fontFamily, fontSize }}
         >
           {editing && editor ? (
@@ -295,14 +293,14 @@ export function NoteCard({
           <div
             className={cn(
               "absolute right-0 bottom-0 flex cursor-se-resize items-end justify-end opacity-0 transition-opacity group-hover:opacity-100",
-              selected && "opacity-100",
+              selected && "opacity-100"
             )}
             style={{ width: RESIZE_HANDLE_SIZE, height: RESIZE_HANDLE_SIZE }}
             aria-hidden
           >
             <svg
               viewBox="0 0 16 16"
-              className="mb-1.5 mr-1.5 size-3.5 text-black/35"
+              className="mr-1.5 mb-1.5 size-3.5 text-black/35"
               fill="none"
             >
               <path
@@ -349,8 +347,8 @@ function ToolbarButton({
       onPointerDown={(e) => e.preventDefault()}
       onClick={onClick}
       className={cn(
-        "flex size-8 items-center justify-center rounded-lg text-[13px] font-semibold text-[#202020] transition-colors active:scale-[0.96]",
-        active ? "bg-black/10" : "hover:bg-black/5",
+        "flex size-8 items-center justify-center rounded-lg text-[13px] font-semibold text-[#202020] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96]",
+        active ? "bg-black/10" : "hover:bg-black/5"
       )}
     >
       {children}
@@ -359,7 +357,7 @@ function ToolbarButton({
 }
 
 function ToolbarDivider() {
-  return <div className="mx-0.5 h-6 w-px bg-black/10" aria-hidden />;
+  return <div className="mx-0.5 h-6 w-px bg-black/10" aria-hidden />
 }
 
 function ToolbarDropdown({
@@ -394,8 +392,8 @@ function ToolbarDropdown({
           onOpenMenuChange(open ? null : id)
         }}
         className={cn(
-          "flex h-8 items-center gap-1 rounded-lg px-2 text-[#202020] transition-colors active:scale-[0.96]",
-          open ? "bg-black/5" : "hover:bg-black/5",
+          "flex h-8 items-center gap-1 rounded-lg px-2 text-[#202020] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96]",
+          open ? "bg-black/5" : "hover:bg-black/5"
         )}
       >
         {triggerLabel}
@@ -403,7 +401,7 @@ function ToolbarDropdown({
       </button>
       {open ? (
         <div
-          className="absolute top-full left-0 z-20 mt-1 rounded-xl border border-black/10 bg-white p-0.5 shadow-[0_4px_16px_rgba(0,0,0,0.15)]"
+          className="toolbar-dropdown-in absolute top-full left-0 z-20 mt-1 origin-top-left rounded-xl border border-black/10 bg-white p-0.5 shadow-[0_4px_16px_rgba(0,0,0,0.15)]"
           onPointerDown={(e) => e.stopPropagation()}
         >
           {children(() => onOpenMenuChange(null))}

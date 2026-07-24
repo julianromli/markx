@@ -137,7 +137,10 @@ export function AppShell({
               )
 
               return (
-                <div key={`${crumb.label}-${index}`} className="flex h-7 items-center">
+                <div
+                  key={`${crumb.label}-${index}`}
+                  className="flex h-7 items-center"
+                >
                   {index > 0 ? (
                     <span
                       className="w-[4.32px] text-center text-[12px] leading-3 text-[#cbced2]"
@@ -146,11 +149,11 @@ export function AppShell({
                       /
                     </span>
                   ) : null}
-                  <div className="flex h-7 items-start pl-[9px] pr-1">
+                  <div className="flex h-7 items-start pr-1 pl-[9px]">
                     {crumb.to && !isLast ? (
                       <Link
                         to={crumb.to}
-                        className="flex h-7 items-center gap-1.5 rounded-[3px] px-[7px] pt-1.5 pb-[7px] transition-[background-color,transform] duration-150 ease-out hover:bg-black/[0.04] active:scale-[0.96]"
+                        className="flex h-7 items-center gap-1.5 rounded-[3px] px-[7px] pt-1.5 pb-[7px] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.04] active:scale-[0.96]"
                       >
                         {content}
                       </Link>
@@ -191,13 +194,23 @@ export function AppShell({
             <div className="flex items-center">
               <HeaderIconButton
                 label="Undo"
-                icon={<ArrowCounterClockwiseIcon className="size-[18px]" weight="regular" />}
+                icon={
+                  <ArrowCounterClockwiseIcon
+                    className="size-[18px]"
+                    weight="regular"
+                  />
+                }
                 disabled={!canUndo}
                 onClick={() => actions.undo()}
               />
               <HeaderIconButton
                 label="Redo"
-                icon={<ArrowClockwiseIcon className="size-[18px]" weight="regular" />}
+                icon={
+                  <ArrowClockwiseIcon
+                    className="size-[18px]"
+                    weight="regular"
+                  />
+                }
                 disabled={!canRedo}
                 onClick={() => actions.redo()}
               />
@@ -235,49 +248,51 @@ export function AppShell({
       </header>
 
       <aside className="relative z-10 col-start-1 row-start-2 flex flex-col items-center bg-[#ebedee] pt-2.5 pb-3 shadow-[1px_0_0_rgba(0,10,20,0.06)]">
-          {TOOLS.map((item) => {
-            const active = item.tool != null && tool === item.tool
-            const enabled = item.tool != null || item.action != null
-            return (
-              <ToolButton
-                key={item.id}
-                label={item.label}
-                active={active}
-                disabled={!enabled}
-                onClick={
-                  enabled
-                    ? () => {
-                        if (item.action === "image") {
-                          onImageTool?.()
-                        } else if (item.tool) {
-                          onToolChange(item.tool)
-                        }
+        {TOOLS.map((item) => {
+          const active = item.tool != null && tool === item.tool
+          const enabled = item.tool != null || item.action != null
+          return (
+            <ToolButton
+              key={item.id}
+              label={item.label}
+              active={active}
+              disabled={!enabled}
+              onClick={
+                enabled
+                  ? () => {
+                      if (item.action === "image") {
+                        onImageTool?.()
+                      } else if (item.tool) {
+                        onToolChange(item.tool)
                       }
-                    : undefined
-                }
-                icon={<item.icon className="size-5" weight="regular" />}
-              />
-            )
-          })}
+                    }
+                  : undefined
+              }
+              icon={<item.icon className="size-5" weight="regular" />}
+            />
+          )
+        })}
 
-          <div className="flex-1" />
+        <div className="flex-1" />
 
-          <button
-            ref={trashRef}
-            type="button"
-            className={cn(
-              "flex size-11 items-center justify-center rounded-xl text-black/55 transition-[transform,background-color,box-shadow] duration-150 ease-out active:scale-[0.96]",
-              trashHot
-                ? "bg-red-500/15 text-red-600 shadow-[0_0_0_2px_rgba(239,68,68,0.35)]"
-                : "hover:bg-black/5",
-            )}
-            aria-label="Trash"
-          >
-            <TrashIcon className="size-5" />
-          </button>
+        <button
+          ref={trashRef}
+          type="button"
+          className={cn(
+            "flex size-11 items-center justify-center rounded-xl text-black/55 transition-[transform,background-color,box-shadow] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96]",
+            trashHot
+              ? "bg-red-500/15 text-red-600 shadow-[0_0_0_2px_rgba(239,68,68,0.35)]"
+              : "hover:bg-black/5"
+          )}
+          aria-label="Trash"
+        >
+          <TrashIcon className="size-5" />
+        </button>
       </aside>
 
-      <main className="relative col-start-2 row-start-2 min-h-0 min-w-0">{children}</main>
+      <main className="relative col-start-2 row-start-2 min-h-0 min-w-0">
+        {children}
+      </main>
 
       <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </div>
@@ -307,9 +322,9 @@ function HeaderIconButton({
       aria-label={label}
       onClick={onClick}
       className={cn(
-        "flex h-12 items-center justify-center text-[rgba(32,32,32,0.8)] transition-[transform,opacity,background-color] duration-150 ease-out active:scale-[0.96] disabled:pointer-events-none disabled:opacity-20 disabled:active:scale-100",
+        "flex h-12 items-center justify-center text-[rgba(32,32,32,0.8)] transition-[transform,opacity,background-color] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96] disabled:pointer-events-none disabled:opacity-20 disabled:active:scale-100",
         frame ? (last ? "w-8" : "w-10") : "w-[34px]",
-        !disabled && "hover:bg-black/[0.03]",
+        !disabled && "hover:bg-black/[0.03]"
       )}
     >
       <span
@@ -317,7 +332,7 @@ function HeaderIconButton({
           "flex items-center justify-center",
           frame
             ? cn("h-6", last ? "w-8 pl-2" : "w-10 px-2")
-            : "h-[21px] w-[34px] px-2 pb-0.5",
+            : "h-[21px] w-[34px] px-2 pb-0.5"
         )}
       >
         {icon}
@@ -345,12 +360,12 @@ function ToolButton({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "mb-0.5 flex w-[56px] flex-col items-center gap-0.5 rounded-xl px-1 py-1.5 text-[9px] transition-[transform,background-color,box-shadow] duration-150 ease-out active:scale-[0.96]",
+        "mb-0.5 flex w-[56px] flex-col items-center gap-0.5 rounded-xl px-1 py-1.5 text-[9px] transition-[transform,background-color,box-shadow] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96]",
         active
           ? "bg-white text-[#202020] shadow-[0_1px_2px_rgba(0,10,20,0.08)]"
           : "text-black/55 hover:bg-black/5",
         disabled &&
-          "cursor-not-allowed opacity-45 hover:bg-transparent active:scale-100",
+          "cursor-not-allowed opacity-45 hover:bg-transparent active:scale-100"
       )}
     >
       <span className="flex size-7 items-center justify-center drop-shadow-[0_1px_1px_rgba(51,61,78,0.2)]">

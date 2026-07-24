@@ -41,7 +41,6 @@ export async function getDb() {
     max: 5,
     // Use `prepare: false` so Hyperdrive can cache prepared statements.
     prepare: false,
-    ssl: "require",
   })
 
   return { db: drizzle(sql, { schema }), sql }

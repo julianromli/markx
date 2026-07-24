@@ -35,6 +35,15 @@ const emptyState: MarkxState = {
   zCounter: 1,
 }
 
+function hasWorkspaceItems(state: MarkxState): boolean {
+  return (
+    state.folders.length > 0 ||
+    state.bookmarks.length > 0 ||
+    state.notes.length > 0 ||
+    state.images.length > 0
+  )
+}
+
 /**
  * Load the caller's workspace. Creates an empty workspace row on first
  * login if one does not exist yet. Uses `onConflictDoNothing` so
@@ -177,8 +186,9 @@ export const saveWorkspace = createServerFn({ method: "POST" })
  * login. Only called once per device; the client tracks a flag in
  * IndexedDB so it does not re-import after the first successful sync.
  *
- * If the cloud already has data (version > 1), returns a conflict so
- * the client can prompt the user to choose.
+ * If the cloud already contains items, returns a conflict so the client can
+ * prompt the user to choose. An empty cloud workspace is safe to replace
+ * regardless of version (for example, after a failed first-login attempt).
  */
 export const importGuestWorkspace = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
@@ -194,7 +204,10 @@ export const importGuestWorkspace = createServerFn({ method: "POST" })
         .where(eq(workspaces.userId, user.id))
         .limit(1)
 
-      if (existing && existing.version > 1) {
+      if (
+        existing &&
+        hasWorkspaceItems(existing.state as MarkxState)
+      ) {
         return {
           ok: false,
           reason: "conflict",

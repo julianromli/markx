@@ -1,8 +1,15 @@
 import { getAuthClient } from "@/lib/auth/client"
+import {
+  refreshAuthSession,
+  setAuthSessionGuest,
+} from "@/lib/auth/session"
 import { SyncEngine } from "@/lib/markx/sync"
 import { store } from "@/lib/markx/store"
-import { loadState } from "@/lib/markx/storage"
-import { notifyAuthChange } from "@/lib/markx/hooks"
+import {
+  clearLastUserId,
+  loadState,
+  setLastUserId,
+} from "@/lib/markx/storage"
 
 /**
  * Send a one-time password to the given email address.
@@ -64,19 +71,20 @@ export async function verifyOtp(
  * Returns the SyncEngine so the caller can subscribe to status updates.
  */
 export async function onLoginSuccess(): Promise<SyncEngine> {
-  const authClient = await getAuthClient()
-  const { data } = await authClient.getSession()
-  const user = data?.user
+  const session = await refreshAuthSession()
+  const user = session.user
   if (!user) throw new Error("No session after OTP verification")
 
+  // First login / mode switch — await cloud (or guest import) so the UI
+  // switches to the authoritative workspace before closing the dialog.
   const engine = await SyncEngine.create(user.id)
   store.attachSync(engine)
   const loaded = engine.getLoadedState()
   if (loaded) {
-    store.replaceState(loaded)
+    store.replaceState(loaded, { persist: false })
   }
   store.markReady()
-  notifyAuthChange()
+  await setLastUserId(user.id)
   return engine
 }
 
@@ -114,10 +122,11 @@ export async function signOut(): Promise<void> {
 
   // Detach the sync engine and switch to guest mode.
   store.detachSync()
+  await clearLastUserId()
 
   // Reset the store to the guest state from local IndexedDB so the
   // user can continue as a guest with their previous local data.
   const guestState = await loadState()
-  store.replaceState(guestState)
-  notifyAuthChange()
+  store.replaceState(guestState, { persist: false })
+  setAuthSessionGuest()
 }

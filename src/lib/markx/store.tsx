@@ -2,21 +2,28 @@ import {
   createContext,
   useContext,
   useEffect,
+  useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
-  type ReactNode,
 } from "react"
+import type { ReactNode } from "react"
 import { nanoid } from "nanoid"
 
-import { getAuthClient } from "@/lib/auth/client"
+import { getAuthSession } from "@/lib/auth/session"
 import { enrichLink } from "./enrich"
 import { createEmptyState } from "./seed"
 import {
+  isGuestImported,
+  loadState,
+  loadUserState,
   localMarkxStorage,
   nextZ,
+  setLastUserId,
+  getLastUserId,
   sweepOrphanImageBlobs,
 } from "./storage"
-import { SyncEngine } from "./sync"
+import { isGuestModified, SyncEngine } from "./sync"
 import type { BoardImage, Bookmark, Folder, MarkxState, Note } from "./types"
 
 type Listener = () => void
@@ -36,7 +43,7 @@ export type MarkxActions = {
   updateNoteContent: (id: string, content: string) => void
   setNoteStyle: (
     id: string,
-    style: Partial<Pick<Note, "color" | "font" | "fontSize">>,
+    style: Partial<Pick<Note, "color" | "font" | "fontSize">>
   ) => void
   deleteNotes: (ids: string[]) => Note[]
   createImage: (meta: Omit<BoardImage, "z">) => BoardImage
@@ -45,12 +52,12 @@ export type MarkxActions = {
     folderId: string,
     url: string,
     x: number,
-    y: number,
+    y: number
   ) => Promise<Bookmark>
   renameBookmark: (id: string, title: string) => void
   resizeItem: (
     id: string,
-    rect: { x: number; width: number; height: number },
+    rect: { x: number; width: number; height: number }
   ) => void
   resetSizes: (ids: string[]) => void
   moveBookmarks: (ids: string[], folderId: string) => void
@@ -65,12 +72,18 @@ export type MarkxHistory = {
   canRedo: boolean
 }
 
+export type InitialSyncStatus = "idle" | "loading" | "error"
+
 type MarkxStoreApi = {
   getState: () => MarkxState
   getHistory: () => MarkxHistory
   subscribe: (listener: Listener) => () => void
   actions: MarkxActions
   ready: boolean
+  /** First cloud hydration state for an authenticated user without a cache. */
+  initialSyncStatus: InitialSyncStatus
+  /** Retry the first cloud hydration after a timeout or network failure. */
+  retryInitialSync: () => void
   /** The active SyncEngine, or `null` in guest mode. */
   getSyncEngine: () => SyncEngine | null
   /** Attach a SyncEngine (on login) and hydrate from the cloud. */
@@ -78,7 +91,7 @@ type MarkxStoreApi = {
   /** Detach the SyncEngine (on sign-out) and switch back to guest mode. */
   detachSync: () => void
   /** Replace the in-memory state without touching history (cloud load / conflict resolution). */
-  replaceState: (newState: MarkxState) => void
+  replaceState: (newState: MarkxState, opts?: { persist?: boolean }) => void
   /** Hydrate from local guest storage (guest mode). */
   hydrate: () => Promise<void>
   /** Mark the store ready after a sync-engine state replacement. */
@@ -204,16 +217,16 @@ function createMarkxStore() {
           ...prev,
           zCounter,
           folders: prev.folders.map((f) =>
-            bump.has(f.id) ? { ...f, z: bump.get(f.id)! } : f,
+            bump.has(f.id) ? { ...f, z: bump.get(f.id)! } : f
           ),
           bookmarks: prev.bookmarks.map((b) =>
-            bump.has(b.id) ? { ...b, z: bump.get(b.id)! } : b,
+            bump.has(b.id) ? { ...b, z: bump.get(b.id)! } : b
           ),
           notes: prev.notes.map((n) =>
-            bump.has(n.id) ? { ...n, z: bump.get(n.id)! } : n,
+            bump.has(n.id) ? { ...n, z: bump.get(n.id)! } : n
           ),
           images: prev.images.map((i) =>
-            bump.has(i.id) ? { ...i, z: bump.get(i.id)! } : i,
+            bump.has(i.id) ? { ...i, z: bump.get(i.id)! } : i
           ),
         }
       })
@@ -284,10 +297,10 @@ function createMarkxStore() {
           folders: prev.folders.filter((f) => !idSet.has(f.id)),
           bookmarks: prev.bookmarks.filter((b) => !idSet.has(b.folderId)),
           notes: prev.notes.filter(
-            (n) => n.folderId == null || !idSet.has(n.folderId),
+            (n) => n.folderId == null || !idSet.has(n.folderId)
           ),
           images: prev.images.filter(
-            (i) => i.folderId == null || !idSet.has(i.folderId),
+            (i) => i.folderId == null || !idSet.has(i.folderId)
           ),
         }
       })
@@ -328,9 +341,7 @@ function createMarkxStore() {
     setNoteStyle(id, style) {
       commit((prev) => ({
         ...prev,
-        notes: prev.notes.map((n) =>
-          n.id === id ? { ...n, ...style } : n,
-        ),
+        notes: prev.notes.map((n) => (n.id === id ? { ...n, ...style } : n)),
       }))
     },
 
@@ -420,7 +431,7 @@ function createMarkxStore() {
                   imageUrl: meta.imageUrl,
                   faviconUrl: meta.faviconUrl || b.faviconUrl,
                 }
-              : b,
+              : b
           ),
         }))
       } catch {
@@ -434,7 +445,7 @@ function createMarkxStore() {
       commit((prev) => ({
         ...prev,
         bookmarks: prev.bookmarks.map((b) =>
-          b.id === id ? { ...b, title } : b,
+          b.id === id ? { ...b, title } : b
         ),
       }))
     },
@@ -445,17 +456,17 @@ function createMarkxStore() {
         bookmarks: prev.bookmarks.map((b) =>
           b.id === id
             ? { ...b, x: rect.x, width: rect.width, height: rect.height }
-            : b,
+            : b
         ),
         notes: prev.notes.map((n) =>
           n.id === id
             ? { ...n, x: rect.x, width: rect.width, height: rect.height }
-            : n,
+            : n
         ),
         images: prev.images.map((i) =>
           i.id === id
             ? { ...i, x: rect.x, width: rect.width, height: rect.height }
-            : i,
+            : i
         ),
       }))
     },
@@ -494,7 +505,7 @@ function createMarkxStore() {
                 x: 140 + (index % 5) * 24,
                 y: 140 + (index % 5) * 24,
               }
-            : b,
+            : b
         ),
       }))
     },
@@ -522,7 +533,7 @@ function createMarkxStore() {
 
     markxOnboarded() {
       patch((prev) =>
-        prev.hasOnboarded ? prev : { ...prev, hasOnboarded: true },
+        prev.hasOnboarded ? prev : { ...prev, hasOnboarded: true }
       )
     },
 
@@ -545,13 +556,13 @@ function createMarkxStore() {
                       imageUrl: meta.imageUrl ?? b.imageUrl,
                       faviconUrl: meta.faviconUrl || b.faviconUrl,
                     }
-                  : b,
+                  : b
               ),
             }))
           } catch {
             // leave bookmark as-is
           }
-        }),
+        })
       )
     },
   }
@@ -581,13 +592,16 @@ function createMarkxStore() {
       syncEngine = null
       pendingDeletedImageIds.clear()
     },
-    replaceState(newState: MarkxState) {
+    replaceState(newState: MarkxState, opts?: { persist?: boolean }) {
       state = newState
       past = []
       future = []
       emit()
-      // Persist to whichever backend is active.
-      persist()
+      // Skip persist when applying a remote/cache snapshot so we don't
+      // immediately schedule a redundant cloud write of the same data.
+      if (opts?.persist !== false) {
+        persist()
+      }
     },
     async hydrate() {
       state = await localMarkxStorage.load()
@@ -624,80 +638,388 @@ function createMarkxStore() {
 
 export const store = createMarkxStore()
 
+const SESSION_TIMEOUT_MS = 3000
+const CLOUD_FIRST_LOAD_TIMEOUT_MS = 8000
+
+type SessionUser = { id: string; email?: string | null }
+
+async function needsGuestImport(userId: string): Promise<boolean> {
+  if (await isGuestImported(userId)) return false
+  return isGuestModified(await loadState())
+}
+
+type SessionCheckResult =
+  | { status: "user"; user: SessionUser }
+  | { status: "guest" }
+  | { status: "timeout" }
+
+async function getSessionUserWithTimeout(
+  timeoutMs = SESSION_TIMEOUT_MS
+): Promise<SessionCheckResult> {
+  try {
+    const result = await Promise.race([
+      getAuthSession().then((session) => ({
+        kind: "session" as const,
+        session,
+      })),
+      new Promise<{ kind: "timeout" }>((resolve) =>
+        setTimeout(() => resolve({ kind: "timeout" }), timeoutMs)
+      ),
+    ])
+    if (result.kind === "timeout") {
+      console.warn(`[markx init] getSession timed out after ${timeoutMs}ms`)
+      return { status: "timeout" }
+    }
+    const user = result.session.user
+    if (!user) return { status: "guest" }
+    return { status: "user", user }
+  } catch (err) {
+    console.error("[markx init] getSession failed", err)
+    return { status: "guest" }
+  }
+}
+
+async function attachEngineAndPaint(
+  engine: SyncEngine,
+  opts?: { persist?: boolean }
+): Promise<void> {
+  store.attachSync(engine)
+  const loaded = engine.getLoadedState()
+  if (loaded) {
+    store.replaceState(loaded, { persist: opts?.persist ?? false })
+  }
+  store.markReady()
+  await setLastUserId(engine.getUserId())
+}
+
+/**
+ * Background cloud refresh after the UI has already painted from cache.
+ * Applies the cloud snapshot only when the engine says it is safe.
+ */
+function refreshEngineInBackground(
+  engine: SyncEngine,
+  cancelled: () => boolean
+): void {
+  void (async () => {
+    try {
+      const cloudState = await engine.refreshFromCloud()
+      if (cancelled() || !cloudState) return
+      // Engine still attached for this user?
+      if (store.getSyncEngine() !== engine) return
+      store.replaceState(cloudState, { persist: false })
+      console.info("[markx init] applied cloud refresh")
+    } catch (err) {
+      console.error("[markx init] background cloud refresh failed", err)
+    }
+  })()
+}
+
 export function MarkxProvider({ children }: { children: ReactNode }) {
   // Always start false so SSR + first client paint match (singleton may already be ready after HMR).
   const [ready, setReady] = useState(false)
+  const [initialSyncStatus, setInitialSyncStatus] =
+    useState<InitialSyncStatus>("idle")
+  const retryInitialSyncRef = useRef<() => void>(() => {})
+  const initialSyncEngineRef = useRef<SyncEngine | null>(null)
+
+  useEffect(
+    () =>
+      store.subscribe(() => {
+        const initialEngine = initialSyncEngineRef.current
+        if (initialEngine && store.getSyncEngine() !== initialEngine) {
+          initialSyncEngineRef.current = null
+          retryInitialSyncRef.current = () => {}
+          setInitialSyncStatus("idle")
+        }
+      }),
+    []
+  )
 
   useEffect(() => {
-    let cancelled = false
+    const cancelled: { current: boolean } = { current: false }
+    const isCancelled = () => cancelled.current
 
     async function init() {
-      // Check if the user is already logged in (e.g. returning session).
+      const initStartedAt = performance.now()
+      const logTiming = (stage: string, startedAt = initStartedAt) => {
+        console.info("[markx init] timing", {
+          stage,
+          durationMs: Math.round(performance.now() - startedAt),
+        })
+      }
+      const markShellReady = (branch: string) => {
+        setReady(true)
+        requestAnimationFrame(() => logTiming("first-shell-paint"))
+        console.info("[markx init] ready", { branch })
+      }
+
+      console.info("[markx init] starting")
+      const sessionPromise = getSessionUserWithTimeout()
+
+      // Start session restore and cache hydration concurrently so returning
+      // visits are never serialized behind the auth request.
+      let optimisticEngine: SyncEngine | null = null
+      const lastUserId = await getLastUserId()
+      if (isCancelled()) return
+
+      if (lastUserId) {
+        try {
+          const cached = await loadUserState(lastUserId)
+          if (isCancelled()) return
+          if (cached) {
+            optimisticEngine = await SyncEngine.createFromCache(lastUserId)
+            if (isCancelled()) {
+              optimisticEngine.destroy()
+              return
+            }
+            await attachEngineAndPaint(optimisticEngine)
+            if (isCancelled()) {
+              optimisticEngine.destroy()
+              return
+            }
+            markShellReady("cache-optimistic")
+          }
+        } catch (err) {
+          console.error("[markx init] optimistic cache paint failed", err)
+          optimisticEngine?.destroy()
+          optimisticEngine = null
+        }
+      }
+      logTiming("cache-lookup")
+
+      const session = await sessionPromise
+      if (isCancelled()) {
+        optimisticEngine?.destroy()
+        return
+      }
+      console.info(
+        "[markx init] session checked",
+        session.status === "user" ? `user=${session.user.id}` : session.status
+      )
+      logTiming("session-restore")
+
+      // Session timed out but we already painted from lastUserId — keep it
+      // and attempt a background cloud refresh (auth may still succeed on
+      // the server-fn path via cookies).
+      if (session.status === "timeout" && optimisticEngine) {
+        console.warn(
+          "[markx init] session timeout — keeping optimistic cache paint"
+        )
+        refreshEngineInBackground(optimisticEngine, isCancelled)
+        return
+      }
+
+      // Confirmed guest (or timeout with no cache) → guest mode.
+      if (session.status !== "user") {
+        if (optimisticEngine) {
+          optimisticEngine.destroy()
+          store.detachSync()
+          optimisticEngine = null
+        }
+        await store.hydrate()
+        if (isCancelled()) return
+        markShellReady("guest")
+        return
+      }
+
+      const user = session.user
+
+      // Same user as optimistic paint. Keep the instant cache paint, but do
+      // not let any user cache suppress a pending one-time guest import.
+      if (optimisticEngine && optimisticEngine.getUserId() === user.id) {
+        if (!(await needsGuestImport(user.id))) {
+          refreshEngineInBackground(optimisticEngine, isCancelled)
+          return
+        }
+        optimisticEngine.destroy()
+        store.detachSync()
+        optimisticEngine = null
+      }
+
+      // Different user than optimistic guess — tear down and rebuild.
+      if (optimisticEngine) {
+        optimisticEngine.destroy()
+        store.detachSync()
+        optimisticEngine = null
+      }
+
       try {
-        const authClient = await getAuthClient()
-        const { data } = await authClient.getSession()
-        const user = data?.user
+        // Hydrate the authenticated cache first, but the durable import marker
+        // decides whether guest data still needs to be saved to this account.
+        const cachedEngine = await SyncEngine.createFromCache(user.id)
+        if (isCancelled()) {
+          cachedEngine.destroy()
+          return
+        }
 
-        if (cancelled) return
+        const shouldImportGuest = await needsGuestImport(user.id)
 
-        if (user) {
-          // Authenticated: create a SyncEngine and load from cloud.
-          const engine = await SyncEngine.create(user.id)
-          if (cancelled) {
+        if (cachedEngine.hasCachedState() && !shouldImportGuest) {
+          await attachEngineAndPaint(cachedEngine)
+          if (isCancelled()) {
+            cachedEngine.destroy()
+            return
+          }
+          markShellReady("cache")
+          refreshEngineInBackground(cachedEngine, isCancelled)
+          return
+        }
+
+        if (shouldImportGuest) {
+          cachedEngine.destroy()
+          // First login with local guest changes — must await network.
+          const createPromise = SyncEngine.create(user.id)
+          const engine = await Promise.race([
+            createPromise,
+            new Promise<null>((resolve) =>
+              setTimeout(() => resolve(null), CLOUD_FIRST_LOAD_TIMEOUT_MS)
+            ),
+          ])
+          if (isCancelled()) {
+            engine?.destroy()
+            return
+          }
+          if (!engine) {
+            console.warn(
+              `[markx init] SyncEngine.create timed out after ${CLOUD_FIRST_LOAD_TIMEOUT_MS}ms — falling back to guest`
+            )
+            // SyncEngine.create cannot currently be aborted. Dispose a late
+            // result so it cannot leave online listeners attached.
+            void createPromise
+              .then((lateEngine) => lateEngine.destroy())
+              .catch((err) =>
+                console.error("[markx init] late guest import failed", err)
+              )
+            await store.hydrate()
+            if (isCancelled()) return
+            markShellReady("guest-import-timeout")
+            return
+          }
+          await attachEngineAndPaint(engine)
+          if (isCancelled()) {
             engine.destroy()
             return
           }
-          store.attachSync(engine)
-          const loaded = engine.getLoadedState()
-          if (loaded) {
-            store.replaceState(loaded)
-          }
-          store.markReady()
-          setReady(true)
-        } else {
-          // Guest mode: load from local IndexedDB.
-          await store.hydrate()
-          if (cancelled) return
-          setReady(true)
+          markShellReady("guest-import")
+          return
         }
-      } catch {
-        // Auth check failed — fall back to guest mode.
-        if (cancelled) return
+
+        // First load on this device with no cache. Render the app shell
+        // immediately, but keep editing guarded until cloud hydration
+        // succeeds so an empty local state cannot race the real workspace.
+        const engine = cachedEngine
+        await attachEngineAndPaint(engine)
+        if (isCancelled()) {
+          engine.destroy()
+          return
+        }
+        initialSyncEngineRef.current = engine
+        setInitialSyncStatus("loading")
+        markShellReady("cloud-loading")
+
+        let activeCloudLoad: Promise<MarkxState | null> | null = null
+        let cloudLoadStartedAt = performance.now()
+
+        const applyCloudState = (cloudState: MarkxState | null) => {
+          if (isCancelled() || store.getSyncEngine() !== engine) return
+          if (cloudState) {
+            store.replaceState(cloudState, { persist: false })
+            initialSyncEngineRef.current = null
+            retryInitialSyncRef.current = () => {}
+            setInitialSyncStatus("idle")
+            console.info("[markx init] initial cloud load applied")
+          } else {
+            setInitialSyncStatus("error")
+            console.warn("[markx init] initial cloud load failed")
+          }
+          logTiming("initial-cloud-load", cloudLoadStartedAt)
+        }
+
+        const runInitialCloudLoad = () => {
+          if (isCancelled() || store.getSyncEngine() !== engine) return
+          setInitialSyncStatus("loading")
+          cloudLoadStartedAt = performance.now()
+
+          const cloudLoad =
+            activeCloudLoad ??
+            engine.refreshFromCloud().finally(() => {
+              activeCloudLoad = null
+            })
+          activeCloudLoad = cloudLoad
+
+          void cloudLoad.then(applyCloudState)
+          void Promise.race([
+            cloudLoad.then(() => "settled" as const),
+            new Promise<"timeout">((resolve) =>
+              setTimeout(() => resolve("timeout"), CLOUD_FIRST_LOAD_TIMEOUT_MS)
+            ),
+          ]).then((result) => {
+            if (
+              result === "timeout" &&
+              !isCancelled() &&
+              store.getSyncEngine() === engine
+            ) {
+              setInitialSyncStatus("error")
+              console.warn(
+                `[markx init] initial cloud load still pending after ${CLOUD_FIRST_LOAD_TIMEOUT_MS}ms`
+              )
+            }
+          })
+        }
+
+        retryInitialSyncRef.current = runInitialCloudLoad
+        runInitialCloudLoad()
+        return
+      } catch (err) {
+        console.error(
+          "[markx init] auth/sync error, falling back to guest",
+          err
+        )
+        if (isCancelled()) return
         await store.hydrate()
-        if (cancelled) return
-        setReady(true)
+        if (isCancelled()) return
+        markShellReady("sync-error-guest-fallback")
       }
     }
 
     void init()
 
     return () => {
-      cancelled = true
+      cancelled.current = true
+      initialSyncEngineRef.current = null
+      retryInitialSyncRef.current = () => {}
     }
   }, [])
 
-  const api: MarkxStoreApi = {
-    getState: store.getState,
-    getHistory: store.getHistory,
-    subscribe: store.subscribe,
-    actions: store.actions,
-    ready,
-    getSyncEngine: store.getSyncEngine,
-    attachSync: store.attachSync,
-    detachSync: store.detachSync,
-    replaceState: store.replaceState,
-    hydrate: store.hydrate,
-    markReady: store.markReady,
-    resolveConflictUseCloud: store.resolveConflictUseCloud,
-    resolveConflictOverwriteCloud: store.resolveConflictOverwriteCloud,
-  }
+  const api = useMemo<MarkxStoreApi>(
+    () => ({
+      getState: store.getState,
+      getHistory: store.getHistory,
+      subscribe: store.subscribe,
+      actions: store.actions,
+      ready,
+      initialSyncStatus,
+      retryInitialSync: () => retryInitialSyncRef.current(),
+      getSyncEngine: store.getSyncEngine,
+      attachSync: store.attachSync,
+      detachSync: store.detachSync,
+      replaceState: store.replaceState,
+      hydrate: store.hydrate,
+      markReady: store.markReady,
+      resolveConflictUseCloud: store.resolveConflictUseCloud,
+      resolveConflictOverwriteCloud: store.resolveConflictOverwriteCloud,
+    }),
+    [initialSyncStatus, ready],
+  )
 
   if (!ready) {
     return <div className="markx-dot-bg h-svh" aria-busy="true" />
   }
 
   return (
-    <MarkxStoreContext.Provider value={api}>{children}</MarkxStoreContext.Provider>
+    <MarkxStoreContext.Provider value={api}>
+      {children}
+    </MarkxStoreContext.Provider>
   )
 }
 
@@ -712,7 +1034,7 @@ export function useMarkxState(): MarkxState {
   return useSyncExternalStore(
     storeApi.subscribe,
     storeApi.getState,
-    storeApi.getState,
+    storeApi.getState
   )
 }
 
@@ -721,7 +1043,7 @@ export function useMarkxHistory(): MarkxHistory {
   return useSyncExternalStore(
     storeApi.subscribe,
     storeApi.getHistory,
-    storeApi.getHistory,
+    storeApi.getHistory
   )
 }
 

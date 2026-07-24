@@ -406,7 +406,7 @@ export function Board({
     const hit = hitTest(boardPoint.x, boardPoint.y)
 
     if (!hit) {
-      if (tool === "board" || tool === "link" || tool === "note") {
+      if (tool === "link") {
         // Place on single click only — ignore 2nd click of a double-click
         if (e.detail > 1) return
         e.currentTarget.setPointerCapture(e.pointerId)
@@ -486,8 +486,8 @@ export function Board({
       }
     }
 
-    // While placing, don't open items on double-click
-    if (tool !== "board" && tool !== "link" && tool !== "note") {
+    // While placing a link, don't open items on double-click
+    if (tool !== "link") {
       const now = Date.now()
       const last = lastClickRef.current
       if (last && last.id === hit.id && now - last.time < 350) {
@@ -763,9 +763,7 @@ export function Board({
       ref={viewportRef}
       className={cn(
         "markx-dot-bg relative h-full w-full touch-none overflow-hidden select-none",
-        tool === "board" || tool === "link" || tool === "note"
-          ? "cursor-crosshair"
-          : "cursor-default",
+        tool === "link" ? "cursor-crosshair" : "cursor-default",
         className
       )}
       onPointerDown={onPointerDown}

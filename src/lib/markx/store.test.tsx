@@ -157,7 +157,7 @@ describe("MarkxProvider authenticated bootstrap", () => {
     render(
       <MarkxProvider>
         <Status />
-      </MarkxProvider>,
+      </MarkxProvider>
     )
 
     expect(await screen.findByText("loading")).toBeTruthy()
@@ -168,5 +168,45 @@ describe("MarkxProvider authenticated bootstrap", () => {
       await cloudState.promise
     })
     await waitFor(() => expect(screen.getByText("idle")).toBeTruthy())
+  })
+
+  it("clears the initial-sync guard when auth switches engines", async () => {
+    const cloudState = deferred<MarkxState | null>()
+    const engine: EngineStub = {
+      getUserId: () => "user-1",
+      getLoadedState: () => emptyState,
+      hasCachedState: () => false,
+      refreshFromCloud: vi.fn(() => cloudState.promise),
+      destroy: vi.fn(),
+    }
+    const { MarkxProvider, useMarkxStore, store } = await setupProvider({
+      session: Promise.resolve({
+        user: { id: "user-1", email: "user@example.com" },
+        token: "token",
+        isPending: false,
+        checkedAt: Date.now(),
+      }),
+      lastUserId: Promise.resolve(null),
+      engine,
+    })
+
+    function Status() {
+      return <span>{useMarkxStore().initialSyncStatus}</span>
+    }
+
+    render(
+      <MarkxProvider>
+        <Status />
+      </MarkxProvider>
+    )
+    expect(await screen.findByText("loading")).toBeTruthy()
+
+    await act(async () => {
+      store.detachSync()
+      store.replaceState(emptyState, { persist: false })
+    })
+    expect(await screen.findByText("idle")).toBeTruthy()
+
+    cloudState.resolve(null)
   })
 })

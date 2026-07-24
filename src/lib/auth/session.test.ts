@@ -41,7 +41,7 @@ describe("shared auth session", () => {
     const first = getAuthSession()
     const second = getAuthSession()
     await vi.waitFor(() =>
-      expect(authMocks.getSession).toHaveBeenCalledTimes(1),
+      expect(authMocks.getSession).toHaveBeenCalledTimes(1)
     )
 
     response.resolve({
@@ -69,7 +69,7 @@ describe("shared auth session", () => {
     const unsubscribeFirst = subscribeAuthSession(vi.fn())
     const unsubscribeSecond = subscribeAuthSession(vi.fn())
     await vi.waitFor(() =>
-      expect(authMocks.getSession).toHaveBeenCalledTimes(1),
+      expect(authMocks.getSession).toHaveBeenCalledTimes(1)
     )
 
     await vi.advanceTimersByTimeAsync(10000)
@@ -89,11 +89,8 @@ describe("shared auth session", () => {
       }
     }>()
     authMocks.getSession.mockReturnValue(response.promise)
-    const {
-      getAuthSession,
-      getAuthSessionSnapshot,
-      setAuthSessionGuest,
-    } = await import("@/lib/auth/session")
+    const { getAuthSession, getAuthSessionSnapshot, setAuthSessionGuest } =
+      await import("@/lib/auth/session")
 
     const pending = getAuthSession()
     setAuthSessionGuest()

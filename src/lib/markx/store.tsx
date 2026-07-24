@@ -718,6 +718,20 @@ export function MarkxProvider({ children }: { children: ReactNode }) {
   const [initialSyncStatus, setInitialSyncStatus] =
     useState<InitialSyncStatus>("idle")
   const retryInitialSyncRef = useRef<() => void>(() => {})
+  const initialSyncEngineRef = useRef<SyncEngine | null>(null)
+
+  useEffect(
+    () =>
+      store.subscribe(() => {
+        const initialEngine = initialSyncEngineRef.current
+        if (initialEngine && store.getSyncEngine() !== initialEngine) {
+          initialSyncEngineRef.current = null
+          retryInitialSyncRef.current = () => {}
+          setInitialSyncStatus("idle")
+        }
+      }),
+    [],
+  )
 
   useEffect(() => {
     const cancelled: { current: boolean } = { current: false }
@@ -884,6 +898,7 @@ export function MarkxProvider({ children }: { children: ReactNode }) {
           engine.destroy()
           return
         }
+        initialSyncEngineRef.current = engine
         setInitialSyncStatus("loading")
         markShellReady("cloud-loading")
 
@@ -894,6 +909,8 @@ export function MarkxProvider({ children }: { children: ReactNode }) {
           if (isCancelled() || store.getSyncEngine() !== engine) return
           if (cloudState) {
             store.replaceState(cloudState, { persist: false })
+            initialSyncEngineRef.current = null
+            retryInitialSyncRef.current = () => {}
             setInitialSyncStatus("idle")
             console.info("[markx init] initial cloud load applied")
           } else {
@@ -954,6 +971,7 @@ export function MarkxProvider({ children }: { children: ReactNode }) {
 
     return () => {
       cancelled.current = true
+      initialSyncEngineRef.current = null
       retryInitialSyncRef.current = () => {}
     }
   }, [])

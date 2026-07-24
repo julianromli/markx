@@ -634,17 +634,37 @@ export function MarkxProvider({ children }: { children: ReactNode }) {
     async function init() {
       // Check if the user is already logged in (e.g. returning session).
       try {
+        console.info("[markx init] starting")
         const authClient = await getAuthClient()
+        console.info("[markx init] auth client ready")
         const { data } = await authClient.getSession()
         const user = data?.user
+        console.info("[markx init] session checked", user ? `user=${user.id}` : "guest")
 
         if (cancelled) return
 
         if (user) {
           // Authenticated: create a SyncEngine and load from cloud.
-          const engine = await SyncEngine.create(user.id)
+          // Race against a timeout so a hung server function (e.g. DB or
+          // JWKS unreachable) doesn't leave the user on a permanent blank
+          // screen — fall back to the per-user cache / guest state instead.
+          const engine = await Promise.race([
+            SyncEngine.create(user.id),
+            new Promise<null>((resolve) =>
+              setTimeout(() => resolve(null), 8000),
+            ),
+          ])
           if (cancelled) {
-            engine.destroy()
+            engine?.destroy()
+            return
+          }
+          if (!engine) {
+            console.warn(
+              "[markx init] SyncEngine.create timed out after 8s — falling back to cached/guest state",
+            )
+            await store.hydrate()
+            if (cancelled) return
+            setReady(true)
             return
           }
           store.attachSync(engine)
@@ -653,15 +673,18 @@ export function MarkxProvider({ children }: { children: ReactNode }) {
             store.replaceState(loaded)
           }
           store.markReady()
+          console.info("[markx init] ready (cloud)")
           setReady(true)
         } else {
           // Guest mode: load from local IndexedDB.
           await store.hydrate()
           if (cancelled) return
+          console.info("[markx init] ready (guest)")
           setReady(true)
         }
-      } catch {
+      } catch (err) {
         // Auth check failed — fall back to guest mode.
+        console.error("[markx init] error, falling back to guest", err)
         if (cancelled) return
         await store.hydrate()
         if (cancelled) return

@@ -161,8 +161,14 @@ export class SyncEngine {
    */
   private async loadFromCloudOrCache(): Promise<void> {
     try {
+      console.info("[markx sync] loading workspace from cloud")
       const { loadWorkspace } = await import("@/lib/server/workspace")
+      console.info("[markx sync] calling loadWorkspace server fn")
       const snapshot = await loadWorkspace()
+      console.info(
+        "[markx sync] loadWorkspace returned",
+        snapshot ? `version=${snapshot.version}` : "null",
+      )
       if (snapshot) {
         this.cloudVersion = snapshot.version
         await setCloudVersion(this.userId, snapshot.version)
@@ -171,11 +177,13 @@ export class SyncEngine {
         this.setStatus("saved")
         return
       }
-    } catch {
+    } catch (err) {
       // Network or auth error — fall through to cache.
+      console.error("[markx sync] loadWorkspace failed, falling back to cache", err)
     }
 
     // Offline / error: use the per-user cache.
+    console.info("[markx sync] loading from per-user cache")
     const cached = await loadUserState(this.userId)
     if (cached) {
       this.currentState = cached

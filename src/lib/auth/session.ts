@@ -23,6 +23,7 @@ const serverSnapshot: AuthSessionSnapshot = {
 
 let snapshot = serverSnapshot
 let inFlight: Promise<AuthSessionSnapshot> | null = null
+let activeRequestId: symbol | null = null
 let generation = 0
 let pollTimer: ReturnType<typeof setInterval> | null = null
 const listeners = new Set<() => void>()
@@ -51,17 +52,21 @@ export function getAuthSession(opts?: {
   if (inFlight) return inFlight
 
   const requestGeneration = generation
-  let request: Promise<AuthSessionSnapshot>
-  request = (async () => {
+  const requestId = Symbol("auth-session-request")
+  const request = (async () => {
     try {
       const authClient = await getAuthClient()
       const { data } = await authClient.getSession()
       if (requestGeneration !== generation) return snapshot
+      const runtimeData = data as {
+        user?: { id: string; email: string } | null
+        session?: { token?: string | null } | null
+      } | null
       return publish({
-        user: data?.user
-          ? { id: data.user.id, email: data.user.email }
+        user: runtimeData?.user
+          ? { id: runtimeData.user.id, email: runtimeData.user.email }
           : null,
-        token: data?.session?.token ?? null,
+        token: runtimeData?.session?.token ?? null,
         isPending: false,
         checkedAt: Date.now(),
       })
@@ -77,10 +82,14 @@ export function getAuthSession(opts?: {
         checkedAt: Date.now(),
       })
     } finally {
-      if (inFlight === request) inFlight = null
+      if (activeRequestId === requestId) {
+        inFlight = null
+        activeRequestId = null
+      }
     }
   })()
 
+  activeRequestId = requestId
   inFlight = request
   return request
 }
@@ -96,6 +105,7 @@ export async function getAuthToken(): Promise<string | null> {
 export function setAuthSessionGuest(): void {
   generation += 1
   inFlight = null
+  activeRequestId = null
   publish({
     user: null,
     token: null,

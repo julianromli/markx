@@ -40,7 +40,9 @@ describe("shared auth session", () => {
 
     const first = getAuthSession()
     const second = getAuthSession()
-    expect(authMocks.getSession).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() =>
+      expect(authMocks.getSession).toHaveBeenCalledTimes(1),
+    )
 
     response.resolve({
       data: {

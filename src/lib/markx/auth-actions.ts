@@ -1,7 +1,11 @@
 import { getAuthClient } from "@/lib/auth/client"
 import { SyncEngine } from "@/lib/markx/sync"
 import { store } from "@/lib/markx/store"
-import { loadState } from "@/lib/markx/storage"
+import {
+  clearLastUserId,
+  loadState,
+  setLastUserId,
+} from "@/lib/markx/storage"
 import { notifyAuthChange } from "@/lib/markx/hooks"
 
 /**
@@ -69,13 +73,16 @@ export async function onLoginSuccess(): Promise<SyncEngine> {
   const user = data?.user
   if (!user) throw new Error("No session after OTP verification")
 
+  // First login / mode switch — await cloud (or guest import) so the UI
+  // switches to the authoritative workspace before closing the dialog.
   const engine = await SyncEngine.create(user.id)
   store.attachSync(engine)
   const loaded = engine.getLoadedState()
   if (loaded) {
-    store.replaceState(loaded)
+    store.replaceState(loaded, { persist: false })
   }
   store.markReady()
+  await setLastUserId(user.id)
   notifyAuthChange()
   return engine
 }
@@ -114,10 +121,11 @@ export async function signOut(): Promise<void> {
 
   // Detach the sync engine and switch to guest mode.
   store.detachSync()
+  await clearLastUserId()
 
   // Reset the store to the guest state from local IndexedDB so the
   // user can continue as a guest with their previous local data.
   const guestState = await loadState()
-  store.replaceState(guestState)
+  store.replaceState(guestState, { persist: false })
   notifyAuthChange()
 }

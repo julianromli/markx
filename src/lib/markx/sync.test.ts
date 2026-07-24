@@ -5,7 +5,6 @@ import {
   isGuestModified,
   blobToDataUrl,
   dataUrlToBlob,
-  shouldKeepLocalAfterCloudRefresh,
 } from "@/lib/markx/sync"
 import type { MarkxState } from "@/lib/markx/types"
 
@@ -66,46 +65,6 @@ describe("isGuestModified", () => {
   it("returns false for the empty state (different from demo)", () => {
     const empty = createEmptyState()
     expect(isGuestModified(empty)).toBe(true)
-  })
-})
-
-describe("shouldKeepLocalAfterCloudRefresh", () => {
-  const base = {
-    hasPendingSnapshot: false,
-    localEditsSinceLoad: false,
-    hasDebouncedEdit: false,
-    status: "saving" as const,
-  }
-
-  it("applies cloud when there are no local divergences", () => {
-    expect(shouldKeepLocalAfterCloudRefresh(base)).toBe(false)
-  })
-
-  it("keeps local when a pending snapshot exists", () => {
-    expect(
-      shouldKeepLocalAfterCloudRefresh({ ...base, hasPendingSnapshot: true }),
-    ).toBe(true)
-  })
-
-  it("keeps local when the user edited after cache paint", () => {
-    expect(
-      shouldKeepLocalAfterCloudRefresh({
-        ...base,
-        localEditsSinceLoad: true,
-      }),
-    ).toBe(true)
-  })
-
-  it("keeps local when a debounced edit is in flight", () => {
-    expect(
-      shouldKeepLocalAfterCloudRefresh({ ...base, hasDebouncedEdit: true }),
-    ).toBe(true)
-  })
-
-  it("keeps local during an unresolved conflict", () => {
-    expect(
-      shouldKeepLocalAfterCloudRefresh({ ...base, status: "conflict" }),
-    ).toBe(true)
   })
 })
 

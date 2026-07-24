@@ -41,10 +41,9 @@ export function HeaderAuth() {
       <button
         type="button"
         onClick={() => setAuthOpen(true)}
-        className="flex shrink-0 items-center whitespace-nowrap rounded-md bg-[rgba(32,32,32,0.9)] px-2 py-1 text-[11px] font-medium text-white transition-[transform,background-color] duration-150 ease-[var(--ease-out-strong)] hover:bg-[rgba(32,32,32,1)] active:scale-[0.96] md:gap-1.5 md:px-3 md:py-1.5 md:text-[13px]"
+        className="flex items-center gap-1.5 rounded-md bg-[rgba(32,32,32,0.9)] px-3 py-1.5 text-[13px] font-medium text-white transition-[transform,background-color] duration-150 ease-[var(--ease-out-strong)] hover:bg-[rgba(32,32,32,1)] active:scale-[0.96]"
       >
-        <span className="md:hidden">Sign in</span>
-        <span className="hidden md:inline">Sign in to save</span>
+        Sign in to save
       </button>
       <AuthDialog
         open={authOpen}

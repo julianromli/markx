@@ -1,26 +1,76 @@
-import { useEffect, useState, useSyncExternalStore } from "react"
+import { useEffect, useState } from "react"
 
-import {
-  getAuthSessionServerSnapshot,
-  getAuthSessionSnapshot,
-  subscribeAuthSession,
-} from "@/lib/auth/session"
+import { getAuthClient } from "@/lib/auth/client"
 import { useMarkxStore } from "@/lib/markx/store"
 import type { SyncEngine, SyncStatus, ConflictData } from "@/lib/markx/sync"
+
+/**
+ * Lightweight pub/sub for auth state changes so hooks can re-check
+ * immediately after login/logout instead of waiting for the next poll.
+ */
+type AuthListener = () => void
+const authListeners = new Set<AuthListener>()
+
+/**
+ * Notify all `useAuthSession` subscribers to re-check the session
+ * immediately. Call this after login or logout.
+ */
+export function notifyAuthChange(): void {
+  for (const listener of authListeners) listener()
+}
 
 /**
  * React hook for the current Neon Auth session.
  *
  * Returns `{ user, isPending }` where `user` is `null` when logged out
- * (guest mode). All consumers share one initial request and polling loop.
+ * (guest mode). Re-renders when the session changes (login, logout,
+ * token refresh) or when {@link notifyAuthChange} is called.
  */
 export function useAuthSession() {
-  const session = useSyncExternalStore(
-    subscribeAuthSession,
-    getAuthSessionSnapshot,
-    getAuthSessionServerSnapshot,
-  )
-  return { user: session.user, isPending: session.isPending }
+  const [session, setSession] = useState<{
+    user: { id: string; email: string } | null
+    isPending: boolean
+  }>({ user: null, isPending: true })
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function check() {
+      try {
+        const authClient = await getAuthClient()
+        const { data } = await authClient.getSession()
+        if (cancelled) return
+        if (data?.user) {
+          setSession({
+            user: { id: data.user.id, email: data.user.email },
+            isPending: false,
+          })
+        } else {
+          setSession({ user: null, isPending: false })
+        }
+      } catch {
+        if (cancelled) return
+        setSession({ user: null, isPending: false })
+      }
+    }
+
+    void check()
+
+    // Re-check when explicitly notified (login/logout).
+    const listener = () => void check()
+    authListeners.add(listener)
+
+    // Also poll as a fallback for session expiry / external changes.
+    const interval = setInterval(check, 10000)
+
+    return () => {
+      cancelled = true
+      authListeners.delete(listener)
+      clearInterval(interval)
+    }
+  }, [])
+
+  return session
 }
 
 /**

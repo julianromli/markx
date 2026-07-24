@@ -1,7 +1,7 @@
 import { createMiddleware } from "@tanstack/react-start"
 import { getRequestHeader } from "@tanstack/react-start/server"
 
-import { getAuthToken } from "@/lib/auth/session"
+import { getAuthClient } from "@/lib/auth/client"
 import { verifyNeonJwt, extractBearer } from "@/lib/auth/jwt"
 
 /**
@@ -41,7 +41,9 @@ export const authMiddleware = createMiddleware({ type: "function" })
   .client(async ({ next }) => {
     let authorization: string | undefined
     try {
-      const token = await getAuthToken()
+      const authClient = await getAuthClient()
+      const { data } = await authClient.getSession()
+      const token = data?.session?.token
       if (token) authorization = `Bearer ${token}`
     } catch {
       // Not logged in — leave the header unset. The server middleware will

@@ -1,4 +1,8 @@
 import { getAuthClient } from "@/lib/auth/client"
+import {
+  refreshAuthSession,
+  setAuthSessionGuest,
+} from "@/lib/auth/session"
 import { SyncEngine } from "@/lib/markx/sync"
 import { store } from "@/lib/markx/store"
 import {
@@ -6,7 +10,6 @@ import {
   loadState,
   setLastUserId,
 } from "@/lib/markx/storage"
-import { notifyAuthChange } from "@/lib/markx/hooks"
 
 /**
  * Send a one-time password to the given email address.
@@ -68,9 +71,8 @@ export async function verifyOtp(
  * Returns the SyncEngine so the caller can subscribe to status updates.
  */
 export async function onLoginSuccess(): Promise<SyncEngine> {
-  const authClient = await getAuthClient()
-  const { data } = await authClient.getSession()
-  const user = data?.user
+  const session = await refreshAuthSession()
+  const user = session.user
   if (!user) throw new Error("No session after OTP verification")
 
   // First login / mode switch — await cloud (or guest import) so the UI
@@ -83,7 +85,6 @@ export async function onLoginSuccess(): Promise<SyncEngine> {
   }
   store.markReady()
   await setLastUserId(user.id)
-  notifyAuthChange()
   return engine
 }
 
@@ -127,5 +128,5 @@ export async function signOut(): Promise<void> {
   // user can continue as a guest with their previous local data.
   const guestState = await loadState()
   store.replaceState(guestState, { persist: false })
-  notifyAuthChange()
+  setAuthSessionGuest()
 }

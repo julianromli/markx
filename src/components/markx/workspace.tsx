@@ -35,7 +35,12 @@ import {
   fitImageToWidth,
   type Rect,
 } from "@/lib/markx/geometry"
-import { store, useMarkxActions, useMarkxState } from "@/lib/markx/store"
+import {
+  store,
+  useMarkxActions,
+  useMarkxState,
+  useMarkxStore,
+} from "@/lib/markx/store"
 import { countBookmarksInFolder, saveImageBlob } from "@/lib/markx/storage"
 import { prepareImage } from "@/lib/markx/images"
 import type { NoteColor, ToolId } from "@/lib/markx/types"
@@ -82,6 +87,8 @@ type WorkspaceProps = { mode: "home" } | { mode: "folder"; folderId: string }
 export function Workspace(props: WorkspaceProps) {
   const state = useMarkxState()
   const actions = useMarkxActions()
+  const { initialSyncStatus, retryInitialSync } = useMarkxStore()
+  const initialSyncBlocked = initialSyncStatus !== "idle"
   const navigate = useNavigate()
   const trashRef = useRef<HTMLButtonElement>(null)
   const boardApiRef = useRef<BoardApi | null>(null)
@@ -394,6 +401,7 @@ export function Workspace(props: WorkspaceProps) {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (initialSyncBlocked) return
       const target = e.target as HTMLElement | null
       if (
         target &&
@@ -454,6 +462,7 @@ export function Workspace(props: WorkspaceProps) {
     }
 
     const onPaste = (e: ClipboardEvent) => {
+      if (initialSyncBlocked) return
       if (editingNoteId) return
 
       // Check for pasted image files first
@@ -500,13 +509,14 @@ export function Workspace(props: WorkspaceProps) {
     addImageFiles,
     deleteSelection,
     editingNoteId,
+    initialSyncBlocked,
     openNewFolderDialog,
     placeAtViewCenter,
     props,
     selectedIds,
   ])
 
-  if (props.mode === "folder" && !folder) {
+  if (props.mode === "folder" && !folder && !initialSyncBlocked) {
     return (
       <div className="markx-dot-bg flex h-svh items-center justify-center">
         <div className="space-y-3 text-center">
@@ -531,10 +541,12 @@ export function Workspace(props: WorkspaceProps) {
           : [{ label: "Home", to: "/", home: true }]
       }
       tool={tool}
-      onToolChange={handleToolChange}
+      onToolChange={initialSyncBlocked ? () => {} : handleToolChange}
       trashRef={trashRef}
       zoomPercent={zoomPercent}
-      onImageTool={() => fileInputRef.current?.click()}
+      onImageTool={
+        initialSyncBlocked ? () => {} : () => fileInputRef.current?.click()
+      }
     >
       <ContextMenu>
         <ContextMenuTrigger className="block h-full">
@@ -677,7 +689,31 @@ export function Workspace(props: WorkspaceProps) {
         </ContextMenuContent>
       </ContextMenu>
 
-      {items.length === 0 ? (
+      {initialSyncBlocked ? (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center bg-white/35 backdrop-blur-[2px]"
+          aria-busy={initialSyncStatus === "loading"}
+          role="status"
+        >
+          <div className="max-w-sm rounded-2xl bg-white/90 px-6 py-5 text-center shadow-sm outline outline-1 outline-black/5">
+            <p className="text-[15px] font-medium text-[#202020]">
+              {initialSyncStatus === "loading"
+                ? "Loading your workspace…"
+                : "Workspace could not be loaded"}
+            </p>
+            <p className="mt-1 text-[13px] text-black/50">
+              {initialSyncStatus === "loading"
+                ? "Your boards will appear as soon as cloud sync finishes."
+                : "Check your connection and try again. Editing stays disabled to protect your cloud data."}
+            </p>
+            {initialSyncStatus === "error" ? (
+              <Button className="mt-4" onClick={retryInitialSync}>
+                Try again
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      ) : items.length === 0 ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="rounded-2xl bg-white/80 px-6 py-5 text-center shadow-sm outline outline-1 outline-black/5 backdrop-blur">
             <p className="text-[15px] font-medium text-[#202020]">

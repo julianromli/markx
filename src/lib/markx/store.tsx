@@ -42,7 +42,7 @@ export type MarkxActions = {
   updateNoteContent: (id: string, content: string) => void
   setNoteStyle: (
     id: string,
-    style: Partial<Pick<Note, "color" | "font" | "fontSize">>,
+    style: Partial<Pick<Note, "color" | "font" | "fontSize">>
   ) => void
   deleteNotes: (ids: string[]) => Note[]
   createImage: (meta: Omit<BoardImage, "z">) => BoardImage
@@ -51,12 +51,12 @@ export type MarkxActions = {
     folderId: string,
     url: string,
     x: number,
-    y: number,
+    y: number
   ) => Promise<Bookmark>
   renameBookmark: (id: string, title: string) => void
   resizeItem: (
     id: string,
-    rect: { x: number; width: number; height: number },
+    rect: { x: number; width: number; height: number }
   ) => void
   resetSizes: (ids: string[]) => void
   moveBookmarks: (ids: string[], folderId: string) => void
@@ -216,16 +216,16 @@ function createMarkxStore() {
           ...prev,
           zCounter,
           folders: prev.folders.map((f) =>
-            bump.has(f.id) ? { ...f, z: bump.get(f.id)! } : f,
+            bump.has(f.id) ? { ...f, z: bump.get(f.id)! } : f
           ),
           bookmarks: prev.bookmarks.map((b) =>
-            bump.has(b.id) ? { ...b, z: bump.get(b.id)! } : b,
+            bump.has(b.id) ? { ...b, z: bump.get(b.id)! } : b
           ),
           notes: prev.notes.map((n) =>
-            bump.has(n.id) ? { ...n, z: bump.get(n.id)! } : n,
+            bump.has(n.id) ? { ...n, z: bump.get(n.id)! } : n
           ),
           images: prev.images.map((i) =>
-            bump.has(i.id) ? { ...i, z: bump.get(i.id)! } : i,
+            bump.has(i.id) ? { ...i, z: bump.get(i.id)! } : i
           ),
         }
       })
@@ -296,10 +296,10 @@ function createMarkxStore() {
           folders: prev.folders.filter((f) => !idSet.has(f.id)),
           bookmarks: prev.bookmarks.filter((b) => !idSet.has(b.folderId)),
           notes: prev.notes.filter(
-            (n) => n.folderId == null || !idSet.has(n.folderId),
+            (n) => n.folderId == null || !idSet.has(n.folderId)
           ),
           images: prev.images.filter(
-            (i) => i.folderId == null || !idSet.has(i.folderId),
+            (i) => i.folderId == null || !idSet.has(i.folderId)
           ),
         }
       })
@@ -340,9 +340,7 @@ function createMarkxStore() {
     setNoteStyle(id, style) {
       commit((prev) => ({
         ...prev,
-        notes: prev.notes.map((n) =>
-          n.id === id ? { ...n, ...style } : n,
-        ),
+        notes: prev.notes.map((n) => (n.id === id ? { ...n, ...style } : n)),
       }))
     },
 
@@ -432,7 +430,7 @@ function createMarkxStore() {
                   imageUrl: meta.imageUrl,
                   faviconUrl: meta.faviconUrl || b.faviconUrl,
                 }
-              : b,
+              : b
           ),
         }))
       } catch {
@@ -446,7 +444,7 @@ function createMarkxStore() {
       commit((prev) => ({
         ...prev,
         bookmarks: prev.bookmarks.map((b) =>
-          b.id === id ? { ...b, title } : b,
+          b.id === id ? { ...b, title } : b
         ),
       }))
     },
@@ -457,17 +455,17 @@ function createMarkxStore() {
         bookmarks: prev.bookmarks.map((b) =>
           b.id === id
             ? { ...b, x: rect.x, width: rect.width, height: rect.height }
-            : b,
+            : b
         ),
         notes: prev.notes.map((n) =>
           n.id === id
             ? { ...n, x: rect.x, width: rect.width, height: rect.height }
-            : n,
+            : n
         ),
         images: prev.images.map((i) =>
           i.id === id
             ? { ...i, x: rect.x, width: rect.width, height: rect.height }
-            : i,
+            : i
         ),
       }))
     },
@@ -506,7 +504,7 @@ function createMarkxStore() {
                 x: 140 + (index % 5) * 24,
                 y: 140 + (index % 5) * 24,
               }
-            : b,
+            : b
         ),
       }))
     },
@@ -534,7 +532,7 @@ function createMarkxStore() {
 
     markxOnboarded() {
       patch((prev) =>
-        prev.hasOnboarded ? prev : { ...prev, hasOnboarded: true },
+        prev.hasOnboarded ? prev : { ...prev, hasOnboarded: true }
       )
     },
 
@@ -557,13 +555,13 @@ function createMarkxStore() {
                       imageUrl: meta.imageUrl ?? b.imageUrl,
                       faviconUrl: meta.faviconUrl || b.faviconUrl,
                     }
-                  : b,
+                  : b
               ),
             }))
           } catch {
             // leave bookmark as-is
           }
-        }),
+        })
       )
     },
   }
@@ -650,7 +648,7 @@ type SessionCheckResult =
   | { status: "timeout" }
 
 async function getSessionUserWithTimeout(
-  timeoutMs = SESSION_TIMEOUT_MS,
+  timeoutMs = SESSION_TIMEOUT_MS
 ): Promise<SessionCheckResult> {
   try {
     const result = await Promise.race([
@@ -659,13 +657,11 @@ async function getSessionUserWithTimeout(
         session,
       })),
       new Promise<{ kind: "timeout" }>((resolve) =>
-        setTimeout(() => resolve({ kind: "timeout" }), timeoutMs),
+        setTimeout(() => resolve({ kind: "timeout" }), timeoutMs)
       ),
     ])
     if (result.kind === "timeout") {
-      console.warn(
-        `[markx init] getSession timed out after ${timeoutMs}ms`,
-      )
+      console.warn(`[markx init] getSession timed out after ${timeoutMs}ms`)
       return { status: "timeout" }
     }
     const user = result.session.user
@@ -679,7 +675,7 @@ async function getSessionUserWithTimeout(
 
 async function attachEngineAndPaint(
   engine: SyncEngine,
-  opts?: { persist?: boolean },
+  opts?: { persist?: boolean }
 ): Promise<void> {
   store.attachSync(engine)
   const loaded = engine.getLoadedState()
@@ -696,7 +692,7 @@ async function attachEngineAndPaint(
  */
 function refreshEngineInBackground(
   engine: SyncEngine,
-  cancelled: () => boolean,
+  cancelled: () => boolean
 ): void {
   void (async () => {
     try {
@@ -730,7 +726,7 @@ export function MarkxProvider({ children }: { children: ReactNode }) {
           setInitialSyncStatus("idle")
         }
       }),
-    [],
+    []
   )
 
   useEffect(() => {
@@ -792,9 +788,7 @@ export function MarkxProvider({ children }: { children: ReactNode }) {
       }
       console.info(
         "[markx init] session checked",
-        session.status === "user"
-          ? `user=${session.user.id}`
-          : session.status,
+        session.status === "user" ? `user=${session.user.id}` : session.status
       )
       logTiming("session-restore")
 
@@ -803,7 +797,7 @@ export function MarkxProvider({ children }: { children: ReactNode }) {
       // the server-fn path via cookies).
       if (session.status === "timeout" && optimisticEngine) {
         console.warn(
-          "[markx init] session timeout — keeping optimistic cache paint",
+          "[markx init] session timeout — keeping optimistic cache paint"
         )
         refreshEngineInBackground(optimisticEngine, isCancelled)
         return
@@ -838,16 +832,38 @@ export function MarkxProvider({ children }: { children: ReactNode }) {
       }
 
       try {
+        // Always inspect the authenticated user's cache before considering a
+        // guest import. A missing guestImported marker must never force a
+        // returning user with a valid cache through the blocking login path.
+        const cachedEngine = await SyncEngine.createFromCache(user.id)
+        if (isCancelled()) {
+          cachedEngine.destroy()
+          return
+        }
+
+        if (cachedEngine.hasCachedState()) {
+          await attachEngineAndPaint(cachedEngine)
+          if (isCancelled()) {
+            cachedEngine.destroy()
+            return
+          }
+          markShellReady("cache")
+          refreshEngineInBackground(cachedEngine, isCancelled)
+          return
+        }
+
         const imported = await isGuestImported(user.id)
         const guestState = await loadState()
         const needsGuestImport = !imported && isGuestModified(guestState)
 
         if (needsGuestImport) {
+          cachedEngine.destroy()
           // First login with local guest changes — must await network.
+          const createPromise = SyncEngine.create(user.id)
           const engine = await Promise.race([
-            SyncEngine.create(user.id),
+            createPromise,
             new Promise<null>((resolve) =>
-              setTimeout(() => resolve(null), CLOUD_FIRST_LOAD_TIMEOUT_MS),
+              setTimeout(() => resolve(null), CLOUD_FIRST_LOAD_TIMEOUT_MS)
             ),
           ])
           if (isCancelled()) {
@@ -856,8 +872,15 @@ export function MarkxProvider({ children }: { children: ReactNode }) {
           }
           if (!engine) {
             console.warn(
-              `[markx init] SyncEngine.create timed out after ${CLOUD_FIRST_LOAD_TIMEOUT_MS}ms — falling back to guest`,
+              `[markx init] SyncEngine.create timed out after ${CLOUD_FIRST_LOAD_TIMEOUT_MS}ms — falling back to guest`
             )
+            // SyncEngine.create cannot currently be aborted. Dispose a late
+            // result so it cannot leave online listeners attached.
+            void createPromise
+              .then((lateEngine) => lateEngine.destroy())
+              .catch((err) =>
+                console.error("[markx init] late guest import failed", err)
+              )
             await store.hydrate()
             if (isCancelled()) return
             markShellReady("guest-import-timeout")
@@ -872,27 +895,10 @@ export function MarkxProvider({ children }: { children: ReactNode }) {
           return
         }
 
-        const engine = await SyncEngine.createFromCache(user.id)
-        if (isCancelled()) {
-          engine.destroy()
-          return
-        }
-
-        if (engine.hasCachedState()) {
-          // Returning user: paint from cache, refresh cloud in background.
-          await attachEngineAndPaint(engine)
-          if (isCancelled()) {
-            engine.destroy()
-            return
-          }
-          markShellReady("cache")
-          refreshEngineInBackground(engine, isCancelled)
-          return
-        }
-
         // First load on this device with no cache. Render the app shell
         // immediately, but keep editing guarded until cloud hydration
         // succeeds so an empty local state cannot race the real workspace.
+        const engine = cachedEngine
         await attachEngineAndPaint(engine)
         if (isCancelled()) {
           engine.destroy()
@@ -936,10 +942,7 @@ export function MarkxProvider({ children }: { children: ReactNode }) {
           void Promise.race([
             cloudLoad.then(() => "settled" as const),
             new Promise<"timeout">((resolve) =>
-              setTimeout(
-                () => resolve("timeout"),
-                CLOUD_FIRST_LOAD_TIMEOUT_MS,
-              ),
+              setTimeout(() => resolve("timeout"), CLOUD_FIRST_LOAD_TIMEOUT_MS)
             ),
           ]).then((result) => {
             if (
@@ -949,7 +952,7 @@ export function MarkxProvider({ children }: { children: ReactNode }) {
             ) {
               setInitialSyncStatus("error")
               console.warn(
-                `[markx init] initial cloud load still pending after ${CLOUD_FIRST_LOAD_TIMEOUT_MS}ms`,
+                `[markx init] initial cloud load still pending after ${CLOUD_FIRST_LOAD_TIMEOUT_MS}ms`
               )
             }
           })
@@ -959,7 +962,10 @@ export function MarkxProvider({ children }: { children: ReactNode }) {
         runInitialCloudLoad()
         return
       } catch (err) {
-        console.error("[markx init] auth/sync error, falling back to guest", err)
+        console.error(
+          "[markx init] auth/sync error, falling back to guest",
+          err
+        )
         if (isCancelled()) return
         await store.hydrate()
         if (isCancelled()) return
@@ -999,7 +1005,9 @@ export function MarkxProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <MarkxStoreContext.Provider value={api}>{children}</MarkxStoreContext.Provider>
+    <MarkxStoreContext.Provider value={api}>
+      {children}
+    </MarkxStoreContext.Provider>
   )
 }
 
@@ -1014,7 +1022,7 @@ export function useMarkxState(): MarkxState {
   return useSyncExternalStore(
     storeApi.subscribe,
     storeApi.getState,
-    storeApi.getState,
+    storeApi.getState
   )
 }
 
@@ -1023,7 +1031,7 @@ export function useMarkxHistory(): MarkxHistory {
   return useSyncExternalStore(
     storeApi.subscribe,
     storeApi.getHistory,
-    storeApi.getHistory,
+    storeApi.getHistory
   )
 }
 

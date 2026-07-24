@@ -41,12 +41,15 @@ async function setupProvider(opts: {
   cachedState?: MarkxState | null
   setLastUserId?: () => Promise<void>
   engine?: EngineStub
+  guestImported?: boolean
+  guestModified?: boolean
 }) {
   vi.resetModules()
 
   const getAuthSession = vi.fn(() => opts.session)
   const getLastUserId = vi.fn(() => opts.lastUserId)
   const setLastUserId = vi.fn(opts.setLastUserId ?? (async () => {}))
+  const isGuestImported = vi.fn(async () => opts.guestImported ?? true)
   const engine =
     opts.engine ??
     ({
@@ -56,6 +59,8 @@ async function setupProvider(opts: {
       refreshFromCloud: vi.fn(async () => emptyState),
       destroy: vi.fn(),
     } satisfies EngineStub)
+  const createFromCache = vi.fn(async () => engine)
+  const create = vi.fn(async () => engine)
 
   vi.doMock("@/lib/auth/session", () => ({ getAuthSession }))
   vi.doMock("@/lib/markx/storage", () => ({
@@ -63,7 +68,7 @@ async function setupProvider(opts: {
     setLastUserId,
     loadUserState: vi.fn(async () => opts.cachedState ?? null),
     loadState: vi.fn(async () => emptyState),
-    isGuestImported: vi.fn(async () => true),
+    isGuestImported,
     localMarkxStorage: {
       load: vi.fn(async () => emptyState),
       save: vi.fn(async () => {}),
@@ -72,10 +77,10 @@ async function setupProvider(opts: {
     sweepOrphanImageBlobs: vi.fn(async () => {}),
   }))
   vi.doMock("@/lib/markx/sync", () => ({
-    isGuestModified: vi.fn(() => false),
+    isGuestModified: vi.fn(() => opts.guestModified ?? false),
     SyncEngine: {
-      createFromCache: vi.fn(async () => engine),
-      create: vi.fn(async () => engine),
+      createFromCache,
+      create,
     },
   }))
   vi.doMock("@/lib/markx/enrich", () => ({
@@ -83,7 +88,16 @@ async function setupProvider(opts: {
   }))
 
   const module = await import("@/lib/markx/store")
-  return { ...module, getAuthSession, getLastUserId, setLastUserId, engine }
+  return {
+    ...module,
+    getAuthSession,
+    getLastUserId,
+    setLastUserId,
+    isGuestImported,
+    createFromCache,
+    create,
+    engine,
+  }
 }
 
 afterEach(() => {
@@ -168,6 +182,30 @@ describe("MarkxProvider authenticated bootstrap", () => {
       await cloudState.promise
     })
     await waitFor(() => expect(screen.getByText("idle")).toBeTruthy())
+  })
+
+  it("uses a user cache before evaluating a stale guest-import marker", async () => {
+    const { MarkxProvider, create, createFromCache, isGuestImported, engine } =
+      await setupProvider({
+        session: Promise.resolve({
+          user: { id: "user-1", email: "user@example.com" },
+          token: "token",
+          isPending: false,
+          checkedAt: Date.now(),
+        }),
+        lastUserId: Promise.resolve(null),
+        cachedState: emptyState,
+        guestImported: false,
+        guestModified: true,
+      })
+
+    render(<MarkxProvider>cached-workspace</MarkxProvider>)
+    expect(await screen.findByText("cached-workspace")).toBeTruthy()
+
+    expect(createFromCache).toHaveBeenCalledTimes(1)
+    expect(create).not.toHaveBeenCalled()
+    expect(isGuestImported).not.toHaveBeenCalled()
+    expect(engine.refreshFromCloud).toHaveBeenCalledTimes(1)
   })
 
   it("clears the initial-sync guard when auth switches engines", async () => {

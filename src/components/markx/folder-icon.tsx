@@ -23,7 +23,7 @@ export function FolderIcon({
     >
       <div
         className={cn(
-          "relative size-[92px] drop-shadow-[0_8px_18px_rgba(32,84,180,0.28)] transition-transform duration-150 ease-out",
+          "relative size-[92px] transition-transform duration-150 ease-out",
           selected && "scale-95",
         )}
       >

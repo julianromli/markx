@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router"
 import type { ReactNode, RefObject } from "react"
+import { useState } from "react"
 
 import {
   ArrowClockwiseIcon,
@@ -26,6 +27,7 @@ import {
 import homeIcon from "@/assets/markx/header/home.svg"
 import pixelFolder from "@/assets/markx/pixel-folder.svg"
 import { HeaderAuth } from "@/components/markx/header-auth"
+import { HelpDialog } from "@/components/markx/help-dialog"
 import { useMarkxActions, useMarkxHistory } from "@/lib/markx/store"
 import { cn } from "@/lib/utils"
 import type { ToolId } from "@/lib/markx/types"
@@ -85,6 +87,7 @@ export function AppShell({
 }: AppShellProps) {
   const actions = useMarkxActions()
   const { canUndo, canRedo } = useMarkxHistory()
+  const [helpOpen, setHelpOpen] = useState(false)
 
   const crumbs: BreadcrumbItem[] =
     breadcrumb && breadcrumb.length > 0
@@ -211,6 +214,7 @@ export function AppShell({
               label="Help"
               icon={<QuestionIcon className="size-5" weight="regular" />}
               frame
+              onClick={() => setHelpOpen(true)}
             />
             <HeaderIconButton
               label="Search"
@@ -274,6 +278,8 @@ export function AppShell({
       </aside>
 
       <main className="relative col-start-2 row-start-2 min-h-0 min-w-0">{children}</main>
+
+      <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </div>
   )
 }

@@ -94,12 +94,7 @@ export function Workspace(props: WorkspaceProps) {
   const [linkOpen, setLinkOpen] = useState(false)
   const [moveOpen, setMoveOpen] = useState(false)
   const [confirmFolderOpen, setConfirmFolderOpen] = useState(false)
-  const [pendingCreate, setPendingCreate] = useState<{
-    x: number
-    y: number
-  } | null>(null)
   const [contextTargetId, setContextTargetId] = useState<string | null>(null)
-  const [contextPoint, setContextPoint] = useState({ x: 180, y: 160 })
   const [zoomPercent, setZoomPercent] = useState(85)
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
 
@@ -276,6 +271,16 @@ export function Workspace(props: WorkspaceProps) {
     setTool("select")
   }, [])
 
+  const openAddLinkDialog = useCallback(() => {
+    if (props.mode !== "folder") {
+      toast("Open a folder to add links")
+      setTool("select")
+      return
+    }
+    setLinkOpen(true)
+    setTool("select")
+  }, [props.mode])
+
   const spawnNoteAtViewCenter = useCallback(() => {
     const folderId = props.mode === "folder" ? props.folderId : null
     const point = placeAtViewCenter(NOTE_SIZE)
@@ -302,23 +307,12 @@ export function Workspace(props: WorkspaceProps) {
       openNewFolderDialog()
       return
     }
-    setTool(next)
-  }
-
-  const handleBoardCreate = (x: number, y: number) => {
-    // Link tool still places via canvas click; note/board create from the toolbar.
-    if (newFolderOpen || linkOpen) return
-    if (tool !== "link") return
-
-    if (props.mode === "home") {
-      toast("Open a folder to add links")
-      setTool("select")
+    if (next === "link") {
+      if (newFolderOpen || linkOpen) return
+      openAddLinkDialog()
       return
     }
-
-    setPendingCreate({ x, y })
-    setLinkOpen(true)
-    setTool("select")
+    setTool(next)
   }
 
   const handleMoveItems = (
@@ -485,7 +479,13 @@ export function Workspace(props: WorkspaceProps) {
       }
 
       e.preventDefault()
-      void actions.createBookmark(props.folderId, text, 200, 180)
+      const point = placeAtViewCenter(BOOKMARK_SIZE)
+      void actions
+        .createBookmark(props.folderId, text, point.x, point.y)
+        .then((bookmark) => {
+          setSelectedIds(new Set([bookmark.id]))
+          actions.raiseZ([bookmark.id])
+        })
       setTool("select")
     }
 
@@ -501,6 +501,7 @@ export function Workspace(props: WorkspaceProps) {
     deleteSelection,
     editingNoteId,
     openNewFolderDialog,
+    placeAtViewCenter,
     props,
     selectedIds,
   ])
@@ -546,11 +547,9 @@ export function Workspace(props: WorkspaceProps) {
             onMoveItems={handleMoveItems}
             onResizeItem={handleResizeItem}
             onOpenItem={openItem}
-            onBoardCreate={handleBoardCreate}
             onTrashDrop={deleteSelection}
             trashRef={trashRef}
             onZoomChange={setZoomPercent}
-            onContextPoint={setContextPoint}
             editingId={editingNoteId ?? undefined}
             boardApiRef={boardApiRef}
             renderItem={(item, selected) => {
@@ -595,12 +594,7 @@ export function Workspace(props: WorkspaceProps) {
               New Board
             </ContextMenuItem>
           ) : (
-            <ContextMenuItem
-              onClick={() => {
-                setPendingCreate(contextPoint)
-                setLinkOpen(true)
-              }}
-            >
+            <ContextMenuItem onClick={() => openAddLinkDialog()}>
               Add bookmark
             </ContextMenuItem>
           )}
@@ -694,7 +688,7 @@ export function Workspace(props: WorkspaceProps) {
             <p className="mt-1 text-[13px] text-black/50">
               {props.mode === "home"
                 ? "Click Board or Note in the toolbar — or press ⌘N"
-                : "Click Note in the toolbar, or select Link and click the canvas"}
+                : "Click Link or Note in the toolbar, or paste a URL (⌘V)"}
             </p>
           </div>
         </div>
@@ -707,7 +701,6 @@ export function Workspace(props: WorkspaceProps) {
         onOpenChange={(open) => {
           setNewFolderOpen(open)
           if (!open) {
-            setPendingCreate(null)
             setTool("select")
           }
         }}
@@ -717,7 +710,6 @@ export function Workspace(props: WorkspaceProps) {
           setSelectedIds(new Set([folderItem.id]))
           setContextTargetId(folderItem.id)
           actions.raiseZ([folderItem.id])
-          setPendingCreate(null)
           setTool("select")
         }}
       />
@@ -745,15 +737,18 @@ export function Workspace(props: WorkspaceProps) {
         onOpenChange={(open) => {
           setLinkOpen(open)
           if (!open) {
-            setPendingCreate(null)
             setTool("select")
           }
         }}
         onSubmit={(url) => {
           if (props.mode !== "folder") return
-          const point = pendingCreate ?? { x: 200, y: 180 }
-          void actions.createBookmark(props.folderId, url, point.x, point.y)
-          setPendingCreate(null)
+          const point = placeAtViewCenter(BOOKMARK_SIZE)
+          void actions.createBookmark(props.folderId, url, point.x, point.y).then(
+            (bookmark) => {
+              setSelectedIds(new Set([bookmark.id]))
+              actions.raiseZ([bookmark.id])
+            },
+          )
           setTool("select")
         }}
       />

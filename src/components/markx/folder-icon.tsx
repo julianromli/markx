@@ -1,0 +1,49 @@
+import pixelFolder from "@/assets/markx/pixel-folder.svg"
+import { cn } from "@/lib/utils"
+
+type FolderIconProps = {
+  name: string
+  count: number
+  selected?: boolean
+  className?: string
+}
+
+export function FolderIcon({
+  name,
+  count,
+  selected,
+  className,
+}: FolderIconProps) {
+  return (
+    <div
+      className={cn(
+        "flex w-[200px] flex-col items-center px-3.5 pt-3 pb-3.5 transition-transform duration-150 ease-out active:scale-[0.96]",
+        className,
+      )}
+    >
+      <div
+        className={cn(
+          "relative size-[92px] drop-shadow-[0_8px_18px_rgba(32,84,180,0.28)] transition-transform duration-150 ease-out",
+          selected && "scale-95",
+        )}
+      >
+        <img
+          src={pixelFolder}
+          alt=""
+          className="size-full"
+          width={92}
+          height={92}
+          draggable={false}
+        />
+      </div>
+      <div className="mt-2 w-full px-1 text-center">
+        <p className="truncate text-[20px] leading-7 font-semibold tracking-[-0.02em] text-balance text-[rgba(32,32,32,0.8)]">
+          {name}
+        </p>
+        <p className="mt-0.5 text-[16px] leading-[1.05] text-[rgba(45,55,72,0.5)] tabular-nums">
+          {count} {count === 1 ? "page" : "pages"}
+        </p>
+      </div>
+    </div>
+  )
+}

@@ -26,7 +26,13 @@ import {
   type Camera,
   type Rect,
 } from "@/lib/markx/geometry"
-import type { BoardImage, Bookmark, Folder, Note, ToolId } from "@/lib/markx/types"
+import type {
+  BoardImage,
+  Bookmark,
+  Folder,
+  Note,
+  ToolId,
+} from "@/lib/markx/types"
 
 export type BoardItemModel =
   | { id: string; kind: "folder"; data: Folder }
@@ -44,17 +50,19 @@ type BoardProps = {
   selectedIds: Set<string>
   onSelectedIdsChange: (ids: Set<string>) => void
   onRaiseZ: (ids: string[]) => void
-  onMoveItems: (
-    updates: Array<{ id: string; x: number; y: number }>,
-  ) => void
+  onMoveItems: (updates: Array<{ id: string; x: number; y: number }>) => void
   onResizeItem: (
     id: string,
-    rect: { x: number; width: number; height: number },
+    rect: { x: number; width: number; height: number }
   ) => void
   onOpenItem: (id: string) => void
   onBoardCreate: (x: number, y: number) => void
   onTrashDrop: (ids: string[]) => void
-  renderItem: (item: BoardItemModel, selected: boolean, dragging: boolean) => ReactNode
+  renderItem: (
+    item: BoardItemModel,
+    selected: boolean,
+    dragging: boolean
+  ) => ReactNode
   trashRef: React.RefObject<HTMLElement | null>
   onZoomChange?: (zoomPercent: number) => void
   onContextPoint?: (point: { x: number; y: number }) => void
@@ -74,6 +82,15 @@ type DragState = {
   originRect?: Rect
   minSize?: { width: number; height: number }
   aspectRatio?: number
+}
+
+type LiveResize = { x: number; width: number; height: number }
+
+type PendingGesture = {
+  camera?: Camera
+  liveOffsets?: Map<string, { x: number; y: number }>
+  liveResize?: Map<string, LiveResize>
+  marquee?: Rect | null
 }
 
 function getBookmarkDimensions(bookmark: Bookmark) {
@@ -100,7 +117,7 @@ function getImageDimensions(image: BoardImage) {
 function isInBottomRightResizeZone(
   boardX: number,
   boardY: number,
-  rect: Rect,
+  rect: Rect
 ): boolean {
   return (
     boardX >= rect.x + rect.width - RESIZE_HANDLE_SIZE &&
@@ -115,8 +132,8 @@ function clampBottomRightResize(
   boardDx: number,
   boardDy: number,
   minSize: { width: number; height: number },
-  aspectRatio?: number,
-): { x: number; width: number; height: number } {
+  aspectRatio?: number
+): LiveResize {
   let newWidth = origin.width + boardDx
   let newHeight = origin.height + boardDy
 
@@ -148,6 +165,47 @@ function clampBottomRightResize(
   return { x: origin.x, width: newWidth, height: newHeight }
 }
 
+function withLiveResize(
+  item: BoardItemModel,
+  resize: LiveResize | undefined
+): BoardItemModel {
+  if (!resize) return item
+  if (item.kind === "bookmark") {
+    return {
+      ...item,
+      data: {
+        ...item.data,
+        x: resize.x,
+        width: resize.width,
+        height: resize.height,
+      },
+    }
+  }
+  if (item.kind === "note") {
+    return {
+      ...item,
+      data: {
+        ...item.data,
+        x: resize.x,
+        width: resize.width,
+        height: resize.height,
+      },
+    }
+  }
+  if (item.kind === "image") {
+    return {
+      ...item,
+      data: {
+        ...item.data,
+        x: resize.x,
+        width: resize.width,
+        height: resize.height,
+      },
+    }
+  }
+  return item
+}
+
 export function Board({
   items,
   tool,
@@ -169,6 +227,8 @@ export function Board({
 }: BoardProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const [camera, setCamera] = useState<Camera>({ x: 80, y: 40, zoom: 0.85 })
+  const cameraRef = useRef(camera)
+  cameraRef.current = camera
 
   useEffect(() => {
     onZoomChange?.(Math.round(camera.zoom * 100))
@@ -184,27 +244,67 @@ export function Board({
         return screenToBoard(
           rect.left + rect.width / 2,
           rect.top + rect.height / 2,
-          camera,
-          rect,
+          cameraRef.current,
+          rect
         )
       },
     }
   })
+
   const [marquee, setMarquee] = useState<Rect | null>(null)
-  const [liveOffsets, setLiveOffsets] = useState<Map<string, { x: number; y: number }>>(
-    new Map(),
-  )
-  const [liveResize, setLiveResize] = useState<
-    Map<string, { x: number; width: number; height: number }>
+  const [liveOffsets, setLiveOffsets] = useState<
+    Map<string, { x: number; y: number }>
   >(new Map())
+  const [liveResize, setLiveResize] = useState<Map<string, LiveResize>>(
+    new Map()
+  )
   const dragRef = useRef<DragState | null>(null)
   const selectedRef = useRef(selectedIds)
   const itemsRef = useRef(items)
   const anchorIdRef = useRef<string | null>(null)
   const lastClickRef = useRef<{ id: string; time: number } | null>(null)
+  const resizeRectRef = useRef<LiveResize | null>(null)
+
+  // Coalesce gesture previews to one React commit per frame (single write path).
+  const rafIdRef = useRef<number | null>(null)
+  const pendingRef = useRef<PendingGesture>({})
 
   selectedRef.current = selectedIds
   itemsRef.current = items
+
+  const flushPending = () => {
+    const pending = pendingRef.current
+    pendingRef.current = {}
+    if (pending.camera) {
+      cameraRef.current = pending.camera
+      setCamera(pending.camera)
+    }
+    if (pending.liveOffsets) setLiveOffsets(pending.liveOffsets)
+    if (pending.liveResize) setLiveResize(pending.liveResize)
+    if ("marquee" in pending) setMarquee(pending.marquee ?? null)
+  }
+
+  const scheduleFlush = () => {
+    if (rafIdRef.current != null) return
+    rafIdRef.current = requestAnimationFrame(() => {
+      rafIdRef.current = null
+      flushPending()
+    })
+  }
+
+  const flushNow = () => {
+    if (rafIdRef.current != null) {
+      cancelAnimationFrame(rafIdRef.current)
+      rafIdRef.current = null
+    }
+    flushPending()
+  }
+
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current != null) cancelAnimationFrame(rafIdRef.current)
+    }
+  }, [])
 
   const getItemRect = useCallback((item: BoardItemModel): Rect => {
     if (item.kind === "folder") {
@@ -258,7 +358,7 @@ export function Board({
       }
       return null
     },
-    [getItemRect],
+    [getItemRect]
   )
 
   const getViewportRect = () => viewportRef.current!.getBoundingClientRect()
@@ -273,6 +373,9 @@ export function Board({
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (!viewportRef.current) return
+    // Multi-touch protection: ignore additional pointers while a gesture is active.
+    if (dragRef.current != null) return
+    const cam = cameraRef.current
     if (e.button === 1 || (e.button === 0 && e.altKey)) {
       e.currentTarget.setPointerCapture(e.pointerId)
       dragRef.current = {
@@ -280,14 +383,14 @@ export function Board({
         pointerId: e.pointerId,
         startScreen: { x: e.clientX, y: e.clientY },
         startBoard: { x: 0, y: 0 },
-        originCamera: { ...camera },
+        originCamera: { ...cam },
       }
       return
     }
     if (e.button !== 0) return
 
     const viewport = getViewportRect()
-    const boardPoint = screenToBoard(e.clientX, e.clientY, camera, viewport)
+    const boardPoint = screenToBoard(e.clientX, e.clientY, cam, viewport)
     const hit = hitTest(boardPoint.x, boardPoint.y)
 
     if (!hit) {
@@ -300,7 +403,7 @@ export function Board({
           pointerId: e.pointerId,
           startScreen: { x: e.clientX, y: e.clientY },
           startBoard: boardPoint,
-          originCamera: { ...camera },
+          originCamera: { ...cam },
         }
         return
       }
@@ -313,7 +416,7 @@ export function Board({
         pointerId: e.pointerId,
         startScreen: { x: e.clientX, y: e.clientY },
         startBoard: boardPoint,
-        originCamera: { ...camera },
+        originCamera: { ...cam },
       }
       setMarquee({ x: boardPoint.x, y: boardPoint.y, width: 0, height: 0 })
       return
@@ -324,7 +427,9 @@ export function Board({
     }
 
     if (
-      (hit.kind === "bookmark" || hit.kind === "note" || hit.kind === "image") &&
+      (hit.kind === "bookmark" ||
+        hit.kind === "note" ||
+        hit.kind === "image") &&
       tool === "select"
     ) {
       const rect = getItemRect(hit)
@@ -350,7 +455,7 @@ export function Board({
           pointerId: e.pointerId,
           startScreen: { x: e.clientX, y: e.clientY },
           startBoard: boardPoint,
-          originCamera: { ...camera },
+          originCamera: { ...cam },
           itemId: hit.id,
           originRect: rect,
           minSize,
@@ -389,7 +494,7 @@ export function Board({
           {
             x: Math.max(a.x + a.width, b.x + b.width),
             y: Math.max(a.y + a.height, b.y + b.height),
-          },
+          }
         )
         nextSelection = new Set()
         for (const item of itemsRef.current) {
@@ -438,7 +543,7 @@ export function Board({
       pointerId: e.pointerId,
       startScreen: { x: e.clientX, y: e.clientY },
       startBoard: boardPoint,
-      originCamera: { ...camera },
+      originCamera: { ...cam },
       itemId: hit.id,
       origins,
     }
@@ -450,37 +555,46 @@ export function Board({
 
     const dx = e.clientX - drag.startScreen.x
     const dy = e.clientY - drag.startScreen.y
+    const zoom = cameraRef.current.zoom
 
     if (drag.mode === "pan") {
-      setCamera({
+      const next: Camera = {
         ...drag.originCamera,
         x: drag.originCamera.x + dx,
         y: drag.originCamera.y + dy,
-      })
+      }
+      cameraRef.current = next
+      pendingRef.current.camera = next
+      scheduleFlush()
       return
     }
 
     if (drag.mode === "marquee") {
       const viewport = getViewportRect()
-      const current = screenToBoard(e.clientX, e.clientY, camera, viewport)
+      const current = screenToBoard(
+        e.clientX,
+        e.clientY,
+        cameraRef.current,
+        viewport
+      )
       const rect = normalizeRect(drag.startBoard, current)
-      setMarquee(rect)
+      pendingRef.current.marquee = rect
+      scheduleFlush()
       applySelectionFromMarquee(rect, e.metaKey || e.ctrlKey)
       return
     }
 
     if (drag.mode === "resize" && drag.originRect && drag.itemId) {
-      const boardDx = dx / camera.zoom
-      const boardDy = dy / camera.zoom
-      const minSize = drag.minSize ?? MIN_BOOKMARK_SIZE
       const next = clampBottomRightResize(
         drag.originRect,
-        boardDx,
-        boardDy,
-        minSize,
-        drag.aspectRatio,
+        dx / zoom,
+        dy / zoom,
+        drag.minSize ?? MIN_BOOKMARK_SIZE,
+        drag.aspectRatio
       )
-      setLiveResize(new Map([[drag.itemId, next]]))
+      resizeRectRef.current = next
+      pendingRef.current.liveResize = new Map([[drag.itemId, next]])
+      scheduleFlush()
       return
     }
 
@@ -490,19 +604,22 @@ export function Board({
     }
 
     if (drag.mode === "move" && drag.origins) {
-      const boardDx = dx / camera.zoom
-      const boardDy = dy / camera.zoom
+      const boardDx = dx / zoom
+      const boardDy = dy / zoom
       const next = new Map<string, { x: number; y: number }>()
       for (const [id, origin] of drag.origins) {
         next.set(id, { x: origin.x + boardDx, y: origin.y + boardDy })
       }
-      setLiveOffsets(next)
+      pendingRef.current.liveOffsets = next
+      scheduleFlush()
     }
   }
 
   const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current
     if (!drag || drag.pointerId !== e.pointerId) return
+
+    flushNow()
 
     if (drag.mode === "marquee") {
       setMarquee(null)
@@ -511,7 +628,7 @@ export function Board({
     if (drag.mode === "place") {
       const moved = Math.hypot(
         e.clientX - drag.startScreen.x,
-        e.clientY - drag.startScreen.y,
+        e.clientY - drag.startScreen.y
       )
       // Place on click-release; double-clicks are ignored at pointerdown (detail > 1)
       if (moved < DRAG_THRESHOLD) {
@@ -526,20 +643,10 @@ export function Board({
       return
     }
 
-    if (drag.mode === "resize" && drag.originRect && drag.itemId) {
-      const boardDx = (e.clientX - drag.startScreen.x) / camera.zoom
-      const boardDy = (e.clientY - drag.startScreen.y) / camera.zoom
-      const minSize = drag.minSize ?? MIN_BOOKMARK_SIZE
-      onResizeItem(
-        drag.itemId,
-        clampBottomRightResize(
-          drag.originRect,
-          boardDx,
-          boardDy,
-          minSize,
-          drag.aspectRatio,
-        ),
-      )
+    if (drag.mode === "resize" && drag.itemId) {
+      const rect = resizeRectRef.current
+      if (rect) onResizeItem(drag.itemId, rect)
+      resizeRectRef.current = null
       setLiveResize(new Map())
     }
 
@@ -559,18 +666,18 @@ export function Board({
 
       if (overTrash) {
         onTrashDrop([...drag.origins.keys()])
-        setLiveOffsets(new Map())
       } else {
-        const boardDx = (e.clientX - drag.startScreen.x) / camera.zoom
-        const boardDy = (e.clientY - drag.startScreen.y) / camera.zoom
+        const zoom = cameraRef.current.zoom
+        const boardDx = (e.clientX - drag.startScreen.x) / zoom
+        const boardDy = (e.clientY - drag.startScreen.y) / zoom
         const updates = [...drag.origins.entries()].map(([id, origin]) => ({
           id,
           x: origin.x + boardDx,
           y: origin.y + boardDy,
         }))
         onMoveItems(updates)
-        setLiveOffsets(new Map())
       }
+      setLiveOffsets(new Map())
     }
 
     dragRef.current = null
@@ -588,41 +695,48 @@ export function Board({
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
       const viewport = el.getBoundingClientRect()
+      const prev = pendingRef.current.camera ?? cameraRef.current
 
       // Pinch-zoom (ctrl/meta) or trackpad pinch
       if (e.ctrlKey || e.metaKey) {
         const delta = -e.deltaY * 0.0015
-        setCamera((prev) => {
-          const nextZoom = Math.min(
-            MAX_ZOOM,
-            Math.max(MIN_ZOOM, prev.zoom * (1 + delta)),
-          )
-          const cursorX = e.clientX - viewport.left
-          const cursorY = e.clientY - viewport.top
-          const boardX = (cursorX - prev.x) / prev.zoom
-          const boardY = (cursorY - prev.y) / prev.zoom
-          return {
-            zoom: nextZoom,
-            x: cursorX - boardX * nextZoom,
-            y: cursorY - boardY * nextZoom,
-          }
-        })
+        const nextZoom = Math.min(
+          MAX_ZOOM,
+          Math.max(MIN_ZOOM, prev.zoom * (1 + delta))
+        )
+        const cursorX = e.clientX - viewport.left
+        const cursorY = e.clientY - viewport.top
+        const boardX = (cursorX - prev.x) / prev.zoom
+        const boardY = (cursorY - prev.y) / prev.zoom
+        const next: Camera = {
+          zoom: nextZoom,
+          x: cursorX - boardX * nextZoom,
+          y: cursorY - boardY * nextZoom,
+        }
+        cameraRef.current = next
+        pendingRef.current.camera = next
+        scheduleFlush()
         return
       }
 
-      setCamera((prev) => ({
+      // Trackpad pan (two-finger scroll).
+      const next: Camera = {
         ...prev,
         x: prev.x - e.deltaX,
         y: prev.y - e.deltaY,
-      }))
+      }
+      cameraRef.current = next
+      pendingRef.current.camera = next
+      scheduleFlush()
     }
 
     el.addEventListener("wheel", onWheel, { passive: false })
     return () => el.removeEventListener("wheel", onWheel)
   }, [])
 
-  const sortedItems = [...items].sort((a, b) => a.data.z - b.data.z)
-
+  // Keep DOM order stable. Stacking uses `style.zIndex` (item.data.z); hit-testing
+  // sorts by z independently. Sorting the list here would move nodes on raiseZ and
+  // re-fire `.board-item-in` @starting-style (visible blink on first select).
   return (
     <div
       ref={viewportRef}
@@ -631,7 +745,7 @@ export function Board({
         tool === "board" || tool === "link" || tool === "note"
           ? "cursor-crosshair"
           : "cursor-default",
-        className,
+        className
       )}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -640,7 +754,12 @@ export function Board({
       onContextMenu={(e) => {
         if (!viewportRef.current) return
         const viewport = getViewportRect()
-        const boardPoint = screenToBoard(e.clientX, e.clientY, camera, viewport)
+        const boardPoint = screenToBoard(
+          e.clientX,
+          e.clientY,
+          cameraRef.current,
+          viewport
+        )
         onContextPoint?.(boardPoint)
         const hit = hitTest(boardPoint.x, boardPoint.y)
         if (!hit) return
@@ -657,44 +776,24 @@ export function Board({
           transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})`,
         }}
       >
-        {sortedItems.map((item) => {
+        {items.map((item) => {
           const live = liveOffsets.get(item.id)
           const resize = liveResize.get(item.id)
           const x = resize?.x ?? live?.x ?? item.data.x
           const y = live?.y ?? item.data.y
           const selected = selectedIds.has(item.id)
-          const dragging = liveOffsets.has(item.id)
-          const resizing = liveResize.has(item.id)
-          // Override the live rect while resizing. Each branch narrows `item`
-          // to a single variant so `data` stays correlated with `kind`.
-          let renderItemModel: BoardItemModel = item
-          if (resize && item.kind === "bookmark") {
-            renderItemModel = {
-              ...item,
-              data: { ...item.data, x: resize.x, width: resize.width, height: resize.height },
-            }
-          } else if (resize && item.kind === "note") {
-            renderItemModel = {
-              ...item,
-              data: { ...item.data, x: resize.x, width: resize.width, height: resize.height },
-            }
-          } else if (resize && item.kind === "image") {
-            renderItemModel = {
-              ...item,
-              data: { ...item.data, x: resize.x, width: resize.width, height: resize.height },
-            }
-          }
+          const dragging = liveOffsets.has(item.id) || liveResize.has(item.id)
           return (
             <div
               key={item.id}
               data-board-item={item.id}
-              className="absolute"
+              className="board-item-in absolute origin-top-left"
               style={{
                 transform: `translate(${x}px, ${y}px)`,
                 zIndex: item.data.z,
               }}
             >
-              {renderItem(renderItemModel, selected, dragging || resizing)}
+              {renderItem(withLiveResize(item, resize), selected, dragging)}
             </div>
           )
         })}
@@ -710,7 +809,6 @@ export function Board({
           />
         ) : null}
       </div>
-
     </div>
   )
 }

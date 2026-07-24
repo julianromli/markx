@@ -33,16 +33,12 @@ const userStateKey = (userId: string) => `user:${userId}:state`
  *   the last successful sync, so the server can soft-delete them.
  * - `assetQueue:{userId}` — array of image blobs (as data URLs) waiting to
  *   be uploaded to R2 when the connection returns.
- * - `lastUserId` — last successfully attached authenticated user on this
- *   device, so revisit can paint from the per-user cache before
- *   `getSession()` resolves.
  */
 const cloudVersionKey = (userId: string) => `cloudVersion:${userId}`
 const guestImportedKey = (userId: string) => `guestImported:${userId}`
 const pendingSnapshotKey = (userId: string) => `pendingSnapshot:${userId}`
 const pendingDeletedKey = (userId: string) => `pendingDeletedImageIds:${userId}`
 const assetQueueKey = (userId: string) => `assetQueue:${userId}`
-const LAST_USER_ID_KEY = "lastUserId"
 
 export type PendingAsset = {
   imageId: string
@@ -324,29 +320,6 @@ export async function clearAssetQueue(userId: string): Promise<void> {
   if (typeof indexedDB === "undefined") return
   const db = await getDb()
   await db.delete("sync", assetQueueKey(userId))
-}
-
-/**
- * Last authenticated user id on this device. Used to paint the per-user
- * cache immediately on revisit, in parallel with session restore.
- */
-export async function getLastUserId(): Promise<string | null> {
-  if (typeof indexedDB === "undefined") return null
-  const db = await getDb()
-  const v = await db.get("sync", LAST_USER_ID_KEY)
-  return typeof v === "string" && v.length > 0 ? v : null
-}
-
-export async function setLastUserId(userId: string): Promise<void> {
-  if (typeof indexedDB === "undefined") return
-  const db = await getDb()
-  await db.put("sync", userId, LAST_USER_ID_KEY)
-}
-
-export async function clearLastUserId(): Promise<void> {
-  if (typeof indexedDB === "undefined") return
-  const db = await getDb()
-  await db.delete("sync", LAST_USER_ID_KEY)
 }
 
 /* ------------------------------------------------------------------ */

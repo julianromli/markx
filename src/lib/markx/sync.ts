@@ -1,5 +1,5 @@
 import type { SaveResult } from "@/lib/server/workspace"
-import { getAuthSession } from "@/lib/auth/session"
+import { getAuthClient } from "@/lib/auth/client"
 import {
   addDeletedImageIds,
   clearAssetQueue,
@@ -18,8 +18,8 @@ import {
   saveUserState,
   setCloudVersion,
   setPendingSnapshot,
+  type PendingAsset,
 } from "@/lib/markx/storage"
-import type { PendingAsset } from "@/lib/markx/storage"
 import type { MarkxState } from "@/lib/markx/types"
 
 /**
@@ -44,37 +44,17 @@ type SyncListener = (status: SyncStatus, conflict?: ConflictData) => void
 const SYNC_DEBOUNCE_MS = 1500
 
 /**
- * Whether a cloud snapshot should be ignored in favor of keeping the
- * current local/cache state (pending offline edits, in-flight local
- * edits, or an unresolved conflict).
- */
-export function shouldKeepLocalAfterCloudRefresh(opts: {
-  hasPendingSnapshot: boolean
-  localEditsSinceLoad: boolean
-  hasDebouncedEdit: boolean
-  status: SyncStatus
-}): boolean {
-  return (
-    opts.hasPendingSnapshot ||
-    opts.localEditsSinceLoad ||
-    opts.hasDebouncedEdit ||
-    opts.status === "conflict"
-  )
-}
-
-/**
  * SyncEngine orchestrates the local ↔ cloud sync for a single logged-in
  * user. It is created on login and destroyed on sign-out.
  *
  * Responsibilities:
- *  1. Hydrate from the per-user IndexedDB cache for instant revisit paint.
- *  2. Refresh from the cloud in the background (or await on first login).
- *  3. Debounce local state changes and push coalesced snapshots to the
+ *  1. Load the cloud workspace (or cached copy) on init.
+ *  2. Debounce local state changes and push coalesced snapshots to the
  *     cloud with optimistic version control.
- *  4. Queue writes when offline and flush them on reconnect.
- *  5. Surface conflicts to the UI so the user can choose "use cloud" or
+ *  3. Queue writes when offline and flush them on reconnect.
+ *  4. Surface conflicts to the UI so the user can choose "use cloud" or
  *     "overwrite cloud".
- *  6. Upload queued image assets to R2.
+ *  5. Upload queued image assets to R2.
  */
 export class SyncEngine {
   private userId: string
@@ -88,10 +68,6 @@ export class SyncEngine {
   private online = true
   private listeners = new Set<SyncListener>()
   private destroyed = false
-  /** True when IndexedDB already had a per-user snapshot for this user. */
-  private hadCachedState = false
-  /** True after the user edits locally (debounce scheduled) during init refresh. */
-  private localEditsSinceLoad = false
 
   private constructor(userId: string) {
     this.userId = userId
@@ -99,85 +75,36 @@ export class SyncEngine {
   }
 
   /**
-   * Create and fully initialize a SyncEngine (blocking).
-   *
-   * Used on explicit login (`onLoginSuccess`) where waiting for cloud /
-   * guest-import is expected. Returning visits should use
-   * {@link createFromCache} + {@link refreshFromCloud} instead so the UI
-   * can paint from IndexedDB immediately.
+   * Create and initialize a SyncEngine for the given user.
    *
    * Flow:
-   *  1. Load the per-user cache (or empty onboarded state).
-   *  2. If guest data has not been imported yet AND the guest workspace has
+   *  1. If guest data has not been imported yet AND the guest workspace has
    *     been modified from the demo, attempt a one-time import.
-   *  3. Otherwise, refresh from the cloud (cache remains the fallback).
+   *  2. Otherwise, load the cloud workspace (or the per-user cache if the
+   *     network is unavailable).
    */
   static async create(userId: string): Promise<SyncEngine> {
     const engine = new SyncEngine(userId)
-    await engine.initFromCache()
+    await engine.init()
+    return engine
+  }
 
-    const imported = await isGuestImported(userId)
+  private async init(): Promise<void> {
+    // Restore the last known cloud version from the cache.
+    this.cloudVersion = await getCloudVersion(this.userId)
+
+    const imported = await isGuestImported(this.userId)
     const guestState = await loadState()
     const guestModified = isGuestModified(guestState)
 
     if (!imported && guestModified) {
-      await engine.tryImportGuest(guestState)
-      return engine
+      // First login on this device with local guest changes — try to import.
+      await this.tryImportGuest(guestState)
+      return
     }
 
-    await engine.refreshFromCloud()
-    return engine
-  }
-
-  /**
-   * Create a SyncEngine hydrated only from the per-user IndexedDB cache.
-   * Does not touch the network — call {@link refreshFromCloud} afterwards
-   * (typically in the background after the UI has painted).
-   */
-  static async createFromCache(userId: string): Promise<SyncEngine> {
-    const engine = new SyncEngine(userId)
-    await engine.initFromCache()
-    return engine
-  }
-
-  /**
-   * Whether this engine had a per-user IndexedDB snapshot at create time.
-   * Used by the provider to decide whether it can paint immediately or
-   * must wait on the first cloud load.
-   */
-  hasCachedState(): boolean {
-    return this.hadCachedState
-  }
-
-  getUserId(): string {
-    return this.userId
-  }
-
-  private emptyOnboardedState(): MarkxState {
-    return {
-      folders: [],
-      bookmarks: [],
-      notes: [],
-      images: [],
-      hasOnboarded: true,
-      zCounter: 1,
-    }
-  }
-
-  private async initFromCache(): Promise<void> {
-    this.cloudVersion = await getCloudVersion(this.userId)
-    const cached = await loadUserState(this.userId)
-    if (cached) {
-      this.hadCachedState = true
-      this.currentState = cached
-      console.info("[markx sync] hydrated from per-user cache")
-    } else {
-      this.hadCachedState = false
-      this.currentState = this.emptyOnboardedState()
-      console.info("[markx sync] no per-user cache — using empty onboarded state")
-    }
-    // "saving" while a background cloud refresh may still be in flight.
-    this.setStatus(this.online ? "saving" : "offline")
+    // Normal load: cloud first, fall back to cache.
+    await this.loadFromCloudOrCache()
     this.attachOnlineListeners()
   }
 
@@ -199,6 +126,7 @@ export class SyncEngine {
         this.currentState = guestState
         await saveUserState(this.userId, guestState)
         this.setStatus("saved")
+        this.attachOnlineListeners()
         return
       }
 
@@ -213,85 +141,55 @@ export class SyncEngine {
         this.currentState = guestState
         await saveUserState(this.userId, guestState)
         this.setStatus("conflict")
+        this.attachOnlineListeners()
         return
       }
 
-      // Unexpected error — fall back to normal cloud refresh.
-      await this.refreshFromCloud()
+      // Unexpected error — fall back to normal cloud load.
+      await this.loadFromCloudOrCache()
+      this.attachOnlineListeners()
     } catch {
-      // Network error during import — keep cache and retry later via sync.
-      await this.refreshFromCloud()
+      // Network error during import — load from cache and retry later.
+      await this.loadFromCloudOrCache()
+      this.attachOnlineListeners()
     }
   }
 
-  private isDestroyed(): boolean {
-    return this.destroyed
-  }
-
   /**
-   * Fetch the workspace from the cloud and update the local cache.
-   *
-   * Returns the cloud state when the UI should adopt it, or `null` when
-   * the existing local/cache state should be kept (network failure, no
-   * snapshot, or the user already made local edits / has a pending
-   * snapshot).
+   * Load the workspace from the cloud, or fall back to the per-user
+   * IndexedDB cache if the network is unavailable.
    */
-  async refreshFromCloud(): Promise<MarkxState | null> {
-    if (this.isDestroyed()) return null
-
+  private async loadFromCloudOrCache(): Promise<void> {
     try {
-      console.info("[markx sync] loading workspace from cloud")
       const { loadWorkspace } = await import("@/lib/server/workspace")
-      console.info("[markx sync] calling loadWorkspace server fn")
       const snapshot = await loadWorkspace()
-      if (this.isDestroyed()) return null
-      console.info(
-        "[markx sync] loadWorkspace returned",
-        snapshot ? `version=${snapshot.version}` : "null",
-      )
-
-      if (!snapshot) {
-        this.setStatus(this.online ? "saved" : "offline")
-        return null
+      if (snapshot) {
+        this.cloudVersion = snapshot.version
+        await setCloudVersion(this.userId, snapshot.version)
+        this.currentState = snapshot.state
+        await saveUserState(this.userId, snapshot.state)
+        this.setStatus("saved")
+        return
       }
+    } catch {
+      // Network or auth error — fall through to cache.
+    }
 
-      this.cloudVersion = snapshot.version
-      await setCloudVersion(this.userId, snapshot.version)
-
-      // If the user already diverged locally, keep local as source of truth
-      // and let the normal sync / conflict path reconcile.
-      const pending = await getPendingSnapshot(this.userId)
-      if (
-        shouldKeepLocalAfterCloudRefresh({
-          hasPendingSnapshot: Boolean(pending),
-          localEditsSinceLoad: this.localEditsSinceLoad,
-          hasDebouncedEdit: this.debounceTimer !== null,
-          status: this.status,
-        })
-      ) {
-        console.info(
-          "[markx sync] keeping local state after cloud refresh (pending local edits)",
-        )
-        if (pending) {
-          this.currentState = pending
-        }
-        if (this.status !== "conflict" && this.online) {
-          void this.sync()
-        } else if (!this.online) {
-          this.setStatus("offline")
-        }
-        return null
-      }
-
-      this.currentState = snapshot.state
-      await saveUserState(this.userId, snapshot.state)
-      this.setStatus("saved")
-      return snapshot.state
-    } catch (err) {
-      console.error("[markx sync] loadWorkspace failed, keeping cache", err)
-      if (this.isDestroyed()) return null
+    // Offline / error: use the per-user cache.
+    const cached = await loadUserState(this.userId)
+    if (cached) {
+      this.currentState = cached
       this.setStatus(this.online ? "saved" : "offline")
-      return null
+    } else {
+      this.currentState = {
+        folders: [],
+        bookmarks: [],
+        notes: [],
+        images: [],
+        hasOnboarded: true,
+        zCounter: 1,
+      }
+      this.setStatus(this.online ? "saved" : "offline")
     }
   }
 
@@ -302,7 +200,6 @@ export class SyncEngine {
   onStateChange(state: MarkxState, deletedImageIds: string[] = []): void {
     if (this.destroyed) return
     this.currentState = state
-    this.localEditsSinceLoad = true
 
     // Always cache locally for instant load + offline.
     void saveUserState(this.userId, state)
@@ -671,8 +568,10 @@ export async function getCurrentUser(): Promise<{
   email: string
 } | null> {
   try {
-    const { user } = await getAuthSession()
-    return user
+    const authClient = await getAuthClient()
+    const { data } = await authClient.getSession()
+    if (!data?.user) return null
+    return { id: data.user.id, email: data.user.email }
   } catch {
     return null
   }

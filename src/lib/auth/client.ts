@@ -76,32 +76,11 @@ export function resolveAuthBaseURL(opts?: {
 
 export async function getAuthClient(): Promise<AuthClient> {
   if (_client) return _client
-  const baseURL = resolveAuthBaseURL()
-  // Catch misconfigured absolute VITE_NEON_AUTH_URL (e.g. a localhost dev
-  // URL baked into a production build) before it causes ERR_CONNECTION_REFUSED.
-  if (
-    typeof window !== "undefined" &&
-    window.location &&
-    /^https?:\/\//i.test(baseURL)
-  ) {
-    try {
-      const pageOrigin = window.location.origin
-      const urlOrigin = new URL(baseURL).origin
-      if (urlOrigin !== pageOrigin) {
-        console.warn(
-          `[auth] VITE_NEON_AUTH_URL resolves to ${baseURL} but the page origin is ${pageOrigin}. ` +
-            "Use a relative path (e.g. /api/auth) so it resolves against the page origin.",
-        )
-      }
-    } catch {
-      // ignore malformed URL
-    }
-  }
   const { createAuthClient } = await import("@neondatabase/neon-js/auth")
   const { BetterAuthReactAdapter } = await import(
     "@neondatabase/neon-js/auth/react/adapters"
   )
-  _client = createAuthClient(baseURL, {
+  _client = createAuthClient(resolveAuthBaseURL(), {
     adapter: BetterAuthReactAdapter({
       fetchOptions: { credentials: "include" },
     }),

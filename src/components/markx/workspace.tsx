@@ -27,68 +27,16 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import { Button } from "@/components/ui/button"
-import {
-  BOOKMARK_SIZE,
-  FOLDER_SIZE,
-  NOTE_SIZE,
-  findNonOverlappingPosition,
-  fitImageToWidth,
-  type Rect,
-} from "@/lib/markx/geometry"
-import {
-  store,
-  useMarkxActions,
-  useMarkxState,
-  useMarkxStore,
-} from "@/lib/markx/store"
+import { store, useMarkxActions, useMarkxState } from "@/lib/markx/store"
 import { countBookmarksInFolder, saveImageBlob } from "@/lib/markx/storage"
 import { prepareImage } from "@/lib/markx/images"
 import type { NoteColor, ToolId } from "@/lib/markx/types"
-
-function boardItemRect(item: BoardItemModel): Rect {
-  if (item.kind === "folder") {
-    return {
-      x: item.data.x,
-      y: item.data.y,
-      width: FOLDER_SIZE.width,
-      height: FOLDER_SIZE.height,
-    }
-  }
-  if (item.kind === "note") {
-    return {
-      x: item.data.x,
-      y: item.data.y,
-      width: item.data.width ?? NOTE_SIZE.width,
-      height: item.data.height ?? NOTE_SIZE.height,
-    }
-  }
-  if (item.kind === "image") {
-    const size =
-      item.data.width && item.data.height
-        ? { width: item.data.width, height: item.data.height }
-        : fitImageToWidth(item.data.naturalWidth, item.data.naturalHeight)
-    return {
-      x: item.data.x,
-      y: item.data.y,
-      width: size.width,
-      height: size.height,
-    }
-  }
-  return {
-    x: item.data.x,
-    y: item.data.y,
-    width: item.data.width ?? BOOKMARK_SIZE.width,
-    height: item.data.height ?? BOOKMARK_SIZE.height,
-  }
-}
 
 type WorkspaceProps = { mode: "home" } | { mode: "folder"; folderId: string }
 
 export function Workspace(props: WorkspaceProps) {
   const state = useMarkxState()
   const actions = useMarkxActions()
-  const { initialSyncStatus, retryInitialSync } = useMarkxStore()
-  const initialSyncBlocked = initialSyncStatus !== "idle"
   const navigate = useNavigate()
   const trashRef = useRef<HTMLButtonElement>(null)
   const boardApiRef = useRef<BoardApi | null>(null)
@@ -101,7 +49,12 @@ export function Workspace(props: WorkspaceProps) {
   const [linkOpen, setLinkOpen] = useState(false)
   const [moveOpen, setMoveOpen] = useState(false)
   const [confirmFolderOpen, setConfirmFolderOpen] = useState(false)
+  const [pendingCreate, setPendingCreate] = useState<{
+    x: number
+    y: number
+  } | null>(null)
   const [contextTargetId, setContextTargetId] = useState<string | null>(null)
+  const [contextPoint, setContextPoint] = useState({ x: 180, y: 160 })
   const [zoomPercent, setZoomPercent] = useState(85)
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
 
@@ -136,22 +89,6 @@ export function Workspace(props: WorkspaceProps) {
       .map((data) => ({ id: data.id, kind: "image" as const, data }))
     return [...bookmarks, ...notes, ...images]
   }, [props, state.bookmarks, state.folders, state.notes, state.images])
-
-  const placeAtViewCenter = useCallback(
-    (size: { width: number; height: number }) => {
-      const center = boardApiRef.current?.getViewCenter() ?? { x: 200, y: 200 }
-      const preferred = {
-        x: center.x - size.width / 2,
-        y: center.y - size.height / 2,
-      }
-      return findNonOverlappingPosition(
-        preferred,
-        size,
-        items.map(boardItemRect),
-      )
-    },
-    [items],
-  )
 
   const selectedItems = items.filter((i) => selectedIds.has(i.id))
 
@@ -273,53 +210,48 @@ export function Workspace(props: WorkspaceProps) {
     toast("Folder deleted")
   }
 
-  const openNewFolderDialog = useCallback(() => {
+  const openNewFolderDialog = useCallback((x: number, y: number) => {
+    setPendingCreate({ x, y })
     setNewFolderOpen(true)
     setTool("select")
   }, [])
 
-  const openAddLinkDialog = useCallback(() => {
-    if (props.mode !== "folder") {
-      toast("Open a folder to add links")
+  const handleBoardCreate = (x: number, y: number) => {
+    // Don't re-open while a create dialog is already up (double-click / burst)
+    if (newFolderOpen || linkOpen) return
+
+    if (tool === "note") {
+      const folderId = props.mode === "folder" ? props.folderId : null
+      const note = actions.createNote(x, y, folderId)
+      setSelectedIds(new Set([note.id]))
+      setEditingNoteId(note.id)
+      actions.raiseZ([note.id])
       setTool("select")
       return
     }
-    setLinkOpen(true)
-    setTool("select")
-  }, [props.mode])
 
-  const spawnNoteAtViewCenter = useCallback(() => {
-    const folderId = props.mode === "folder" ? props.folderId : null
-    const point = placeAtViewCenter(NOTE_SIZE)
-    const note = actions.createNote(point.x, point.y, folderId)
-    setSelectedIds(new Set([note.id]))
-    setEditingNoteId(note.id)
-    actions.raiseZ([note.id])
-    setTool("select")
-  }, [actions, placeAtViewCenter, props])
-
-  const handleToolChange = (next: ToolId) => {
-    if (next === "note") {
-      if (newFolderOpen || linkOpen) return
-      spawnNoteAtViewCenter()
-      return
-    }
-    if (next === "board") {
-      if (newFolderOpen || linkOpen) return
-      if (props.mode !== "home") {
-        toast("Folders live on Home")
-        setTool("select")
+    if (props.mode === "home") {
+      if (tool !== "board") {
+        if (tool === "link") {
+          toast("Open a folder to add links")
+          setTool("select")
+        }
         return
       }
-      openNewFolderDialog()
+      openNewFolderDialog(x, y)
       return
     }
-    if (next === "link") {
-      if (newFolderOpen || linkOpen) return
-      openAddLinkDialog()
+
+    if (tool !== "link") {
+      if (tool === "board") {
+        toast("Folders live on Home")
+        setTool("select")
+      }
       return
     }
-    setTool(next)
+    setPendingCreate({ x, y })
+    setLinkOpen(true)
+    setTool("select")
   }
 
   const handleMoveItems = (
@@ -401,7 +333,6 @@ export function Workspace(props: WorkspaceProps) {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (initialSyncBlocked) return
       const target = e.target as HTMLElement | null
       if (
         target &&
@@ -417,7 +348,7 @@ export function Workspace(props: WorkspaceProps) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
         e.preventDefault()
         if (props.mode === "home") {
-          openNewFolderDialog()
+          openNewFolderDialog(180, 160)
         } else {
           toast("Folders are created on Home")
         }
@@ -462,7 +393,6 @@ export function Workspace(props: WorkspaceProps) {
     }
 
     const onPaste = (e: ClipboardEvent) => {
-      if (initialSyncBlocked) return
       if (editingNoteId) return
 
       // Check for pasted image files first
@@ -488,13 +418,7 @@ export function Workspace(props: WorkspaceProps) {
       }
 
       e.preventDefault()
-      const point = placeAtViewCenter(BOOKMARK_SIZE)
-      void actions
-        .createBookmark(props.folderId, text, point.x, point.y)
-        .then((bookmark) => {
-          setSelectedIds(new Set([bookmark.id]))
-          actions.raiseZ([bookmark.id])
-        })
+      void actions.createBookmark(props.folderId, text, 200, 180)
       setTool("select")
     }
 
@@ -509,14 +433,12 @@ export function Workspace(props: WorkspaceProps) {
     addImageFiles,
     deleteSelection,
     editingNoteId,
-    initialSyncBlocked,
     openNewFolderDialog,
-    placeAtViewCenter,
     props,
     selectedIds,
   ])
 
-  if (props.mode === "folder" && !folder && !initialSyncBlocked) {
+  if (props.mode === "folder" && !folder) {
     return (
       <div className="markx-dot-bg flex h-svh items-center justify-center">
         <div className="space-y-3 text-center">
@@ -541,12 +463,10 @@ export function Workspace(props: WorkspaceProps) {
           : [{ label: "Home", to: "/", home: true }]
       }
       tool={tool}
-      onToolChange={initialSyncBlocked ? () => {} : handleToolChange}
+      onToolChange={setTool}
       trashRef={trashRef}
       zoomPercent={zoomPercent}
-      onImageTool={
-        initialSyncBlocked ? () => {} : () => fileInputRef.current?.click()
-      }
+      onImageTool={() => fileInputRef.current?.click()}
     >
       <ContextMenu>
         <ContextMenuTrigger className="block h-full">
@@ -559,9 +479,11 @@ export function Workspace(props: WorkspaceProps) {
             onMoveItems={handleMoveItems}
             onResizeItem={handleResizeItem}
             onOpenItem={openItem}
+            onBoardCreate={handleBoardCreate}
             onTrashDrop={deleteSelection}
             trashRef={trashRef}
             onZoomChange={setZoomPercent}
+            onContextPoint={setContextPoint}
             editingId={editingNoteId ?? undefined}
             boardApiRef={boardApiRef}
             renderItem={(item, selected) => {
@@ -602,11 +524,20 @@ export function Workspace(props: WorkspaceProps) {
         </ContextMenuTrigger>
         <ContextMenuContent>
           {props.mode === "home" ? (
-            <ContextMenuItem onClick={() => openNewFolderDialog()}>
+            <ContextMenuItem
+              onClick={() =>
+                openNewFolderDialog(contextPoint.x, contextPoint.y)
+              }
+            >
               New Board
             </ContextMenuItem>
           ) : (
-            <ContextMenuItem onClick={() => openAddLinkDialog()}>
+            <ContextMenuItem
+              onClick={() => {
+                setPendingCreate(contextPoint)
+                setLinkOpen(true)
+              }}
+            >
               Add bookmark
             </ContextMenuItem>
           )}
@@ -689,31 +620,7 @@ export function Workspace(props: WorkspaceProps) {
         </ContextMenuContent>
       </ContextMenu>
 
-      {initialSyncBlocked ? (
-        <div
-          className="absolute inset-0 z-50 flex items-center justify-center bg-white/35 backdrop-blur-[2px]"
-          aria-busy={initialSyncStatus === "loading"}
-          role="status"
-        >
-          <div className="max-w-sm rounded-2xl bg-white/90 px-6 py-5 text-center shadow-sm outline outline-1 outline-black/5">
-            <p className="text-[15px] font-medium text-[#202020]">
-              {initialSyncStatus === "loading"
-                ? "Loading your workspace…"
-                : "Workspace could not be loaded"}
-            </p>
-            <p className="mt-1 text-[13px] text-black/50">
-              {initialSyncStatus === "loading"
-                ? "Your boards will appear as soon as cloud sync finishes."
-                : "Check your connection and try again. Editing stays disabled to protect your cloud data."}
-            </p>
-            {initialSyncStatus === "error" ? (
-              <Button className="mt-4" onClick={retryInitialSync}>
-                Try again
-              </Button>
-            ) : null}
-          </div>
-        </div>
-      ) : items.length === 0 ? (
+      {items.length === 0 ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="rounded-2xl bg-white/80 px-6 py-5 text-center shadow-sm outline outline-1 outline-black/5 backdrop-blur">
             <p className="text-[15px] font-medium text-[#202020]">
@@ -723,8 +630,8 @@ export function Workspace(props: WorkspaceProps) {
             </p>
             <p className="mt-1 text-[13px] text-black/50">
               {props.mode === "home"
-                ? "Click Board or Note in the toolbar — or press ⌘N"
-                : "Click Link or Note in the toolbar, or paste a URL (⌘V)"}
+                ? "Select Board or Note, click the canvas — or press ⌘N"
+                : "Select Link or Note and click, or paste a URL (⌘V)"}
             </p>
           </div>
         </div>
@@ -737,15 +644,17 @@ export function Workspace(props: WorkspaceProps) {
         onOpenChange={(open) => {
           setNewFolderOpen(open)
           if (!open) {
+            setPendingCreate(null)
             setTool("select")
           }
         }}
         onSubmit={(value) => {
-          const point = placeAtViewCenter(FOLDER_SIZE)
+          const point = pendingCreate ?? { x: 180, y: 160 }
           const folderItem = actions.createFolder(point.x, point.y, value)
           setSelectedIds(new Set([folderItem.id]))
           setContextTargetId(folderItem.id)
           actions.raiseZ([folderItem.id])
+          setPendingCreate(null)
           setTool("select")
         }}
       />
@@ -773,18 +682,15 @@ export function Workspace(props: WorkspaceProps) {
         onOpenChange={(open) => {
           setLinkOpen(open)
           if (!open) {
+            setPendingCreate(null)
             setTool("select")
           }
         }}
         onSubmit={(url) => {
           if (props.mode !== "folder") return
-          const point = placeAtViewCenter(BOOKMARK_SIZE)
-          void actions.createBookmark(props.folderId, url, point.x, point.y).then(
-            (bookmark) => {
-              setSelectedIds(new Set([bookmark.id]))
-              actions.raiseZ([bookmark.id])
-            },
-          )
+          const point = pendingCreate ?? { x: 200, y: 180 }
+          void actions.createBookmark(props.folderId, url, point.x, point.y)
+          setPendingCreate(null)
           setTool("select")
         }}
       />

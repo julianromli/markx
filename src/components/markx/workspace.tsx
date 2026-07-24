@@ -23,7 +23,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import { Button } from "@/components/ui/button"
-import { useMarkxActions, useMarkxState } from "@/lib/markx/store"
+import { store, useMarkxActions, useMarkxState } from "@/lib/markx/store"
 import { countBookmarksInFolder, saveImageBlob } from "@/lib/markx/storage"
 import { prepareImage } from "@/lib/markx/images"
 import type { NoteColor, ToolId } from "@/lib/markx/types"
@@ -283,6 +283,11 @@ export function Workspace(props: WorkspaceProps) {
           x: center.x - 240 + cascade * 24,
           y: center.y - 160 + cascade * 24,
         })
+        // Enqueue the blob for R2 upload when the sync engine is active.
+        const engine = store.getSyncEngine()
+        if (engine) {
+          void engine.enqueueAsset(imageId, prepared.blob, prepared.mime)
+        }
         actions.raiseZ([created.id])
         cascade += 1
       }
@@ -440,18 +445,6 @@ export function Workspace(props: WorkspaceProps) {
       trashRef={trashRef}
       zoomPercent={zoomPercent}
       onImageTool={() => fileInputRef.current?.click()}
-      headerActions={
-        !state.hasOnboarded ? (
-          <Button
-            size="sm"
-            variant="outline"
-            className="rounded-full"
-            onClick={() => void actions.clearDemo()}
-          >
-            Clear demo
-          </Button>
-        ) : null
-      }
     >
       <ContextMenu>
         <ContextMenuTrigger className="block h-full">

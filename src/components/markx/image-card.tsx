@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react"
 
 import { RESIZE_HANDLE_SIZE, fitImageToWidth } from "@/lib/markx/geometry"
-import { getImageObjectUrl } from "@/lib/markx/images"
-import { getImageBlob } from "@/lib/markx/storage"
+import { getImageObjectUrl, resolveImageBlob } from "@/lib/markx/images"
 import { cn } from "@/lib/utils"
 import type { BoardImage } from "@/lib/markx/types"
 
@@ -24,7 +23,7 @@ export function ImageCard({ image, selected, className }: ImageCardProps) {
 
   useEffect(() => {
     let cancelled = false
-    void getImageBlob(image.imageId).then((blob) => {
+    void resolveImageBlob(image.imageId).then((blob) => {
       if (cancelled || !blob) return
       setUrl(getImageObjectUrl(image.imageId, blob))
     })

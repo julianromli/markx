@@ -1,4 +1,6 @@
 import { compressImage } from "./compress"
+import { store } from "./store"
+import { getImageBlob } from "./storage"
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024 // 20 MB
 
@@ -28,6 +30,21 @@ export function revokeImageObjectUrl(imageId: string): void {
     URL.revokeObjectURL(url)
     objectUrlCache.delete(imageId)
   }
+}
+
+/**
+ * Resolve an image blob: local IndexedDB cache first, then cloud (R2)
+ * via the active SyncEngine if one is attached. Returns `undefined`
+ * when the blob cannot be found (e.g. offline and not cached).
+ */
+export async function resolveImageBlob(
+  imageId: string,
+): Promise<Blob | undefined> {
+  const cached = await getImageBlob(imageId)
+  if (cached) return cached
+  const engine = store.getSyncEngine()
+  if (engine) return engine.fetchAsset(imageId)
+  return undefined
 }
 
 function fileToBase64(file: File): Promise<string> {

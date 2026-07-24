@@ -10,11 +10,16 @@
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx}\"",
     "check": "prettier --check \"**/*.{ts,tsx,js,jsx}\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "cf-typegen": "wrangler types",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "deploy": "bun run build && wrangler deploy --dry-run"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
     "@fontsource-variable/geist": "^5.3.0",
+    "@neondatabase/neon-js": "^0.6.2-beta",
     "@phosphor-icons/react": "^2.1.10",
     "@shadcn/react": "^0.2.1",
     "@tailwindcss/vite": "^4",
@@ -32,12 +37,15 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "date-fns": "^4.4.0",
+    "drizzle-orm": "^0.45.2",
     "embla-carousel-react": "^8.6.0",
     "idb": "^8.0.3",
     "input-otp": "^1.4.2",
+    "jose": "^6.2.4",
     "nanoid": "^6.0.0",
     "next-themes": "^0.4.6",
     "open-graph-scraper": "^6.12.0",
+    "postgres": "^3.4.9",
     "react": "^19.2.6",
     "react-day-picker": "^10.0.1",
     "react-dom": "^19.2.6",
@@ -52,6 +60,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.47.0",
     "@tanstack/devtools-vite": "latest",
     "@tanstack/eslint-config": "latest",
     "@testing-library/dom": "^10.4.1",
@@ -60,12 +69,14 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^6",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "jsdom": "^28",
     "prettier": "^3.8.3",
     "prettier-plugin-tailwindcss": "^0.8.0",
     "typescript": "^6",
     "vite": "^8",
-    "vitest": "^4"
+    "vitest": "^4",
+    "wrangler": "^4.114.0"
   }
 }

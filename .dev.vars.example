@@ -1,0 +1,20 @@
+# Local development secrets — copy to .dev.vars (gitignored).
+# In dev the Cloudflare Vite plugin reads these via the `cloudflare:workers`
+# `env` object. Hyperdrive is not simulated locally, so DATABASE_URL is
+# used as a direct fallback.
+
+# Neon Postgres pooler connection string (used in dev when Hyperdrive is
+# absent, and as the Hyperdrive localConnectionString override).
+# Set this to your own Neon project's pooler connection string.
+DATABASE_URL="postgresql://USER:PASSWORD@HOST-pooler.REGION.aws.neon.tech/DBNAME?sslmode=require"
+
+# The Cloudflare Vite plugin reads this env var to emulate the Hyperdrive
+# binding locally. If unset, the plugin falls back to DATABASE_URL above.
+# CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE="<same as DATABASE_URL>"
+
+# Neon Auth — non-secret, also declared as `vars` in wrangler.jsonc.
+# NEON_AUTH_BASE_URL and NEON_AUTH_JWKS_URL are read from vars, not secrets.
+
+# Cookie secret for Neon Auth server-side session caching (32+ chars).
+# Generate with: openssl rand -base64 32
+NEON_AUTH_COOKIE_SECRET="dev-only-secret-replace-in-production-32chars"

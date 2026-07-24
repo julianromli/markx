@@ -4,7 +4,6 @@ import type { ReactNode, RefObject } from "react"
 import {
   ArrowClockwiseIcon,
   ArrowCounterClockwiseIcon,
-  BellIcon,
   CaretDownIcon,
   ChatCircleIcon,
   CheckSquareIcon,
@@ -26,6 +25,7 @@ import {
 
 import homeIcon from "@/assets/markx/header/home.svg"
 import pixelFolder from "@/assets/markx/pixel-folder.svg"
+import { HeaderAuth } from "@/components/markx/header-auth"
 import { useMarkxActions, useMarkxHistory } from "@/lib/markx/store"
 import { cn } from "@/lib/utils"
 import type { ToolId } from "@/lib/markx/types"
@@ -48,7 +48,6 @@ type AppShellProps = {
   trashHot?: boolean
   zoomPercent?: number
   onImageTool?: () => void
-  headerActions?: ReactNode
   children: ReactNode
 }
 
@@ -82,7 +81,6 @@ export function AppShell({
   trashHot,
   zoomPercent,
   onImageTool,
-  headerActions,
   children,
 }: AppShellProps) {
   const actions = useMarkxActions()
@@ -174,10 +172,6 @@ export function AppShell({
           </div>
 
           <div className="relative z-10 flex h-12 items-center justify-end pr-4">
-            {headerActions ? (
-              <div className="mr-2 flex items-center">{headerActions}</div>
-            ) : null}
-
             {typeof zoomPercent === "number" ? (
               <button
                 type="button"
@@ -224,16 +218,14 @@ export function AppShell({
               frame
             />
             <HeaderIconButton
-              label="Notifications"
-              icon={<BellIcon className="size-5" weight="regular" />}
-              frame
-            />
-            <HeaderIconButton
               label="Settings"
               icon={<GearIcon className="size-5" weight="regular" />}
               frame
-              last
             />
+
+            <div className="ml-2 flex items-center">
+              <HeaderAuth />
+            </div>
           </div>
         </div>
       </header>

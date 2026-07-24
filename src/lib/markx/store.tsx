@@ -8,6 +8,7 @@ import {
 } from "react"
 import { nanoid } from "nanoid"
 
+import { authClient } from "@/lib/auth/client"
 import { enrichLink } from "./enrich"
 import { createEmptyState } from "./seed"
 import {
@@ -15,6 +16,7 @@ import {
   nextZ,
   sweepOrphanImageBlobs,
 } from "./storage"
+import { SyncEngine } from "./sync"
 import type { BoardImage, Bookmark, Folder, MarkxState, Note } from "./types"
 
 type Listener = () => void
@@ -55,7 +57,6 @@ export type MarkxActions = {
   deleteBookmarks: (ids: string[]) => Bookmark[]
   restoreBookmarks: (bookmarks: Bookmark[]) => void
   markxOnboarded: () => void
-  clearDemo: () => Promise<void>
   enrichMissingBookmarks: () => Promise<void>
 }
 
@@ -70,6 +71,22 @@ type MarkxStoreApi = {
   subscribe: (listener: Listener) => () => void
   actions: MarkxActions
   ready: boolean
+  /** The active SyncEngine, or `null` in guest mode. */
+  getSyncEngine: () => SyncEngine | null
+  /** Attach a SyncEngine (on login) and hydrate from the cloud. */
+  attachSync: (engine: SyncEngine) => void
+  /** Detach the SyncEngine (on sign-out) and switch back to guest mode. */
+  detachSync: () => void
+  /** Replace the in-memory state without touching history (cloud load / conflict resolution). */
+  replaceState: (newState: MarkxState) => void
+  /** Hydrate from local guest storage (guest mode). */
+  hydrate: () => Promise<void>
+  /** Mark the store ready after a sync-engine state replacement. */
+  markReady: () => void
+  /** Resolve a sync conflict by keeping the cloud version. */
+  resolveConflictUseCloud: () => Promise<void>
+  /** Resolve a sync conflict by overwriting the cloud with local. */
+  resolveConflictOverwriteCloud: () => Promise<void>
 }
 
 const MarkxStoreContext = createContext<MarkxStoreApi | null>(null)
@@ -93,6 +110,20 @@ function createMarkxStore() {
   const listeners = new Set<Listener>()
   let saveTimer: ReturnType<typeof setTimeout> | null = null
 
+  /**
+   * When the user is logged in, this is set to the active SyncEngine so
+   * that local changes are pushed to the cloud. When `null` (guest mode),
+   * changes are persisted only to the local IndexedDB guest store.
+   */
+  let syncEngine: SyncEngine | null = null
+
+  /**
+   * Image IDs removed since the last sync. Accumulated across multiple
+   * edits and flushed to the server with the next save so R2 objects can
+   * be soft-deleted.
+   */
+  const pendingDeletedImageIds = new Set<string>()
+
   const emit = () => {
     for (const listener of listeners) listener()
   }
@@ -100,7 +131,13 @@ function createMarkxStore() {
   const persist = () => {
     if (saveTimer) clearTimeout(saveTimer)
     saveTimer = setTimeout(() => {
-      void localMarkxStorage.save(state)
+      if (syncEngine) {
+        const deleted = [...pendingDeletedImageIds]
+        pendingDeletedImageIds.clear()
+        syncEngine.onStateChange(state, deleted)
+      } else {
+        void localMarkxStorage.save(state)
+      }
     }, 120)
   }
 
@@ -234,17 +271,26 @@ function createMarkxStore() {
 
     deleteFolders(ids) {
       const idSet = new Set(ids)
-      commit((prev) => ({
-        ...prev,
-        folders: prev.folders.filter((f) => !idSet.has(f.id)),
-        bookmarks: prev.bookmarks.filter((b) => !idSet.has(b.folderId)),
-        notes: prev.notes.filter(
-          (n) => n.folderId == null || !idSet.has(n.folderId),
-        ),
-        images: prev.images.filter(
-          (i) => i.folderId == null || !idSet.has(i.folderId),
-        ),
-      }))
+      commit((prev) => {
+        // Track images that are being removed so the sync engine can
+        // soft-delete their R2 objects.
+        for (const img of prev.images) {
+          if (img.folderId != null && idSet.has(img.folderId)) {
+            pendingDeletedImageIds.add(img.imageId)
+          }
+        }
+        return {
+          ...prev,
+          folders: prev.folders.filter((f) => !idSet.has(f.id)),
+          bookmarks: prev.bookmarks.filter((b) => !idSet.has(b.folderId)),
+          notes: prev.notes.filter(
+            (n) => n.folderId == null || !idSet.has(n.folderId),
+          ),
+          images: prev.images.filter(
+            (i) => i.folderId == null || !idSet.has(i.folderId),
+          ),
+        }
+      })
     },
 
     createNote(x, y, folderId) {
@@ -321,6 +367,10 @@ function createMarkxStore() {
       let removed: BoardImage[] = []
       commit((prev) => {
         removed = prev.images.filter((i) => idSet.has(i.id))
+        // Track for R2 soft-delete on next sync.
+        for (const img of removed) {
+          pendingDeletedImageIds.add(img.imageId)
+        }
         return {
           ...prev,
           images: prev.images.filter((i) => !idSet.has(i.id)),
@@ -476,17 +526,6 @@ function createMarkxStore() {
       )
     },
 
-    async clearDemo() {
-      commit(() => ({
-        folders: [],
-        bookmarks: [],
-        notes: [],
-        images: [],
-        hasOnboarded: true,
-        zCounter: 1,
-      }))
-    },
-
     async enrichMissingBookmarks() {
       const missing = state.bookmarks.filter((b) => !b.imageUrl)
       if (missing.length === 0) return
@@ -528,6 +567,28 @@ function createMarkxStore() {
       }
     },
     actions,
+    getSyncEngine: () => syncEngine,
+    attachSync(engine: SyncEngine) {
+      syncEngine = engine
+      // Load the state that the SyncEngine already fetched from the cloud
+      // (or the per-user cache). The engine stores its loaded state
+      // internally; we pull it via the cloud-load path below.
+      //
+      // The actual state replacement happens in `hydrateForSync()` which
+      // is called right after this by the provider.
+    },
+    detachSync() {
+      syncEngine = null
+      pendingDeletedImageIds.clear()
+    },
+    replaceState(newState: MarkxState) {
+      state = newState
+      past = []
+      future = []
+      emit()
+      // Persist to whichever backend is active.
+      persist()
+    },
     async hydrate() {
       state = await localMarkxStorage.load()
       past = []
@@ -539,17 +600,79 @@ function createMarkxStore() {
       const referencedImageIds = new Set(state.images.map((i) => i.imageId))
       void sweepOrphanImageBlobs(referencedImageIds)
     },
+    markReady() {
+      ready = true
+      emit()
+      void actions.enrichMissingBookmarks()
+      const referencedImageIds = new Set(state.images.map((i) => i.imageId))
+      void sweepOrphanImageBlobs(referencedImageIds)
+    },
+    async resolveConflictUseCloud() {
+      if (!syncEngine) return
+      const cloudState = await syncEngine.resolveConflictUseCloud()
+      state = cloudState
+      past = []
+      future = []
+      emit()
+    },
+    async resolveConflictOverwriteCloud() {
+      if (!syncEngine) return
+      await syncEngine.resolveConflictOverwriteCloud()
+    },
   }
 }
 
-const store = createMarkxStore()
+export const store = createMarkxStore()
 
 export function MarkxProvider({ children }: { children: ReactNode }) {
   // Always start false so SSR + first client paint match (singleton may already be ready after HMR).
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
-    void store.hydrate().then(() => setReady(true))
+    let cancelled = false
+
+    async function init() {
+      // Check if the user is already logged in (e.g. returning session).
+      try {
+        const { data } = await authClient.getSession()
+        const user = data?.user
+
+        if (cancelled) return
+
+        if (user) {
+          // Authenticated: create a SyncEngine and load from cloud.
+          const engine = await SyncEngine.create(user.id)
+          if (cancelled) {
+            engine.destroy()
+            return
+          }
+          store.attachSync(engine)
+          const loaded = engine.getLoadedState()
+          if (loaded) {
+            store.replaceState(loaded)
+          }
+          store.markReady()
+          setReady(true)
+        } else {
+          // Guest mode: load from local IndexedDB.
+          await store.hydrate()
+          if (cancelled) return
+          setReady(true)
+        }
+      } catch {
+        // Auth check failed — fall back to guest mode.
+        if (cancelled) return
+        await store.hydrate()
+        if (cancelled) return
+        setReady(true)
+      }
+    }
+
+    void init()
+
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const api: MarkxStoreApi = {
@@ -558,6 +681,14 @@ export function MarkxProvider({ children }: { children: ReactNode }) {
     subscribe: store.subscribe,
     actions: store.actions,
     ready,
+    getSyncEngine: store.getSyncEngine,
+    attachSync: store.attachSync,
+    detachSync: store.detachSync,
+    replaceState: store.replaceState,
+    hydrate: store.hydrate,
+    markReady: store.markReady,
+    resolveConflictUseCloud: store.resolveConflictUseCloud,
+    resolveConflictOverwriteCloud: store.resolveConflictOverwriteCloud,
   }
 
   if (!ready) {

@@ -305,7 +305,7 @@ export function AppShell({
               <DotsThreeOutlineIcon className="size-5" weight="regular" />
             </button>
 
-            <div className="ml-2 flex items-center">
+            <div className="ml-1 flex shrink-0 items-center pr-[max(0.5rem,env(safe-area-inset-right))] md:ml-2 md:pr-0">
               <HeaderAuth />
             </div>
           </div>

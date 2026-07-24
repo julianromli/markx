@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 
-import { authClient } from "@/lib/auth/client"
+import { getAuthClient } from "@/lib/auth/client"
 import { useMarkxStore } from "@/lib/markx/store"
 import type { SyncEngine, SyncStatus, ConflictData } from "@/lib/markx/sync"
 
@@ -37,6 +37,7 @@ export function useAuthSession() {
 
     async function check() {
       try {
+        const authClient = await getAuthClient()
         const { data } = await authClient.getSession()
         if (cancelled) return
         if (data?.user) {

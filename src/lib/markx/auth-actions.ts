@@ -1,4 +1,4 @@
-import { authClient } from "@/lib/auth/client"
+import { getAuthClient } from "@/lib/auth/client"
 import { SyncEngine } from "@/lib/markx/sync"
 import { store } from "@/lib/markx/store"
 import { loadState } from "@/lib/markx/storage"
@@ -14,6 +14,7 @@ import { notifyAuthChange } from "@/lib/markx/hooks"
  */
 export async function sendOtp(email: string): Promise<{ error?: string }> {
   try {
+    const authClient = await getAuthClient()
     const result = await authClient.emailOtp.sendVerificationOtp({
       email,
       type: "sign-in",
@@ -42,6 +43,7 @@ export async function verifyOtp(
   otp: string,
 ): Promise<{ error?: string }> {
   try {
+    const authClient = await getAuthClient()
     const result = await authClient.signIn.emailOtp({ email, otp })
     if (result.error) {
       return { error: result.error.message ?? "Invalid or expired code" }
@@ -62,6 +64,7 @@ export async function verifyOtp(
  * Returns the SyncEngine so the caller can subscribe to status updates.
  */
 export async function onLoginSuccess(): Promise<SyncEngine> {
+  const authClient = await getAuthClient()
   const { data } = await authClient.getSession()
   const user = data?.user
   if (!user) throw new Error("No session after OTP verification")
@@ -103,6 +106,7 @@ export async function signOut(): Promise<void> {
 
   // Tell Neon Auth to revoke the session.
   try {
+    const authClient = await getAuthClient()
     await authClient.signOut()
   } catch {
     // Even if the network call fails, we clear locally.

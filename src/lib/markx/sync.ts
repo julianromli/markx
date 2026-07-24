@@ -1,5 +1,5 @@
 import type { SaveResult } from "@/lib/server/workspace"
-import { authClient } from "@/lib/auth/client"
+import { getAuthClient } from "@/lib/auth/client"
 import {
   addDeletedImageIds,
   clearAssetQueue,
@@ -568,6 +568,7 @@ export async function getCurrentUser(): Promise<{
   email: string
 } | null> {
   try {
+    const authClient = await getAuthClient()
     const { data } = await authClient.getSession()
     if (!data?.user) return null
     return { id: data.user.id, email: data.user.email }

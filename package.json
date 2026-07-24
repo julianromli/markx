@@ -14,7 +14,7 @@
     "cf-typegen": "wrangler types",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "deploy": "bun run build && wrangler deploy --dry-run"
+    "deploy": "bun run build && wrangler deploy"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

@@ -8,7 +8,7 @@ import {
 } from "react"
 import { nanoid } from "nanoid"
 
-import { authClient } from "@/lib/auth/client"
+import { getAuthClient } from "@/lib/auth/client"
 import { enrichLink } from "./enrich"
 import { createEmptyState } from "./seed"
 import {
@@ -634,6 +634,7 @@ export function MarkxProvider({ children }: { children: ReactNode }) {
     async function init() {
       // Check if the user is already logged in (e.g. returning session).
       try {
+        const authClient = await getAuthClient()
         const { data } = await authClient.getSession()
         const user = data?.user
 

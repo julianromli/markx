@@ -140,6 +140,27 @@
   }
   html {
     @apply font-sans;
+    /* Let native scrollbars, form controls, and the UA chrome pick up the
+     * active theme (light/dark) instead of defaulting to light. */
+    color-scheme: light dark;
+  }
+  /* Kill the 300ms double-tap zoom delay and the iOS tap-flash on
+   * tappable controls. The canvas keeps its own `touch-none` so pinch/pan
+   * gestures there are unaffected. */
+  button,
+  a,
+  [role="button"],
+  summary {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  /* Lock scroll chaining inside overlays so a fling inside a dialog/sheet
+   * never scrolls the canvas behind it. */
+  [role="dialog"],
+  [data-slot="dialog-content"],
+  [data-slot="sheet-content"],
+  [data-slot="drawer-content"] {
+    overscroll-behavior: contain;
   }
 }
 

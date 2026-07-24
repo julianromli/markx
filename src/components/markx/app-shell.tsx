@@ -10,11 +10,13 @@ import {
   CheckSquareIcon,
   ColumnsIcon,
   CursorIcon,
+  DotsThreeOutlineIcon,
   FolderSimpleIcon,
   GearIcon,
   ImageIcon,
   LineSegmentIcon,
   LinkIcon,
+  ListIcon,
   MagnifyingGlassIcon,
   NoteBlankIcon,
   PencilSimpleIcon,
@@ -28,6 +30,12 @@ import homeIcon from "@/assets/markx/header/home.svg"
 import pixelFolder from "@/assets/markx/pixel-folder.svg"
 import { HeaderAuth } from "@/components/markx/header-auth"
 import { HelpDialog } from "@/components/markx/help-dialog"
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 import { useMarkxActions, useMarkxHistory } from "@/lib/markx/store"
 import { cn } from "@/lib/utils"
 import type { ToolId } from "@/lib/markx/types"
@@ -88,6 +96,8 @@ export function AppShell({
   const actions = useMarkxActions()
   const { canUndo, canRedo } = useMarkxHistory()
   const [helpOpen, setHelpOpen] = useState(false)
+  const [toolsOpen, setToolsOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
 
   const crumbs: BreadcrumbItem[] =
     breadcrumb && breadcrumb.length > 0
@@ -97,92 +107,133 @@ export function AppShell({
   const centerTitle =
     crumbs.length > 0 ? (crumbs[crumbs.length - 1]?.label ?? title) : title
 
-  return (
-    <div className="grid h-svh grid-cols-[63px_minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] bg-[#ebedee] antialiased">
-      <header className="relative z-30 col-span-2 bg-white shadow-[0_1px_1px_rgba(51,61,78,0.2)]">
-        <div className="relative flex h-12 w-full items-center justify-between">
-          <nav
-            aria-label="Breadcrumb"
-            className="relative z-10 flex h-7 min-w-0 items-center"
-          >
-            {crumbs.map((crumb, index) => {
-              const isLast = index === crumbs.length - 1
-              const content = (
-                <>
-                  {crumb.home ? (
-                    <span className="relative size-[18px] shrink-0 drop-shadow-[0_1px_1px_rgba(51,61,78,0.3)]">
-                      <img
-                        src={homeIcon}
-                        alt=""
-                        className="size-full"
-                        width={18}
-                        height={18}
-                      />
-                    </span>
-                  ) : (
-                    <span className="relative size-[18px] shrink-0 overflow-hidden rounded-[3px] outline outline-1 -outline-offset-1 outline-black/10">
-                      <img
-                        src={crumb.imageSrc ?? pixelFolder}
-                        alt=""
-                        className="size-full object-contain"
-                        width={18}
-                        height={18}
-                      />
-                    </span>
-                  )}
-                  <span className="max-w-[270px] truncate text-[12px] leading-3 font-semibold text-[rgba(32,32,32,0.8)]">
-                    {crumb.label}
-                  </span>
-                </>
-              )
+  const renderTools = (onSelect?: () => void) =>
+    TOOLS.map((item) => {
+      const active = item.tool != null && tool === item.tool
+      const enabled = item.tool != null || item.action != null
+      return (
+        <ToolButton
+          key={item.id}
+          label={item.label}
+          active={active}
+          disabled={!enabled}
+          onClick={
+            enabled
+              ? () => {
+                  if (item.action === "image") {
+                    onImageTool?.()
+                  } else if (item.tool) {
+                    onToolChange(item.tool)
+                  }
+                  onSelect?.()
+                }
+              : undefined
+          }
+          icon={<item.icon className="size-5" weight="regular" />}
+        />
+      )
+    })
 
-              return (
-                <div
-                  key={`${crumb.label}-${index}`}
-                  className="flex h-7 items-center"
-                >
-                  {index > 0 ? (
-                    <span
-                      className="w-[4.32px] text-center text-[12px] leading-3 text-[#cbced2]"
-                      aria-hidden
-                    >
-                      /
-                    </span>
-                  ) : null}
-                  <div className="flex h-7 items-start pr-1 pl-[9px]">
-                    {crumb.to && !isLast ? (
-                      <Link
-                        to={crumb.to}
-                        className="flex h-7 items-center gap-1.5 rounded-[3px] px-[7px] pt-1.5 pb-[7px] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.04] active:scale-[0.96]"
-                      >
-                        {content}
-                      </Link>
+  return (
+    <div className="markx-shell grid h-svh grid-cols-1 grid-rows-[auto_minmax(0,1fr)] bg-[#ebedee] antialiased md:grid-cols-[63px_minmax(0,1fr)]">
+      <header className="relative z-30 col-span-full bg-white shadow-[0_1px_1px_rgba(51,61,78,0.2)]">
+        <div className="relative flex h-12 w-full items-center justify-between">
+          <div className="relative z-10 flex h-12 min-w-0 items-center pl-[env(safe-area-inset-left)]">
+            <button
+              type="button"
+              aria-label="Tools"
+              aria-expanded={toolsOpen}
+              onClick={() => setToolsOpen(true)}
+              className="flex h-12 w-11 shrink-0 items-center justify-center text-[rgba(32,32,32,0.8)] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.03] active:scale-[0.96] md:hidden"
+            >
+              <ListIcon className="size-5" weight="regular" />
+            </button>
+            <nav
+              aria-label="Breadcrumb"
+              className="relative z-10 flex h-7 min-w-0 items-center"
+            >
+              {crumbs.map((crumb, index) => {
+                const isLast = index === crumbs.length - 1
+                const content = (
+                  <>
+                    {crumb.home ? (
+                      <span className="relative size-[18px] shrink-0 drop-shadow-[0_1px_1px_rgba(51,61,78,0.3)]">
+                        <img
+                          src={homeIcon}
+                          alt=""
+                          className="size-full"
+                          width={18}
+                          height={18}
+                        />
+                      </span>
                     ) : (
-                      <span
-                        className="flex h-7 items-center gap-1.5 rounded-[3px] px-[7px] pt-1.5 pb-[7px]"
-                        aria-current={isLast ? "page" : undefined}
-                      >
-                        {content}
+                      <span className="relative size-[18px] shrink-0 overflow-hidden rounded-[3px] outline outline-1 -outline-offset-1 outline-black/10">
+                        <img
+                          src={crumb.imageSrc ?? pixelFolder}
+                          alt=""
+                          className="size-full object-contain"
+                          width={18}
+                          height={18}
+                        />
                       </span>
                     )}
-                  </div>
-                </div>
-              )
-            })}
-          </nav>
+                    <span className="max-w-[40vw] truncate text-[12px] leading-3 font-semibold text-[rgba(32,32,32,0.8)] md:max-w-[270px]">
+                      {crumb.label}
+                    </span>
+                  </>
+                )
 
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4">
+                return (
+                  <div
+                    key={`${crumb.label}-${index}`}
+                    className={cn(
+                      "flex h-7 items-center",
+                      isLast ? "flex" : "hidden md:flex"
+                    )}
+                  >
+                    {index > 0 ? (
+                      <span
+                        className="hidden w-[4.32px] text-center text-[12px] leading-3 text-[#cbced2] md:inline"
+                        aria-hidden
+                      >
+                        /
+                      </span>
+                    ) : null}
+                    <div className="flex h-7 items-start pr-1 pl-[9px] md:pl-[9px]">
+                      {crumb.to && !isLast ? (
+                        <Link
+                          to={crumb.to}
+                          className="flex h-7 items-center gap-1.5 rounded-[3px] px-[7px] pt-1.5 pb-[7px] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.04] active:scale-[0.96]"
+                        >
+                          {content}
+                        </Link>
+                      ) : (
+                        <span
+                          className="flex h-7 items-center gap-1.5 rounded-[3px] px-[7px] pt-1.5 pb-[7px]"
+                          aria-current={isLast ? "page" : undefined}
+                        >
+                          {content}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </nav>
+          </div>
+
+          <div className="pointer-events-none absolute inset-0 hidden items-center justify-center px-4 md:flex">
             <h1 className="max-w-[45vw] truncate text-center text-[19.8px] font-bold tracking-[-0.18px] text-[rgba(32,32,32,0.8)]">
               {centerTitle}
             </h1>
           </div>
 
-          <div className="relative z-10 flex h-12 items-center justify-end pr-4">
+          <div className="relative z-10 flex h-12 items-center justify-end pr-[calc(1rem+env(safe-area-inset-right))]">
             {typeof zoomPercent === "number" ? (
               <button
                 type="button"
                 disabled
-                className="mr-1 flex h-6 items-center px-1 text-[12px] leading-4 text-[rgba(32,32,32,0.8)]"
+                className="mr-1 hidden h-6 items-center px-1 text-[12px] leading-4 text-[rgba(32,32,32,0.8)] md:flex"
               >
                 <span className="min-w-[25px] pr-1 text-right tabular-nums">
                   {zoomPercent}%
@@ -216,29 +267,43 @@ export function AppShell({
               />
             </div>
 
-            <div className="flex items-center pr-2">
+            <div className="hidden items-center pr-2 md:flex">
               <div
                 className="h-6 w-2 border-r border-[rgba(0,10,20,0.08)]"
                 aria-hidden
               />
             </div>
 
-            <HeaderIconButton
-              label="Help"
-              icon={<QuestionIcon className="size-5" weight="regular" />}
-              frame
-              onClick={() => setHelpOpen(true)}
-            />
-            <HeaderIconButton
-              label="Search"
-              icon={<MagnifyingGlassIcon className="size-5" weight="regular" />}
-              frame
-            />
-            <HeaderIconButton
-              label="Settings"
-              icon={<GearIcon className="size-5" weight="regular" />}
-              frame
-            />
+            <div className="hidden items-center md:flex">
+              <HeaderIconButton
+                label="Help"
+                icon={<QuestionIcon className="size-5" weight="regular" />}
+                frame
+                onClick={() => setHelpOpen(true)}
+              />
+              <HeaderIconButton
+                label="Search"
+                icon={
+                  <MagnifyingGlassIcon className="size-5" weight="regular" />
+                }
+                frame
+              />
+              <HeaderIconButton
+                label="Settings"
+                icon={<GearIcon className="size-5" weight="regular" />}
+                frame
+              />
+            </div>
+
+            <button
+              type="button"
+              aria-label="More"
+              aria-expanded={moreOpen}
+              onClick={() => setMoreOpen(true)}
+              className="flex h-12 w-11 items-center justify-center text-[rgba(32,32,32,0.8)] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.03] active:scale-[0.96] md:hidden"
+            >
+              <DotsThreeOutlineIcon className="size-5" weight="regular" />
+            </button>
 
             <div className="ml-2 flex items-center">
               <HeaderAuth />
@@ -247,31 +312,8 @@ export function AppShell({
         </div>
       </header>
 
-      <aside className="relative z-10 col-start-1 row-start-2 flex flex-col items-center bg-[#ebedee] pt-2.5 pb-3 shadow-[1px_0_0_rgba(0,10,20,0.06)]">
-        {TOOLS.map((item) => {
-          const active = item.tool != null && tool === item.tool
-          const enabled = item.tool != null || item.action != null
-          return (
-            <ToolButton
-              key={item.id}
-              label={item.label}
-              active={active}
-              disabled={!enabled}
-              onClick={
-                enabled
-                  ? () => {
-                      if (item.action === "image") {
-                        onImageTool?.()
-                      } else if (item.tool) {
-                        onToolChange(item.tool)
-                      }
-                    }
-                  : undefined
-              }
-              icon={<item.icon className="size-5" weight="regular" />}
-            />
-          )
-        })}
+      <aside className="relative z-10 col-start-1 row-start-2 hidden flex-col items-center bg-[#ebedee] pt-2.5 pb-3 shadow-[1px_0_0_rgba(0,10,20,0.06)] md:flex">
+        {renderTools(() => setToolsOpen(false))}
 
         <div className="flex-1" />
 
@@ -290,9 +332,58 @@ export function AppShell({
         </button>
       </aside>
 
-      <main className="relative col-start-2 row-start-2 min-h-0 min-w-0">
+      <main className="relative col-start-1 row-start-2 min-h-0 min-w-0 md:col-start-2">
         {children}
       </main>
+
+      {/* Mobile tool drawer */}
+      <Sheet open={toolsOpen} onOpenChange={setToolsOpen}>
+        <SheetContent
+          side="left"
+          showCloseButton={false}
+          aria-label="Tools"
+          className="w-[80%] max-w-[320px] gap-0 p-0 pt-[env(safe-area-inset-top)]"
+        >
+          <SheetHeader className="px-4 pt-4 pb-2">
+            <SheetTitle>Tools</SheetTitle>
+          </SheetHeader>
+          <div className="grid grid-cols-3 gap-1.5 overflow-y-auto p-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            {renderTools(() => setToolsOpen(false))}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* Mobile overflow menu (Help / Search / Settings) */}
+      <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
+        <SheetContent
+          side="bottom"
+          showCloseButton={false}
+          aria-label="More"
+          className="gap-0 p-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+        >
+          <SheetHeader className="sr-only">
+            <SheetTitle>More</SheetTitle>
+          </SheetHeader>
+          <MoreMenuItem
+            label="Help"
+            icon={<QuestionIcon className="size-5" weight="regular" />}
+            onClick={() => {
+              setMoreOpen(false)
+              setHelpOpen(true)
+            }}
+          />
+          <MoreMenuItem
+            label="Search"
+            icon={<MagnifyingGlassIcon className="size-5" weight="regular" />}
+            onClick={() => setMoreOpen(false)}
+          />
+          <MoreMenuItem
+            label="Settings"
+            icon={<GearIcon className="size-5" weight="regular" />}
+            onClick={() => setMoreOpen(false)}
+          />
+        </SheetContent>
+      </Sheet>
 
       <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </div>
@@ -323,7 +414,7 @@ function HeaderIconButton({
       onClick={onClick}
       className={cn(
         "flex h-12 items-center justify-center text-[rgba(32,32,32,0.8)] transition-[transform,opacity,background-color] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96] disabled:pointer-events-none disabled:opacity-20 disabled:active:scale-100",
-        frame ? (last ? "w-8" : "w-10") : "w-[34px]",
+        frame ? (last ? "w-11 md:w-8" : "w-11 md:w-10") : "w-11 md:w-[34px]",
         !disabled && "hover:bg-black/[0.03]"
       )}
     >
@@ -360,7 +451,7 @@ function ToolButton({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "mb-0.5 flex w-[56px] flex-col items-center gap-0.5 rounded-xl px-1 py-1.5 text-[9px] transition-[transform,background-color,box-shadow] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96]",
+        "mb-0.5 flex w-full flex-col items-center gap-1 rounded-xl px-1 py-3 text-[10px] transition-[transform,background-color,box-shadow] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96] md:mb-0.5 md:w-[56px] md:gap-0.5 md:py-1.5 md:text-[9px]",
         active
           ? "bg-white text-[#202020] shadow-[0_1px_2px_rgba(0,10,20,0.08)]"
           : "text-black/55 hover:bg-black/5",
@@ -368,9 +459,30 @@ function ToolButton({
           "cursor-not-allowed opacity-45 hover:bg-transparent active:scale-100"
       )}
     >
-      <span className="flex size-7 items-center justify-center drop-shadow-[0_1px_1px_rgba(51,61,78,0.2)]">
+      <span className="flex size-8 items-center justify-center drop-shadow-[0_1px_1px_rgba(51,61,78,0.2)] md:size-7">
         {icon}
       </span>
+      {label}
+    </button>
+  )
+}
+
+function MoreMenuItem({
+  label,
+  icon,
+  onClick,
+}: {
+  label: string
+  icon: ReactNode
+  onClick?: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-3 rounded-xl px-4 py-3.5 text-left text-[15px] font-medium text-[rgba(32,32,32,0.8)] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.04] active:scale-[0.99]"
+    >
+      <span className="text-black/55">{icon}</span>
       {label}
     </button>
   )

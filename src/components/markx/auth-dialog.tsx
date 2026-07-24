@@ -49,7 +49,11 @@ const OTP_LENGTH = 6
  * On success, the dialog calls `onLoginSuccess()` to create the
  * SyncEngine and switch from guest mode to cloud sync, then closes.
  */
-export function AuthDialog({ open, onOpenChange, onLoggedIn }: AuthDialogProps) {
+export function AuthDialog({
+  open,
+  onOpenChange,
+  onLoggedIn,
+}: AuthDialogProps) {
   const [step, setStep] = useState<Step>("email")
   const [email, setEmail] = useState("")
   const [otp, setOtp] = useState("")
@@ -175,7 +179,7 @@ export function AuthDialog({ open, onOpenChange, onLoggedIn }: AuthDialogProps) 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[400px]">
+      <DialogContent className="pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:max-w-[400px]">
         {step === "email" && (
           <>
             <DialogHeader>
@@ -184,8 +188,8 @@ export function AuthDialog({ open, onOpenChange, onLoggedIn }: AuthDialogProps) 
                 Sign in to save
               </DialogTitle>
               <DialogDescription>
-                Enter your email and we'll send you a one-time code. No
-                password needed — use the same email to sign in everywhere.
+                Enter your email and we'll send you a one-time code. No password
+                needed — use the same email to sign in everywhere.
               </DialogDescription>
             </DialogHeader>
 
@@ -206,9 +210,7 @@ export function AuthDialog({ open, onOpenChange, onLoggedIn }: AuthDialogProps) 
                 disabled={sending}
                 aria-invalid={!!error}
               />
-              {error && (
-                <p className="text-sm text-red-600">{error}</p>
-              )}
+              {error && <p className="text-sm text-red-600">{error}</p>}
               <Button
                 type="submit"
                 className="w-full"

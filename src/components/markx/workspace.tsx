@@ -554,7 +554,7 @@ export function Workspace(props: WorkspaceProps) {
                       key={color}
                       type="button"
                       aria-label={color}
-                      className="size-6 rounded-full border border-black/10 transition-transform active:scale-95 hover-fine:hover:scale-105"
+                      className="size-9 rounded-full border border-black/10 transition-transform active:scale-95 hover-fine:hover:scale-105"
                       style={{ backgroundColor: NOTE_COLORS[color] }}
                       onClick={() => {
                         for (const item of selectedNotes) {

@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react"
 
+import { useIsMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
 import {
   BOOKMARK_SIZE,
@@ -117,12 +118,13 @@ function getImageDimensions(image: BoardImage) {
 function isInBottomRightResizeZone(
   boardX: number,
   boardY: number,
-  rect: Rect
+  rect: Rect,
+  handleSize: number = RESIZE_HANDLE_SIZE
 ): boolean {
   return (
-    boardX >= rect.x + rect.width - RESIZE_HANDLE_SIZE &&
+    boardX >= rect.x + rect.width - handleSize &&
     boardX <= rect.x + rect.width &&
-    boardY >= rect.y + rect.height - RESIZE_HANDLE_SIZE &&
+    boardY >= rect.y + rect.height - handleSize &&
     boardY <= rect.y + rect.height
   )
 }
@@ -226,7 +228,17 @@ export function Board({
   className,
 }: BoardProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
-  const [camera, setCamera] = useState<Camera>({ x: 80, y: 40, zoom: 0.85 })
+  const isMobile = useIsMobile()
+  // Start zoomed-out on small screens so the large default items (bookmarks,
+  // notes, folders) are visible without an immediate pinch-out. The lazy
+  // initializer reads window once on the client; the wrapper div carries
+  // `suppressHydrationWarning` to absorb the resulting style delta from SSR.
+  const [camera, setCamera] = useState<Camera>(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      return { x: 16, y: 24, zoom: 0.5 }
+    }
+    return { x: 80, y: 40, zoom: 0.85 }
+  })
   const cameraRef = useRef(camera)
   cameraRef.current = camera
 
@@ -443,7 +455,16 @@ export function Board({
         hit.kind === "image"
           ? hit.data.naturalWidth / hit.data.naturalHeight
           : undefined
-      if (isInBottomRightResizeZone(boardPoint.x, boardPoint.y, rect)) {
+      if (
+        isInBottomRightResizeZone(
+          boardPoint.x,
+          boardPoint.y,
+          rect,
+          isMobile
+            ? Math.max(RESIZE_HANDLE_SIZE, 44 / cam.zoom)
+            : RESIZE_HANDLE_SIZE
+        )
+      ) {
         if (!selectedRef.current.has(hit.id)) {
           onSelectedIdsChange(new Set([hit.id]))
           anchorIdRef.current = hit.id
@@ -772,6 +793,7 @@ export function Board({
     >
       <div
         className="absolute top-0 left-0 origin-top-left will-change-transform"
+        suppressHydrationWarning
         style={{
           transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})`,
         }}

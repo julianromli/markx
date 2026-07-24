@@ -4,6 +4,7 @@ import { EditorContent, useEditor } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 
+import { useIsMobile } from "@/hooks/use-mobile"
 import { NOTE_SIZE, RESIZE_HANDLE_SIZE } from "@/lib/markx/geometry"
 import { cn } from "@/lib/utils"
 import type { Note, NoteColor, NoteFont, NoteSize } from "@/lib/markx/types"
@@ -68,6 +69,7 @@ export function NoteCard({
 }: NoteCardProps) {
   const width = note.width ?? NOTE_SIZE.width
   const height = note.height ?? NOTE_SIZE.height
+  const isMobile = useIsMobile()
   const committedRef = useRef(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const [openMenu, setOpenMenu] = useState<string | null>(null)
@@ -132,7 +134,12 @@ export function NoteCard({
     >
       {editing && editor ? (
         <div
-          className="note-toolbar-in absolute -top-[52px] left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-[13px] border border-black/10 bg-white px-1.5 py-1 shadow-[0_2px_6px_rgba(0,0,0,0.08),0_8px_24px_rgba(0,0,0,0.12)]"
+          className={cn(
+            "note-toolbar-in absolute z-10 flex items-center gap-0.5 rounded-[13px] border border-black/10 bg-white px-1.5 py-1 shadow-[0_2px_6px_rgba(0,0,0,0.08),0_8px_24px_rgba(0,0,0,0.12)]",
+            isMobile
+              ? "top-full left-0 mt-2 max-w-[88vw] overflow-x-auto overscroll-x-contain"
+              : "-top-[52px] left-1/2 -translate-x-1/2"
+          )}
           onPointerDown={(e) => e.stopPropagation()}
         >
           <ToolbarDropdown
@@ -295,7 +302,10 @@ export function NoteCard({
               "absolute right-0 bottom-0 flex cursor-se-resize items-end justify-end opacity-0 transition-opacity group-hover:opacity-100",
               selected && "opacity-100"
             )}
-            style={{ width: RESIZE_HANDLE_SIZE, height: RESIZE_HANDLE_SIZE }}
+            style={{
+              width: isMobile ? 32 : RESIZE_HANDLE_SIZE,
+              height: isMobile ? 32 : RESIZE_HANDLE_SIZE,
+            }}
             aria-hidden
           >
             <svg

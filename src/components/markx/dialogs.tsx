@@ -43,7 +43,7 @@ export function RenameDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
@@ -99,7 +99,7 @@ export function AddLinkDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Add link</DialogTitle>
         </DialogHeader>
@@ -152,7 +152,7 @@ export function MoveToDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Move to…</DialogTitle>
         </DialogHeader>
@@ -194,7 +194,7 @@ export function ConfirmDeleteFolderDialog({
 }) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
+      <AlertDialogContent className="pb-[max(1.5rem,env(safe-area-inset-bottom))]">
         <AlertDialogHeader>
           <AlertDialogTitle>Delete folder?</AlertDialogTitle>
           <AlertDialogDescription>

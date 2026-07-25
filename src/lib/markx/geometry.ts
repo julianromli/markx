@@ -201,3 +201,82 @@ export function withLiveResize(
 export const MIN_ZOOM = 0.25
 export const MAX_ZOOM = 2
 export const DRAG_THRESHOLD = 5
+
+/**
+ * Fraction of the new item's own area that may be covered by an existing item
+ * before a candidate slot counts as occupied. Cards are large (a bookmark is
+ * 480x252), so demanding zero overlap would push new items far away on a busy
+ * board. Allowing a slight graze keeps them close and still legible.
+ */
+export const SLOT_OVERLAP_LIMIT = 0.25
+
+/** Diagonal step between candidate slots, as a fraction of the item's width. */
+export const SLOT_STEP_RATIO = 0.08
+
+/**
+ * How much of `subject` is covered by `other`, as a fraction of `subject`'s
+ * area. Returns 0 when they don't intersect, 1 when `subject` is fully covered.
+ */
+export function overlapRatio(subject: Rect, other: Rect): number {
+  const area = subject.width * subject.height
+  if (area <= 0) return 0
+
+  const overlapWidth =
+    Math.min(subject.x + subject.width, other.x + other.width) -
+    Math.max(subject.x, other.x)
+  const overlapHeight =
+    Math.min(subject.y + subject.height, other.y + other.height) -
+    Math.max(subject.y, other.y)
+
+  if (overlapWidth <= 0 || overlapHeight <= 0) return 0
+  return (overlapWidth * overlapHeight) / area
+}
+
+/**
+ * Pick where to drop an item the user did not point at (sidebar button,
+ * keyboard shortcut). Starts centred in the viewport, then steps diagonally
+ * until the candidate is clear enough, stopping before it would leave the
+ * visible area.
+ *
+ * `viewBounds` is the viewport expressed in board coordinates. The returned
+ * point is the item's top-left corner, matching how items store `x`/`y`.
+ *
+ * When every candidate is blocked, falls back to the centred slot: an item that
+ * overlaps is recoverable, an item off-screen looks like nothing happened.
+ */
+export function findEmptySlot(
+  occupied: readonly Rect[],
+  viewBounds: Rect,
+  size: { width: number; height: number }
+): { x: number; y: number } {
+  const origin = {
+    x: viewBounds.x + viewBounds.width / 2 - size.width / 2,
+    y: viewBounds.y + viewBounds.height / 2 - size.height / 2,
+  }
+
+  const step = Math.max(1, Math.round(size.width * SLOT_STEP_RATIO))
+
+  for (let i = 0; ; i += 1) {
+    const candidate = {
+      x: origin.x + step * i,
+      y: origin.y + step * i,
+      width: size.width,
+      height: size.height,
+    }
+
+    // Stop once the candidate would extend past the visible area. The origin is
+    // always tried, even on a viewport too small to contain the item.
+    if (
+      i > 0 &&
+      (candidate.x + candidate.width > viewBounds.x + viewBounds.width ||
+        candidate.y + candidate.height > viewBounds.y + viewBounds.height)
+    ) {
+      return origin
+    }
+
+    const blocked = occupied.some(
+      (rect) => overlapRatio(candidate, rect) > SLOT_OVERLAP_LIMIT
+    )
+    if (!blocked) return { x: candidate.x, y: candidate.y }
+  }
+}

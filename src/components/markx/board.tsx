@@ -26,17 +26,17 @@ import type {
   LiveResize,
   Rect,
 } from "@/lib/markx/geometry"
-import type { ToolId } from "@/lib/markx/types"
 
 export type { BoardItemModel } from "@/lib/markx/geometry"
 
 export type BoardApi = {
   getViewCenter: () => { x: number; y: number }
+  /** The visible area in board coordinates, for placing items the user didn't point at. */
+  getViewBounds: () => Rect
 }
 
 type BoardProps = {
   items: BoardItemModel[]
-  tool: ToolId
   selectedIds: Set<string>
   onSelectedIdsChange: (ids: Set<string>) => void
   onRaiseZ: (ids: string[]) => void
@@ -46,7 +46,6 @@ type BoardProps = {
     rect: { x: number; width: number; height: number }
   ) => void
   onOpenItem: (id: string) => void
-  onBoardCreate: (x: number, y: number) => void
   onTrashDrop: (ids: string[]) => void
   renderItem: (
     item: BoardItemModel,
@@ -62,7 +61,7 @@ type BoardProps = {
 }
 
 type DragState = {
-  mode: "pan" | "marquee" | "move" | "pending" | "place" | "resize"
+  mode: "pan" | "marquee" | "move" | "pending" | "resize"
   pointerId: number
   startScreen: { x: number; y: number }
   startBoard: { x: number; y: number }
@@ -83,14 +82,12 @@ type PendingGesture = {
 
 export function Board({
   items,
-  tool,
   selectedIds,
   onSelectedIdsChange,
   onRaiseZ,
   onMoveItems,
   onResizeItem,
   onOpenItem,
-  onBoardCreate,
   onTrashDrop,
   renderItem,
   trashRef,
@@ -132,6 +129,19 @@ export function Board({
           cameraRef.current,
           rect
         )
+      },
+      getViewBounds: () => {
+        const viewport = viewportRef.current
+        if (!viewport) return { x: 0, y: 0, width: 0, height: 0 }
+        const rect = viewport.getBoundingClientRect()
+        const cam = cameraRef.current
+        const origin = screenToBoard(rect.left, rect.top, cam, rect)
+        return {
+          x: origin.x,
+          y: origin.y,
+          width: rect.width / cam.zoom,
+          height: rect.height / cam.zoom,
+        }
       },
     }
   })
@@ -230,19 +240,6 @@ export function Board({
     const hit = hitTest(boardPoint.x, boardPoint.y)
 
     if (!hit) {
-      if (tool === "board" || tool === "link" || tool === "note") {
-        // Place on single click only — ignore 2nd click of a double-click
-        if (e.detail > 1) return
-        e.currentTarget.setPointerCapture(e.pointerId)
-        dragRef.current = {
-          mode: "place",
-          pointerId: e.pointerId,
-          startScreen: { x: e.clientX, y: e.clientY },
-          startBoard: boardPoint,
-          originCamera: { ...cam },
-        }
-        return
-      }
       if (!e.metaKey && !e.ctrlKey && !e.shiftKey) {
         onSelectedIdsChange(new Set())
       }
@@ -263,10 +260,9 @@ export function Board({
     }
 
     if (
-      (hit.kind === "bookmark" ||
-        hit.kind === "note" ||
-        hit.kind === "image") &&
-      tool === "select"
+      hit.kind === "bookmark" ||
+      hit.kind === "note" ||
+      hit.kind === "image"
     ) {
       const rect = getBoardItemRect(hit)
       const minSize =
@@ -310,19 +306,14 @@ export function Board({
       }
     }
 
-    // While placing, don't open items on double-click
-    if (tool !== "board" && tool !== "link" && tool !== "note") {
-      const now = Date.now()
-      const last = lastClickRef.current
-      if (last && last.id === hit.id && now - last.time < 350) {
-        onOpenItem(hit.id)
-        lastClickRef.current = null
-        return
-      }
-      lastClickRef.current = { id: hit.id, time: now }
-    } else {
+    const now = Date.now()
+    const last = lastClickRef.current
+    if (last && last.id === hit.id && now - last.time < 350) {
+      onOpenItem(hit.id)
       lastClickRef.current = null
+      return
     }
+    lastClickRef.current = { id: hit.id, time: now }
 
     const additive = e.metaKey || e.ctrlKey
     let nextSelection: Set<string>
@@ -470,24 +461,6 @@ export function Board({
       setMarquee(null)
     }
 
-    if (drag.mode === "place") {
-      const moved = Math.hypot(
-        e.clientX - drag.startScreen.x,
-        e.clientY - drag.startScreen.y
-      )
-      // Place on click-release; double-clicks are ignored at pointerdown (detail > 1)
-      if (moved < DRAG_THRESHOLD) {
-        onBoardCreate(drag.startBoard.x, drag.startBoard.y)
-      }
-      dragRef.current = null
-      try {
-        e.currentTarget.releasePointerCapture(e.pointerId)
-      } catch {
-        // already released
-      }
-      return
-    }
-
     if (drag.mode === "resize" && drag.itemId) {
       const rect = resizeRectRef.current
       if (rect) onResizeItem(drag.itemId, rect)
@@ -586,10 +559,7 @@ export function Board({
     <div
       ref={viewportRef}
       className={cn(
-        "markx-dot-bg relative h-full w-full touch-none overflow-hidden select-none",
-        tool === "board" || tool === "link" || tool === "note"
-          ? "cursor-crosshair"
-          : "cursor-default",
+        "markx-dot-bg relative h-full w-full cursor-default touch-none overflow-hidden select-none",
         className
       )}
       onPointerDown={onPointerDown}

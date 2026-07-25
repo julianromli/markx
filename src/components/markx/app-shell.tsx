@@ -1,29 +1,22 @@
 import { Link } from "@tanstack/react-router"
 import type { ReactNode, RefObject } from "react"
 import { useState } from "react"
+import { toast } from "sonner"
 
 import {
   ArrowClockwiseIcon,
   ArrowCounterClockwiseIcon,
   CaretDownIcon,
-  ChatCircleIcon,
-  CheckSquareIcon,
-  ColumnsIcon,
-  CursorIcon,
   DotsThreeOutlineIcon,
   FolderSimpleIcon,
   GearIcon,
   ImageIcon,
-  LineSegmentIcon,
   LinkIcon,
   ListIcon,
   MagnifyingGlassIcon,
   NoteBlankIcon,
-  PencilSimpleIcon,
   QuestionIcon,
-  TableIcon,
   TrashIcon,
-  UploadSimpleIcon,
 } from "@phosphor-icons/react"
 
 import homeIcon from "@/assets/markx/header/home.svg"
@@ -36,9 +29,13 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useMarkxActions, useMarkxHistory } from "@/lib/markx/store"
 import { cn } from "@/lib/utils"
-import type { ToolId } from "@/lib/markx/types"
 
 type BreadcrumbItem = {
   label: string
@@ -49,46 +46,55 @@ type BreadcrumbItem = {
   imageSrc?: string
 }
 
+export type CreateAction = "note" | "link" | "board" | "image"
+
 type AppShellProps = {
   title: string
   breadcrumb?: BreadcrumbItem[]
-  tool: ToolId
-  onToolChange: (tool: ToolId) => void
+  mode: "home" | "folder"
+  /** Set while the initial cloud sync is still running. */
+  syncBlocked?: boolean
+  onCreate: (action: CreateAction) => void
   trashRef: RefObject<HTMLButtonElement | null>
   zoomPercent?: number
-  onImageTool?: () => void
   children: ReactNode
 }
 
 const TOOLS: Array<{
-  id: string
+  action: CreateAction
   label: string
-  icon: typeof CursorIcon
-  tool?: ToolId
-  action?: "image"
+  icon: typeof NoteBlankIcon
 }> = [
-  { id: "select", label: "Select", icon: CursorIcon, tool: "select" },
-  { id: "note", label: "Note", icon: NoteBlankIcon, tool: "note" },
-  { id: "link", label: "Link", icon: LinkIcon, tool: "link" },
-  { id: "todo", label: "To-do", icon: CheckSquareIcon },
-  { id: "line", label: "Line", icon: LineSegmentIcon },
-  { id: "board", label: "Board", icon: FolderSimpleIcon, tool: "board" },
-  { id: "column", label: "Column", icon: ColumnsIcon },
-  { id: "comment", label: "Comment", icon: ChatCircleIcon },
-  { id: "table", label: "Table", icon: TableIcon },
-  { id: "image", label: "Image", icon: ImageIcon, action: "image" },
-  { id: "upload", label: "Upload", icon: UploadSimpleIcon },
-  { id: "draw", label: "Draw", icon: PencilSimpleIcon },
+  { action: "note", label: "Note", icon: NoteBlankIcon },
+  { action: "link", label: "Link", icon: LinkIcon },
+  { action: "board", label: "Board", icon: FolderSimpleIcon },
+  { action: "image", label: "Image", icon: ImageIcon },
 ]
+
+/**
+ * Why a create action can't run right now, or null when it can. Sidebar buttons
+ * fire immediately, so an unavailable action has to explain itself up front
+ * rather than failing after the click.
+ */
+function unavailableReason(
+  action: CreateAction,
+  mode: "home" | "folder",
+  syncBlocked: boolean
+): string | null {
+  if (syncBlocked) return "Syncing your workspace…"
+  if (action === "link" && mode === "home") return "Open a folder to add links"
+  if (action === "board" && mode === "folder") return "Folders live on Home"
+  return null
+}
 
 export function AppShell({
   title,
   breadcrumb,
-  tool,
-  onToolChange,
+  mode,
+  syncBlocked = false,
+  onCreate,
   trashRef,
   zoomPercent,
-  onImageTool,
   children,
 }: AppShellProps) {
   const actions = useMarkxActions()
@@ -107,26 +113,16 @@ export function AppShell({
 
   const renderTools = (onSelect?: () => void) =>
     TOOLS.map((item) => {
-      const active = item.tool != null && tool === item.tool
-      const enabled = item.tool != null || item.action != null
+      const reason = unavailableReason(item.action, mode, syncBlocked)
       return (
         <ToolButton
-          key={item.id}
+          key={item.action}
           label={item.label}
-          active={active}
-          disabled={!enabled}
-          onClick={
-            enabled
-              ? () => {
-                  if (item.action === "image") {
-                    onImageTool?.()
-                  } else if (item.tool) {
-                    onToolChange(item.tool)
-                  }
-                  onSelect?.()
-                }
-              : undefined
-          }
+          reason={reason}
+          onClick={() => {
+            onCreate(item.action)
+            onSelect?.()
+          }}
           icon={<item.icon className="size-5" weight="regular" />}
         />
       )
@@ -425,31 +421,37 @@ function HeaderIconButton({
   )
 }
 
+/**
+ * Uses `aria-disabled` rather than `disabled` when unavailable: a truly disabled
+ * button emits no pointer events, so the tooltip explaining *why* would never
+ * open. The click handler is gated instead.
+ */
 function ToolButton({
   label,
   icon,
-  active,
-  disabled,
+  reason,
   onClick,
 }: {
   label: string
   icon: ReactNode
-  active?: boolean
-  disabled?: boolean
+  /** Why this action can't run, or null when it can. */
+  reason?: string | null
   onClick?: () => void
 }) {
-  return (
+  const unavailable = reason != null
+
+  const button = (
     <button
       type="button"
-      disabled={disabled}
-      onClick={onClick}
+      aria-disabled={unavailable || undefined}
+      // Tooltips don't open on touch, so a tap on an unavailable tool falls back
+      // to a toast carrying the same reason.
+      onClick={unavailable ? () => toast(reason) : onClick}
       className={cn(
-        "mb-0.5 flex w-full flex-col items-center gap-1 rounded-xl px-1 py-3 text-[10px] transition-[transform,background-color,box-shadow] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96] md:mb-0.5 md:w-[56px] md:gap-0.5 md:py-1.5 md:text-[9px]",
-        active
-          ? "bg-white text-[#202020] shadow-[0_1px_2px_rgba(0,10,20,0.08)]"
-          : "text-black/55 hover:bg-black/5",
-        disabled &&
-          "cursor-not-allowed opacity-45 hover:bg-transparent active:scale-100"
+        "mb-0.5 flex w-full flex-col items-center gap-1 rounded-xl px-1 py-3 text-[10px] text-black/55 transition-[transform,background-color,box-shadow] duration-150 ease-[var(--ease-out-strong)] md:mb-0.5 md:w-[56px] md:gap-0.5 md:py-1.5 md:text-[9px]",
+        unavailable
+          ? "cursor-not-allowed opacity-45"
+          : "hover:bg-black/5 active:scale-[0.96]"
       )}
     >
       <span className="flex size-8 items-center justify-center drop-shadow-[0_1px_1px_rgba(51,61,78,0.2)] md:size-7">
@@ -457,6 +459,15 @@ function ToolButton({
       </span>
       {label}
     </button>
+  )
+
+  if (!unavailable) return button
+
+  return (
+    <Tooltip>
+      <TooltipTrigger render={button} />
+      <TooltipContent side="right">{reason}</TooltipContent>
+    </Tooltip>
   )
 }
 

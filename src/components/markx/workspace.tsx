@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { Board } from "@/components/markx/board"
 import type { BoardApi, BoardItemModel } from "@/components/markx/board"
 import { AppShell } from "@/components/markx/app-shell"
+import type { CreateAction } from "@/components/markx/app-shell"
 import {
   AddLinkDialog,
   ConfirmDeleteFolderDialog,
@@ -23,7 +24,13 @@ import {
   useMarkxStore,
 } from "@/lib/markx/store"
 import { prepareImage } from "@/lib/markx/images"
-import type { ToolId } from "@/lib/markx/types"
+import {
+  BOOKMARK_SIZE,
+  FOLDER_SIZE,
+  NOTE_SIZE,
+  findEmptySlot,
+  getBoardItemRect,
+} from "@/lib/markx/geometry"
 import {
   classifyItemIds,
   countItemsInFolders,
@@ -44,7 +51,6 @@ export function Workspace(props: WorkspaceProps) {
   const boardApiRef = useRef<BoardApi | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const [tool, setTool] = useState<ToolId>("select")
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [renameOpen, setRenameOpen] = useState(false)
   const [newFolderOpen, setNewFolderOpen] = useState(false)
@@ -175,49 +181,86 @@ export function Workspace(props: WorkspaceProps) {
     toast("Folder deleted")
   }
 
-  const openNewFolderDialog = useCallback((x: number, y: number) => {
-    setPendingCreate({ x, y })
-    setNewFolderOpen(true)
-    setTool("select")
-  }, [])
+  /**
+   * Where to drop an item the user did not point at. Resolved at the moment of
+   * creation, not when a dialog opens, so it reflects the latest board state
+   * (the user may have panned, or a sync may have landed, in between).
+   */
+  const resolveSlot = useCallback(
+    (size: { width: number; height: number }) => {
+      const bounds = boardApiRef.current?.getViewBounds()
+      if (!bounds || bounds.width === 0 || bounds.height === 0) {
+        return { x: 180, y: 160 }
+      }
+      return findEmptySlot(items.map(getBoardItemRect), bounds, size)
+    },
+    [items]
+  )
 
-  const handleBoardCreate = (x: number, y: number) => {
-    // Don't re-open while a create dialog is already up (double-click / burst)
-    if (newFolderOpen || linkOpen) return
+  /** The folder new items belong to; null on Home. */
+  const activeFolderId = props.mode === "folder" ? props.folderId : null
 
-    if (tool === "note") {
-      const folderId = props.mode === "folder" ? props.folderId : null
-      const note = actions.createNote(x, y, folderId)
+  const createNoteAt = useCallback(
+    (point: { x: number; y: number }) => {
+      const note = actions.createNote(point.x, point.y, activeFolderId)
       setSelectedIds(new Set([note.id]))
       setEditingNoteId(note.id)
       actions.raiseZ([note.id])
-      setTool("select")
-      return
-    }
+    },
+    [actions, activeFolderId]
+  )
 
-    if (props.mode === "home") {
-      if (tool !== "board") {
-        if (tool === "link") {
-          toast("Open a folder to add links")
-          setTool("select")
-        }
-        return
-      }
-      openNewFolderDialog(x, y)
-      return
-    }
+  const openNewFolderDialog = useCallback(
+    (point?: { x: number; y: number }) => {
+      setPendingCreate(point ?? null)
+      setNewFolderOpen(true)
+    },
+    []
+  )
 
-    if (tool !== "link") {
-      if (tool === "board") {
-        toast("Folders live on Home")
-        setTool("select")
-      }
-      return
-    }
-    setPendingCreate({ x, y })
+  const openAddLinkDialog = useCallback((point?: { x: number; y: number }) => {
+    setPendingCreate(point ?? null)
     setLinkOpen(true)
-    setTool("select")
-  }
+  }, [])
+
+  /**
+   * Sidebar buttons create in one click: no armed tool, no follow-up canvas
+   * click. `link` and `board` still need their dialog for the URL or name, but
+   * it opens immediately rather than after a placement click.
+   */
+  const handleCreate = useCallback(
+    (action: CreateAction) => {
+      if (initialSyncBlocked) return
+      if (newFolderOpen || linkOpen) return
+
+      switch (action) {
+        case "note":
+          createNoteAt(resolveSlot(NOTE_SIZE))
+          return
+        case "link":
+          if (props.mode !== "folder") return
+          openAddLinkDialog()
+          return
+        case "board":
+          if (props.mode !== "home") return
+          openNewFolderDialog()
+          return
+        case "image":
+          fileInputRef.current?.click()
+          return
+      }
+    },
+    [
+      createNoteAt,
+      initialSyncBlocked,
+      linkOpen,
+      newFolderOpen,
+      openAddLinkDialog,
+      openNewFolderDialog,
+      props.mode,
+      resolveSlot,
+    ]
+  )
 
   const handleMoveItems = (
     updates: Array<{ id: string; x: number; y: number }>
@@ -260,7 +303,6 @@ export function Workspace(props: WorkspaceProps) {
         actions.raiseZ([created.id])
         cascade += 1
       }
-      setTool("select")
     },
     [actions, ingestImage, props]
   )
@@ -298,11 +340,17 @@ export function Workspace(props: WorkspaceProps) {
     onAddImages: addImageFiles,
     onCreateBookmark: (url) => {
       if (props.mode !== "folder") return
-      void actions.createBookmark(props.folderId, url, 200, 180)
-      setTool("select")
+      const point = resolveSlot(BOOKMARK_SIZE)
+      const bookmark = actions.createBookmark(
+        props.folderId,
+        url,
+        point.x,
+        point.y
+      )
+      setSelectedIds(new Set([bookmark.id]))
     },
     onDeleteSelection: deleteSelection,
-    onNewFolder: () => openNewFolderDialog(180, 160),
+    onNewFolder: () => openNewFolderDialog(),
     onRedo: actions.redo,
     onRename: (id) => {
       setContextTargetId(id)
@@ -310,7 +358,6 @@ export function Workspace(props: WorkspaceProps) {
     },
     onResetInteraction: () => {
       setSelectedIds(new Set())
-      setTool("select")
       setEditingNoteId(null)
     },
     onUndo: actions.undo,
@@ -342,26 +389,22 @@ export function Workspace(props: WorkspaceProps) {
             ]
           : [{ label: "Home", to: "/", home: true }]
       }
-      tool={tool}
-      onToolChange={initialSyncBlocked ? () => {} : setTool}
+      mode={props.mode}
+      syncBlocked={initialSyncBlocked}
+      onCreate={handleCreate}
       trashRef={trashRef}
       zoomPercent={zoomPercent}
-      onImageTool={
-        initialSyncBlocked ? () => {} : () => fileInputRef.current?.click()
-      }
     >
       <ContextMenu>
         <ContextMenuTrigger className="block h-full">
           <Board
             items={items}
-            tool={tool}
             selectedIds={selectedIds}
             onSelectedIdsChange={setSelectedIds}
             onRaiseZ={actions.raiseZ}
             onMoveItems={handleMoveItems}
             onResizeItem={handleResizeItem}
             onOpenItem={openItem}
-            onBoardCreate={handleBoardCreate}
             onTrashDrop={deleteSelection}
             trashRef={trashRef}
             onZoomChange={setZoomPercent}
@@ -388,11 +431,9 @@ export function Workspace(props: WorkspaceProps) {
           selectedNotes={selectedNotes}
           selectedOpenable={selectedOpenable}
           selectedRenamable={selectedRenamable}
-          onCreateFolder={(point) => openNewFolderDialog(point.x, point.y)}
-          onCreateBookmark={(point) => {
-            setPendingCreate(point)
-            setLinkOpen(true)
-          }}
+          onCreateFolder={(point) => openNewFolderDialog(point)}
+          onCreateBookmark={(point) => openAddLinkDialog(point)}
+          onCreateNote={createNoteAt}
           onDelete={deleteSelection}
           onMove={() => setMoveOpen(true)}
           onOpen={openItem}
@@ -441,8 +482,8 @@ export function Workspace(props: WorkspaceProps) {
             </p>
             <p className="mt-1 text-[13px] text-black/50">
               {props.mode === "home"
-                ? "Select Board or Note, click the canvas — or press ⌘N"
-                : "Select Link or Note and click, or paste a URL (⌘V)"}
+                ? "Use Board or Note in the sidebar — or press ⌘N"
+                : "Use Link or Note in the sidebar, or paste a URL (⌘V)"}
             </p>
           </div>
         </div>
@@ -454,19 +495,15 @@ export function Workspace(props: WorkspaceProps) {
         initialValue=""
         onOpenChange={(open) => {
           setNewFolderOpen(open)
-          if (!open) {
-            setPendingCreate(null)
-            setTool("select")
-          }
+          if (!open) setPendingCreate(null)
         }}
         onSubmit={(value) => {
-          const point = pendingCreate ?? { x: 180, y: 160 }
+          const point = pendingCreate ?? resolveSlot(FOLDER_SIZE)
           const folderItem = actions.createFolder(point.x, point.y, value)
           setSelectedIds(new Set([folderItem.id]))
           setContextTargetId(folderItem.id)
           actions.raiseZ([folderItem.id])
           setPendingCreate(null)
-          setTool("select")
         }}
       />
 
@@ -492,17 +529,20 @@ export function Workspace(props: WorkspaceProps) {
         open={linkOpen}
         onOpenChange={(open) => {
           setLinkOpen(open)
-          if (!open) {
-            setPendingCreate(null)
-            setTool("select")
-          }
+          if (!open) setPendingCreate(null)
         }}
         onSubmit={(url) => {
           if (props.mode !== "folder") return
-          const point = pendingCreate ?? { x: 200, y: 180 }
-          void actions.createBookmark(props.folderId, url, point.x, point.y)
+          const point = pendingCreate ?? resolveSlot(BOOKMARK_SIZE)
+          const bookmark = actions.createBookmark(
+            props.folderId,
+            url,
+            point.x,
+            point.y
+          )
+          setSelectedIds(new Set([bookmark.id]))
+          actions.raiseZ([bookmark.id])
           setPendingCreate(null)
-          setTool("select")
         }}
       />
 

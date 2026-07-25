@@ -16,6 +16,7 @@ type WorkspaceContextMenuProps = {
   selectedRenamable: boolean
   onCreateFolder: (point: { x: number; y: number }) => void
   onCreateBookmark: (point: { x: number; y: number }) => void
+  onCreateNote: (point: { x: number; y: number }) => void
   onDelete: (ids: string[]) => void
   onMove: () => void
   onOpen: (id: string) => void
@@ -36,6 +37,7 @@ export function WorkspaceContextMenu({
   selectedRenamable,
   onCreateFolder,
   onCreateBookmark,
+  onCreateNote,
   onDelete,
   onMove,
   onOpen,
@@ -46,6 +48,8 @@ export function WorkspaceContextMenu({
   const ids = [...selectedIds]
   return (
     <ContextMenuContent>
+      {/* Right-click carries an explicit location, so these place at the cursor
+          rather than using the sidebar's automatic slot placement. */}
       {mode === "home" ? (
         <ContextMenuItem onClick={() => onCreateFolder(contextPoint)}>
           New Board
@@ -55,6 +59,9 @@ export function WorkspaceContextMenu({
           Add bookmark
         </ContextMenuItem>
       )}
+      <ContextMenuItem onClick={() => onCreateNote(contextPoint)}>
+        New Note
+      </ContextMenuItem>
       <ContextMenuSeparator />
       {selectedNotes.length > 0 ? (
         <>

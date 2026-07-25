@@ -1,5 +1,3 @@
-export type ToolId = "select" | "link" | "board" | "note"
-
 export type Folder = {
   id: string
   name: string

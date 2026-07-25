@@ -50,12 +50,16 @@ export type MarkxActions = {
   deleteNotes: (ids: string[]) => Note[]
   createImage: (meta: Omit<BoardImage, "z">) => BoardImage
   deleteImages: (ids: string[]) => BoardImage[]
+  /**
+   * Returns the optimistic bookmark synchronously so callers can select it right
+   * away. Open Graph metadata arrives later via a background patch.
+   */
   createBookmark: (
     folderId: string,
     url: string,
     x: number,
     y: number
-  ) => Promise<Bookmark>
+  ) => Bookmark
   renameBookmark: (id: string, title: string) => void
   resizeItem: (
     id: string,
@@ -377,7 +381,7 @@ export function createMarkxStore(
       return removed
     },
 
-    async createBookmark(folderId, url, x, y) {
+    createBookmark(folderId, url, x, y) {
       let normalized = url.trim()
       if (!/^https?:\/\//i.test(normalized)) {
         normalized = `https://${normalized}`
@@ -405,17 +409,21 @@ export function createMarkxStore(
         }
       })
 
-      try {
-        const meta = await dependencies.enrich({ data: { url: normalized } })
-        patch((prev) => ({
-          ...prev,
-          bookmarks: prev.bookmarks.map((b) =>
-            b.id === created.id ? applyBookmarkMetadata(b, meta) : b
-          ),
-        }))
-      } catch {
-        // keep optimistic card
-      }
+      // Enrich in the background: the card is already on the board, and waiting
+      // for the scrape would delay selection and edit affordances.
+      void (async () => {
+        try {
+          const meta = await dependencies.enrich({ data: { url: normalized } })
+          patch((prev) => ({
+            ...prev,
+            bookmarks: prev.bookmarks.map((b) =>
+              b.id === created.id ? applyBookmarkMetadata(b, meta) : b
+            ),
+          }))
+        } catch {
+          // keep optimistic card
+        }
+      })()
 
       return created
     },

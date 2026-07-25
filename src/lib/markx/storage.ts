@@ -26,8 +26,9 @@ const userStateKey = (userId: string) => `user:${userId}:state`
  *
  * - `cloudVersion:{userId}` — last known cloud `version` for optimistic
  *   locking. Updated after every successful save.
- * - `guestImported:{userId}` — `"1"` once the guest demo has been imported
- *   into this user's cloud workspace. Prevents re-importing on every login.
+ * - `guestImported:{userId}` — `"1"` once first-login bootstrap against the
+ *   cloud has completed for this user (guest import committed, or cloud
+ *   load / cloud-wins resolved). Prevents re-importing on later logins.
  * - `pendingSnapshot:{userId}` — coalesced latest state awaiting sync.
  *   `null`/absent means no pending write.
  * - `pendingDeletedImageIds:{userId}` — accumulated image IDs removed since
@@ -126,6 +127,21 @@ export async function saveState(state: MarkxState): Promise<void> {
 }
 
 /**
+ * Reset the guest workspace back to the demo seed.
+ *
+ * Called after a successful first-login bootstrap (guest import or cloud
+ * load) and on explicit sign-out, so guest mode never reuses stale edits
+ * that already belonged to an account session.
+ */
+export async function resetGuestState(): Promise<MarkxState> {
+  const demo = createDemoState()
+  if (typeof indexedDB === "undefined") return demo
+  const db = await openMarkxDatabase()
+  await db.put("meta", demo, GUEST_STATE_KEY)
+  return demo
+}
+
+/**
  * Load the per-user cached workspace state. Returns `null` if no cache
  * exists for this user yet (first login on this device).
  */
@@ -157,8 +173,7 @@ export async function saveUserState(
  * see stale data).
  *
  * Does NOT clear `guestImported` — that flag is durable and should
- * survive sign-out so the user isn't re-prompted to import on next
- * login.
+ * survive sign-out so a returning user never re-imports guest data.
  */
 export async function clearUserCache(userId: string): Promise<void> {
   if (typeof indexedDB === "undefined") return

@@ -3,7 +3,7 @@ import { refreshAuthSession, setAuthSessionGuest } from "@/lib/auth/session"
 import { SyncEngine } from "@/lib/markx/sync"
 import { attachEngineAndPaint } from "@/lib/markx/sync-lifecycle"
 import { store } from "@/lib/markx/store"
-import { clearLastUserId, loadState } from "@/lib/markx/storage"
+import { clearLastUserId, resetGuestState } from "@/lib/markx/storage"
 
 /**
  * Send a one-time password to the given email address.
@@ -79,25 +79,20 @@ export async function onLoginSuccess(): Promise<SyncEngine> {
 /**
  * Sign out the current user.
  *
- * Per the sign-out policy:
- *  1. Flush pending changes to the cloud (if online and no conflict).
- *  2. Clear the per-user IndexedDB cache.
+ * Policy:
+ *  1. Flush pending changes to the cloud (best-effort).
+ *  2. Always clear the per-user IndexedDB cache (pending hangus after logout).
  *  3. Detach the SyncEngine from the store.
- *  4. Switch the store back to the guest state from local IndexedDB.
+ *  4. Reset guest workspace to the demo seed and enter guest mode.
  */
 export async function signOut(): Promise<void> {
   const engine = store.getSyncEngine()
 
   if (engine) {
-    // Flush pending changes before destroying the engine.
     await engine.flushAndDestroy()
-
-    // Only clear the per-user cache if the last sync succeeded.
-    // If the sync failed (offline/error), keep the cache so the next
-    // login can recover pending changes from the local queue.
-    if (engine.getStatus() === "saved") {
-      await engine.clearCache()
-    }
+    // Explicit logout abandons any unsynced local pending — next login
+    // is pure cloud-wins from a clean cache.
+    await engine.clearCache()
   }
 
   // Tell Neon Auth to revoke the session.
@@ -108,13 +103,10 @@ export async function signOut(): Promise<void> {
     // Even if the network call fails, we clear locally.
   }
 
-  // Detach the sync engine and switch to guest mode.
   store.detachSync()
   await clearLastUserId()
 
-  // Reset the store to the guest state from local IndexedDB so the
-  // user can continue as a guest with their previous local data.
-  const guestState = await loadState()
+  const guestState = await resetGuestState()
   store.replaceState(guestState, { persist: false })
   setAuthSessionGuest()
 }

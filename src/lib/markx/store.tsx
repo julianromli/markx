@@ -120,6 +120,7 @@ export function createMarkxStore(
    * changes are persisted only to the local IndexedDB guest store.
    */
   let syncEngine: SyncEngine | null = null
+  let syncUnsub: (() => void) | null = null
 
   /**
    * Image IDs removed since the last sync. Accumulated across multiple
@@ -560,15 +561,21 @@ export function createMarkxStore(
     actions,
     getSyncEngine: () => syncEngine,
     attachSync(engine: SyncEngine) {
+      syncUnsub?.()
       syncEngine = engine
-      // Load the state that the SyncEngine already fetched from the cloud
-      // (or the per-user cache). The engine stores its loaded state
-      // internally; we pull it via the cloud-load path below.
-      //
-      // The actual state replacement happens in `hydrateForSync()` which
-      // is called right after this by the provider.
+      // Adopt authoritative remote state when the engine resolves a deferred
+      // first-login bootstrap (e.g. offline guest import → cloud-wins).
+      syncUnsub = engine.subscribe((_status, _conflict, authoritativeState) => {
+        if (!authoritativeState || syncEngine !== engine) return
+        state = authoritativeState
+        past = []
+        future = []
+        emit()
+      })
     },
     detachSync() {
+      syncUnsub?.()
+      syncUnsub = null
       syncEngine = null
       pendingDeletedImageIds.clear()
     },

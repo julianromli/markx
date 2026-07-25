@@ -16,6 +16,7 @@ import {
   loadUserState,
   markGuestImported,
   removeAssetsFromQueue,
+  resetGuestState,
   saveImageBlob,
   saveUserState,
   setCloudVersion,
@@ -46,7 +47,12 @@ export type ConflictData = {
   cloudUpdatedAt: string
 }
 
-type SyncListener = (status: SyncStatus, conflict?: ConflictData) => void
+type SyncListener = (
+  status: SyncStatus,
+  conflict?: ConflictData,
+  /** When set, the store should adopt this as the authoritative workspace. */
+  authoritativeState?: MarkxState
+) => void
 
 export type WorkspaceSyncDependency = {
   load: () => Promise<WorkspaceSnapshot | null>
@@ -71,6 +77,7 @@ export type AssetSyncDependency = {
 
 export type SyncStorageDependency = {
   loadGuestState: () => Promise<MarkxState>
+  resetGuestState: () => Promise<MarkxState>
   loadUserState: (userId: string) => Promise<MarkxState | null>
   saveUserState: (userId: string, state: MarkxState) => Promise<void>
   clearUserCache: (userId: string) => Promise<void>
@@ -133,6 +140,7 @@ const defaultSyncEngineDependencies: SyncEngineDependencies = {
   },
   storage: {
     loadGuestState: loadState,
+    resetGuestState,
     loadUserState,
     saveUserState,
     clearUserCache,
@@ -182,8 +190,9 @@ export function shouldKeepLocalAfterCloudRefresh(opts: {
  *  3. Debounce local state changes and push coalesced snapshots to the
  *     cloud with optimistic version control.
  *  4. Queue writes when offline and flush them on reconnect.
- *  5. Surface conflicts to the UI so the user can choose "use cloud" or
- *     "overwrite cloud".
+ *  5. Surface mid-session conflicts to the UI so the user can choose
+ *     "use cloud" or "overwrite cloud". Guest-vs-cloud at login is
+ *     silent cloud-wins (no dialog).
  *  6. Upload queued image assets to R2.
  */
 export class SyncEngine {
@@ -202,6 +211,11 @@ export class SyncEngine {
   private hadCachedState = false
   /** True after the user edits locally (debounce scheduled) during init refresh. */
   private localEditsSinceLoad = false
+  /**
+   * Guest workspace awaiting first-login import after an offline / failed
+   * attempt. Cleared once import or silent cloud-wins completes.
+   */
+  private pendingGuestImport: MarkxState | null = null
   private dependencies: SyncEngineDependencies
 
   private constructor(userId: string, dependencies: SyncEngineDependencies) {
@@ -220,9 +234,10 @@ export class SyncEngine {
    *
    * Flow:
    *  1. Load the per-user cache (or empty onboarded state).
-   *  2. If guest data has not been imported yet AND the guest workspace has
-   *     been modified from the demo, attempt a one-time import.
-   *  3. Otherwise, refresh from the cloud (cache remains the fallback).
+   *  2. If first-login flag unset AND guest was modified from demo, attempt
+   *     one-time import (cloud empty → import; cloud has data → silent
+   *     cloud-wins). Offline → keep guest locally and retry on reconnect.
+   *  3. Otherwise, refresh from the cloud and finalize first-login flag.
    */
   static async create(
     userId: string,
@@ -293,46 +308,106 @@ export class SyncEngine {
   }
 
   /**
-   * Attempt a one-time guest import. If the cloud is empty, the guest state
-   * becomes the cloud state. If the cloud already has data, surface a
-   * conflict so the user can choose.
+   * Attempt a one-time guest import.
+   *
+   * - Cloud empty → guest becomes cloud; enqueue guest image uploads.
+   * - Cloud already has data → silent cloud-wins (no conflict dialog).
+   * - Network failure → keep guest locally and retry on reconnect without
+   *   setting the first-login flag.
    */
   private async tryImportGuest(guestState: MarkxState): Promise<void> {
     try {
       const result = await this.dependencies.workspace.importGuest(guestState)
+      if (this.isDestroyed()) return
+
       if (result.ok) {
-        await this.dependencies.storage.markGuestImported(this.userId)
-        this.cloudVersion = result.version
-        await this.dependencies.storage.setCloudVersion(
-          this.userId,
-          result.version
-        )
-        this.currentState = guestState
-        await this.dependencies.storage.saveUserState(this.userId, guestState)
-        this.setStatus("saved")
+        await this.applySuccessfulGuestImport(guestState, result.version)
         return
       }
 
       if (result.reason === "conflict") {
-        // Cloud already has data — let the user decide.
-        this.conflict = {
-          cloudVersion: result.cloudVersion,
-          cloudState: result.cloudState,
-          cloudUpdatedAt: result.cloudUpdatedAt,
-        }
-        this.cloudVersion = result.cloudVersion
-        this.currentState = guestState
-        await this.dependencies.storage.saveUserState(this.userId, guestState)
-        this.setStatus("conflict")
+        await this.applySilentCloudWins(
+          result.cloudState,
+          result.cloudVersion,
+          { notifyStore: Boolean(this.pendingGuestImport) }
+        )
         return
       }
 
-      // Unexpected error — fall back to normal cloud refresh.
-      await this.refreshFromCloud()
+      await this.adoptPendingGuestImport(guestState)
     } catch {
-      // Network error during import — keep cache and retry later via sync.
-      await this.refreshFromCloud()
+      if (this.isDestroyed()) return
+      await this.adoptPendingGuestImport(guestState)
     }
+  }
+
+  private async applySuccessfulGuestImport(
+    guestState: MarkxState,
+    version: number
+  ): Promise<void> {
+    this.pendingGuestImport = null
+    this.cloudVersion = version
+    await this.dependencies.storage.setCloudVersion(this.userId, version)
+    this.currentState = guestState
+    await this.dependencies.storage.saveUserState(this.userId, guestState)
+    await this.enqueueGuestImages(guestState)
+    await this.finalizeFirstLoginBootstrap()
+    this.setStatus("saved")
+    if (this.online) {
+      this.scheduleFlush()
+    }
+  }
+
+  private async applySilentCloudWins(
+    cloudState: MarkxState,
+    cloudVersion: number,
+    opts?: { notifyStore?: boolean }
+  ): Promise<void> {
+    this.pendingGuestImport = null
+    this.cloudVersion = cloudVersion
+    await this.dependencies.storage.setCloudVersion(this.userId, cloudVersion)
+    this.currentState = cloudState
+    await this.dependencies.storage.saveUserState(this.userId, cloudState)
+    await this.dependencies.storage.setPendingSnapshot(this.userId, null)
+    await this.finalizeFirstLoginBootstrap()
+    this.setStatus(
+      "saved",
+      opts?.notifyStore ? cloudState : undefined
+    )
+  }
+
+  /**
+   * Keep guest data as the working state until the cloud is reachable.
+   * Does not set the first-login flag.
+   */
+  private async adoptPendingGuestImport(guestState: MarkxState): Promise<void> {
+    this.pendingGuestImport = guestState
+    this.currentState = guestState
+    await this.dependencies.storage.saveUserState(this.userId, guestState)
+    this.setStatus(this.online ? "error" : "offline")
+  }
+
+  private async enqueueGuestImages(state: MarkxState): Promise<void> {
+    for (const image of state.images) {
+      const blob = await this.dependencies.storage.getImageBlob(image.imageId)
+      if (!blob) continue
+      const dataUrl = await blobToDataUrl(blob)
+      await this.enqueueAssetInternal({
+        imageId: image.imageId,
+        mime: image.mime,
+        dataUrl,
+      })
+    }
+  }
+
+  /**
+   * Mark first-login bootstrap complete and reset the guest store to demo.
+   * No-ops when the flag is already set.
+   */
+  private async finalizeFirstLoginBootstrap(): Promise<void> {
+    if (await this.dependencies.storage.isGuestImported(this.userId)) return
+    await this.dependencies.storage.markGuestImported(this.userId)
+    await this.dependencies.storage.resetGuestState()
   }
 
   private isDestroyed(): boolean {
@@ -390,6 +465,9 @@ export class SyncEngine {
         if (pending) {
           this.currentState = pending
         }
+        // Cloud was reachable — first-login flag can be set even if we keep
+        // local pending (session-expire recovery path).
+        await this.finalizeFirstLoginBootstrap()
         if (this.status !== "conflict" && this.online) {
           void this.sync()
         } else if (!this.online) {
@@ -400,6 +478,7 @@ export class SyncEngine {
 
       this.currentState = snapshot.state
       await this.dependencies.storage.saveUserState(this.userId, snapshot.state)
+      await this.finalizeFirstLoginBootstrap()
       this.setStatus("saved")
       return snapshot.state
     } catch (err) {
@@ -640,6 +719,23 @@ export class SyncEngine {
 
   private handleOnline = async () => {
     this.online = true
+
+    // Finish first-login guest import that was deferred while offline.
+    if (this.pendingGuestImport) {
+      await this.tryImportGuest(this.pendingGuestImport)
+      return
+    }
+
+    // First login with unmodified guest that never reached the cloud yet.
+    if (!(await this.dependencies.storage.isGuestImported(this.userId))) {
+      const cloudState = await this.refreshFromCloud()
+      if (this.isDestroyed()) return
+      if (cloudState) {
+        this.setStatus("saved", cloudState)
+      }
+      return
+    }
+
     // Flush any pending snapshot that accumulated while offline.
     const pending = await this.dependencies.storage.getPendingSnapshot(
       this.userId
@@ -692,11 +788,14 @@ export class SyncEngine {
     }
   }
 
-  private setStatus(status: SyncStatus): void {
-    if (this.status === status) return
+  private setStatus(
+    status: SyncStatus,
+    authoritativeState?: MarkxState
+  ): void {
+    if (this.status === status && !authoritativeState) return
     this.status = status
     for (const listener of this.listeners) {
-      listener(status, this.conflict)
+      listener(status, this.conflict, authoritativeState)
     }
   }
 

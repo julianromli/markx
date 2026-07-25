@@ -33,6 +33,7 @@ type EngineStub = {
   hasCachedState: () => boolean
   refreshFromCloud: ReturnType<typeof vi.fn>
   destroy: ReturnType<typeof vi.fn>
+  subscribe: ReturnType<typeof vi.fn>
 }
 
 async function setupProvider(opts: {
@@ -63,6 +64,7 @@ async function setupProvider(opts: {
       hasCachedState: () => Boolean(opts.cachedState),
       refreshFromCloud: vi.fn(async () => emptyState),
       destroy: vi.fn(),
+      subscribe: vi.fn(() => () => {}),
     } satisfies EngineStub)
   const createFromCache = vi.fn(async () => engine)
   const create = vi.fn(async () => engine)
@@ -187,6 +189,7 @@ describe("MarkxProvider authenticated bootstrap", () => {
       hasCachedState: () => false,
       refreshFromCloud: vi.fn(() => cloudState.promise),
       destroy: vi.fn(),
+      subscribe: vi.fn(() => () => {}),
     }
     const { MarkxProvider, useMarkxStore } = await setupProvider({
       session: Promise.resolve({
@@ -274,6 +277,7 @@ describe("MarkxProvider authenticated bootstrap", () => {
       hasCachedState: () => false,
       refreshFromCloud: vi.fn(() => cloudState.promise),
       destroy: vi.fn(),
+      subscribe: vi.fn(() => () => {}),
     }
     const { MarkxProvider, useMarkxStore, store } = await setupProvider({
       session: Promise.resolve({

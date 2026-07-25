@@ -11,7 +11,7 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-linear-to-b from-[oklch(0.3_0_0)] to-[oklch(0.14_0_0)] text-white shadow-[0_1px_2px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.12)] hover:brightness-110 active:not-aria-[haspopup]:scale-[0.97] active:not-aria-[haspopup]:brightness-95 dark:from-[oklch(0.94_0_0)] dark:to-[oklch(0.82_0_0)] dark:text-neutral-900 dark:shadow-[0_1px_2px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.65)] dark:hover:brightness-105 dark:active:not-aria-[haspopup]:brightness-95",
+          "bg-linear-to-b from-[oklch(0.3_0_0)] to-[oklch(0.14_0_0)] bg-clip-border text-white shadow-[0_1px_2px_rgba(0,0,0,0.22)] hover:brightness-110 active:not-aria-[haspopup]:scale-[0.97] active:not-aria-[haspopup]:brightness-95 dark:from-[oklch(0.94_0_0)] dark:to-[oklch(0.82_0_0)] dark:text-neutral-900 dark:shadow-[0_1px_2px_rgba(0,0,0,0.35)] dark:hover:brightness-105 dark:active:not-aria-[haspopup]:brightness-95",
         outline:
           "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:bg-transparent dark:hover:bg-input/30",
         secondary:

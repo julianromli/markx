@@ -1,4 +1,5 @@
 import { useNavigate } from "@tanstack/react-router"
+import { FolderSimpleIcon, LinkIcon } from "@phosphor-icons/react"
 import { useCallback, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 
@@ -477,17 +478,36 @@ export function Workspace(props: WorkspaceProps) {
         </div>
       ) : items.length === 0 ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="rounded-2xl bg-white/80 px-6 py-5 text-center shadow-sm outline outline-1 outline-black/5 backdrop-blur">
-            <p className="text-[15px] font-medium text-[#202020]">
+          <div className="pointer-events-auto rounded-2xl bg-white/80 px-6 py-5 text-center shadow-sm outline outline-1 outline-black/5 backdrop-blur">
+            <p className="text-balance text-[15px] font-medium text-[#202020]">
               {props.mode === "home"
                 ? "Create a folder or note"
                 : "Add a link or note"}
             </p>
-            <p className="mt-1 text-[13px] text-black/50">
+            <p className="mt-1 text-pretty text-[13px] text-black/50">
               {props.mode === "home"
-                ? "Use Board or Note in the sidebar — or press ⌘N"
-                : "Use Link or Note in the sidebar, or paste a URL (⌘V)"}
+                ? "Or add a note from the sidebar (⌘N)"
+                : "Or add a note, or paste a URL (⌘V)"}
             </p>
+            <Button
+              className="mt-4"
+              disabled={initialSyncBlocked}
+              onClick={() =>
+                handleCreate(props.mode === "home" ? "board" : "link")
+              }
+            >
+              {props.mode === "home" ? (
+                <>
+                  <FolderSimpleIcon className="size-4" weight="regular" />
+                  New board
+                </>
+              ) : (
+                <>
+                  <LinkIcon className="size-4" weight="regular" />
+                  Add link
+                </>
+              )}
+            </Button>
           </div>
         </div>
       ) : null}

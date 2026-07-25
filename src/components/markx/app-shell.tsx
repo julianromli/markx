@@ -151,7 +151,16 @@ export function AppShell({
             onCreate(item.action)
             onSelect?.()
           }}
-          icon={<item.icon className="size-5" weight="regular" />}
+          icon={
+            <item.icon
+              className={cn(
+                "size-5",
+                // NoteBlank’s dog-ear pulls visual weight right; nudge left to match peers.
+                item.action === "note" && "-translate-x-px"
+              )}
+              weight="regular"
+            />
+          }
         />
       )
     })
@@ -198,7 +207,7 @@ export function AppShell({
                         />
                       </span>
                     ) : (
-                      <span className="relative size-[18px] shrink-0 overflow-hidden rounded-[3px] outline outline-1 -outline-offset-1 outline-black/10">
+                      <span className="relative size-[18px] shrink-0 overflow-hidden rounded-[3px]">
                         <img
                           src={crumb.imageSrc ?? pixelFolder}
                           alt=""
@@ -208,7 +217,7 @@ export function AppShell({
                         />
                       </span>
                     )}
-                    <span className="min-w-0 truncate text-[12px] leading-none font-semibold text-[rgba(32,32,32,0.8)] md:max-w-[270px]">
+                    <span className="min-w-0 truncate text-sm leading-none font-semibold text-[rgba(32,32,32,0.8)] md:max-w-[270px]">
                       {crumb.label}
                     </span>
                   </>
@@ -219,6 +228,9 @@ export function AppShell({
                     key={crumb.to ?? (crumb.home ? "home" : crumb.label)}
                     className={cn(
                       "flex h-11 min-w-0 items-center",
+                      // First crumb icon centers in the 63px desktop rail
+                      // ((63 − 18) / 2 = 22.5) so it shares an axis with sidebar tools.
+                      index === 0 ? "pr-1 pl-1 md:pl-[22.5px]" : "px-1 md:px-0",
                       isLast ? "flex" : "hidden md:flex"
                     )}
                   >
@@ -230,17 +242,32 @@ export function AppShell({
                         /
                       </span>
                     ) : null}
-                    <div className="flex h-11 min-w-0 items-center pr-1 pl-1 md:pl-[9px]">
+                    <div
+                      className={cn(
+                        "flex h-11 min-w-0 items-center",
+                        index === 0 ? "pr-1" : "pr-1 pl-1 md:pl-[9px]"
+                      )}
+                    >
                       {crumb.to && !isLast ? (
                         <Link
                           to={crumb.to}
-                          className="flex h-8 max-w-full items-center gap-1.5 rounded-[3px] px-1.5 transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.04] active:scale-[0.96] md:h-7 md:px-[7px]"
+                          className={cn(
+                            "flex h-8 max-w-full items-center gap-1.5 rounded-[3px] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.04] active:scale-[0.96] md:h-7",
+                            index === 0
+                              ? "px-1.5 md:pr-[7px] md:pl-0"
+                              : "px-1.5 md:px-[7px]"
+                          )}
                         >
                           {content}
                         </Link>
                       ) : (
                         <span
-                          className="flex h-8 max-w-full items-center gap-1.5 rounded-[3px] px-1.5 md:h-7 md:px-[7px]"
+                          className={cn(
+                            "flex h-8 max-w-full items-center gap-1.5 rounded-[3px] md:h-7",
+                            index === 0
+                              ? "px-1.5 md:pr-[7px] md:pl-0"
+                              : "px-1.5 md:px-[7px]"
+                          )}
                           aria-current={isLast ? "page" : undefined}
                         >
                           {content}
@@ -259,7 +286,7 @@ export function AppShell({
             </h1>
           </div>
 
-          <div className="relative z-10 flex h-12 shrink-0 items-center justify-end gap-1 pr-[max(0.5rem,env(safe-area-inset-right))] md:gap-0 md:pr-[calc(1rem+env(safe-area-inset-right))]">
+          <div className="relative z-10 flex h-12 shrink-0 items-center justify-end gap-1 pr-[max(0.25rem,env(safe-area-inset-right))] md:gap-0 md:pr-[22.5px]">
             {typeof zoomPercent === "number" && onZoomPreset && onZoomFit ? (
               <DropdownMenu>
                 <DropdownMenuTrigger

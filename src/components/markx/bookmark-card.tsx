@@ -1,3 +1,5 @@
+import { useState } from "react"
+
 import { ResizeHandle } from "@/components/markx/resize-handle"
 import { BOOKMARK_SIZE } from "@/lib/markx/geometry"
 import { cn } from "@/lib/utils"
@@ -14,7 +16,16 @@ export function BookmarkCard({
   selected,
   className,
 }: BookmarkCardProps) {
-  const hasImage = Boolean(bookmark.imageUrl)
+  // Preview and favicon are hotlinked from the origin, which may delete the file
+  // or start blocking hotlinks long after the URL was cached. Remember which URL
+  // failed rather than a bare flag, so a later enrichment gets a fresh attempt.
+  const [failedPreview, setFailedPreview] = useState<string | null>(null)
+  const [failedFavicon, setFailedFavicon] = useState<string | null>(null)
+
+  const hasImage =
+    Boolean(bookmark.imageUrl) && failedPreview !== bookmark.imageUrl
+  const hasFavicon =
+    Boolean(bookmark.faviconUrl) && failedFavicon !== bookmark.faviconUrl
   const brandFallback = !hasImage
   const width = bookmark.width ?? BOOKMARK_SIZE.width
   const height = bookmark.height ?? BOOKMARK_SIZE.height
@@ -38,15 +49,19 @@ export function BookmarkCard({
           draggable={false}
           loading="lazy"
           referrerPolicy="no-referrer"
+          onError={() => setFailedPreview(bookmark.imageUrl ?? null)}
         />
       ) : (
         <div className="flex size-full flex-col items-center justify-center gap-3 px-8 text-center text-white">
-          {bookmark.faviconUrl ? (
+          {hasFavicon ? (
             <img
               src={bookmark.faviconUrl}
               alt=""
               className="size-12 rounded-xl outline outline-1 outline-white/15"
               draggable={false}
+              loading="lazy"
+              referrerPolicy="no-referrer"
+              onError={() => setFailedFavicon(bookmark.faviconUrl ?? null)}
             />
           ) : (
             <span className="text-3xl font-semibold tracking-tight">

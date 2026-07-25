@@ -52,6 +52,27 @@ function faviconFor(url: string): string {
   }
 }
 
+/**
+ * Scrapers often report the favicon as a site-relative path ("/favicon.ico").
+ * Stored as-is it would later resolve against our own origin and 404, so resolve
+ * it against the page and fall back to the Google service when that fails.
+ */
+export function absoluteFavicon(
+  favicon: string | undefined,
+  pageUrl: string
+): string {
+  if (!favicon) return faviconFor(pageUrl)
+  try {
+    const resolved = new URL(favicon, pageUrl)
+    if (resolved.protocol !== "http:" && resolved.protocol !== "https:") {
+      return faviconFor(pageUrl)
+    }
+    return resolved.toString()
+  } catch {
+    return faviconFor(pageUrl)
+  }
+}
+
 async function enrichFromOgs(url: string): Promise<LinkMetadata | null> {
   let data: SuccessResult | ErrorResult
   try {
@@ -82,7 +103,7 @@ async function enrichFromOgs(url: string): Promise<LinkMetadata | null> {
     title: result.ogTitle || result.twitterTitle || hostnameTitle(url),
     description: result.ogDescription || result.twitterDescription,
     imageUrl,
-    faviconUrl: result.favicon || faviconFor(url),
+    faviconUrl: absoluteFavicon(result.favicon, url),
   }
 }
 

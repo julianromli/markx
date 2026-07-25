@@ -3,16 +3,13 @@ import { getRequestHeader } from "@tanstack/react-start/server"
 
 import { getAuthToken } from "@/lib/auth/session"
 import { verifyNeonJwt, extractBearer } from "@/lib/auth/jwt"
+import type { VerifiedAuthUser } from "@/lib/auth/types"
 
 /**
  * Authenticated user shape injected into server function context by
  * {@link authMiddleware}.
  */
-export type AuthUser = {
-  id: string
-  email: string
-  emailVerified: boolean
-}
+export type AuthUser = VerifiedAuthUser
 
 /**
  * TanStack Start middleware that:
@@ -56,7 +53,7 @@ export const authMiddleware = createMiddleware({ type: "function" })
     const { env } = await import("cloudflare:workers")
     const user = await verifyNeonJwt(
       extractBearer(getRequestHeader("authorization")),
-      env,
+      env
     )
     return next({ context: { user } })
   })
@@ -69,9 +66,7 @@ export const authMiddleware = createMiddleware({ type: "function" })
  * a server function with a specific HTTP status; the framework serializes it
  * back to the client as-is.
  */
-export function requireUser(context: {
-  user: AuthUser | null
-}): AuthUser {
+export function requireUser(context: { user: AuthUser | null }): AuthUser {
   if (!context.user) {
     throw new Response("Unauthorized", { status: 401 })
   }

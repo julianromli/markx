@@ -2,11 +2,7 @@ import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router"
 
 import { Toaster } from "@/components/ui/sonner"
 import { MarkxProvider } from "@/lib/markx/store"
-import {
-  SITE_DESCRIPTION,
-  SITE_NAME,
-  SITE_URL,
-} from "@/lib/site-meta"
+import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site-meta"
 import appCss from "../styles.css?url"
 
 export const Route = createRootRoute({

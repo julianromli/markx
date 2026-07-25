@@ -1,15 +1,9 @@
 import { getAuthClient } from "@/lib/auth/client"
-import {
-  refreshAuthSession,
-  setAuthSessionGuest,
-} from "@/lib/auth/session"
+import { refreshAuthSession, setAuthSessionGuest } from "@/lib/auth/session"
 import { SyncEngine } from "@/lib/markx/sync"
+import { attachEngineAndPaint } from "@/lib/markx/sync-lifecycle"
 import { store } from "@/lib/markx/store"
-import {
-  clearLastUserId,
-  loadState,
-  setLastUserId,
-} from "@/lib/markx/storage"
+import { clearLastUserId, loadState } from "@/lib/markx/storage"
 
 /**
  * Send a one-time password to the given email address.
@@ -47,7 +41,7 @@ export async function sendOtp(email: string): Promise<{ error?: string }> {
  */
 export async function verifyOtp(
   email: string,
-  otp: string,
+  otp: string
 ): Promise<{ error?: string }> {
   try {
     const authClient = await getAuthClient()
@@ -78,13 +72,7 @@ export async function onLoginSuccess(): Promise<SyncEngine> {
   // First login / mode switch — await cloud (or guest import) so the UI
   // switches to the authoritative workspace before closing the dialog.
   const engine = await SyncEngine.create(user.id)
-  store.attachSync(engine)
-  const loaded = engine.getLoadedState()
-  if (loaded) {
-    store.replaceState(loaded, { persist: false })
-  }
-  store.markReady()
-  await setLastUserId(user.id)
+  await attachEngineAndPaint(store, engine)
   return engine
 }
 

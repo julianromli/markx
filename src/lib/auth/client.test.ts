@@ -18,7 +18,7 @@ describe("resolveAuthBaseURL", () => {
       resolveAuthBaseURL({
         envUrl: "http://localhost:3000/api/auth",
         origin: "https://markx.app",
-      }),
+      })
     ).toBe("http://localhost:3000/api/auth")
   })
 
@@ -27,7 +27,7 @@ describe("resolveAuthBaseURL", () => {
       resolveAuthBaseURL({
         envUrl: "/api/auth",
         origin: "https://markx.app",
-      }),
+      })
     ).toBe("https://markx.app/api/auth")
   })
 
@@ -35,7 +35,7 @@ describe("resolveAuthBaseURL", () => {
     // `envUrl: undefined` simulates an unset VITE_NEON_AUTH_URL (the
     // production case), since the local .env populates it in tests.
     expect(
-      resolveAuthBaseURL({ envUrl: undefined, origin: "https://markx.app" }),
+      resolveAuthBaseURL({ envUrl: undefined, origin: "https://markx.app" })
     ).toBe("https://markx.app/api/auth")
   })
 
@@ -55,7 +55,7 @@ describe("resolveAuthBaseURL", () => {
 
   it("throws when no origin and no absolute URL are available", () => {
     expect(() =>
-      resolveAuthBaseURL({ envUrl: undefined, origin: undefined }),
+      resolveAuthBaseURL({ envUrl: undefined, origin: undefined })
     ).toThrow(/base URL/)
   })
 })

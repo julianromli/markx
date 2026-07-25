@@ -35,11 +35,17 @@ function Kbd({ children }: { children: React.ReactNode }) {
   )
 }
 
-export function HelpDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+export function HelpDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+}) {
   const mod = usePlatformMod()
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-y-auto">
+      <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Quick guide</DialogTitle>
           <DialogDescription>
@@ -56,7 +62,13 @@ export function HelpDialog({ open, onOpenChange }: { open: boolean; onOpenChange
   )
 }
 
-function SectionTitle({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+function SectionTitle({
+  icon,
+  children,
+}: {
+  icon: React.ReactNode
+  children: React.ReactNode
+}) {
   return (
     <h3 className="flex items-center gap-2 text-sm font-semibold">
       {icon}
@@ -67,18 +79,38 @@ function SectionTitle({ icon, children }: { icon: React.ReactNode; children: Rea
 
 function BasicsSection() {
   const items = [
-    { icon: <FolderSimpleIcon className="size-4" weight="regular" />, text: "Create folders on Home to group related links." },
-    { icon: <LinkIcon className="size-4" weight="regular" />, text: "Paste a URL inside a folder to add it as a bookmark." },
-    { icon: <NoteBlankIcon className="size-4" weight="regular" />, text: "Add notes to jot down ideas alongside your links." },
-    { icon: <ImageIcon className="size-4" weight="regular" />, text: "Drop or paste images onto the board." },
-    { icon: <HandIcon className="size-4" weight="regular" />, text: "Drag items to arrange; drag the corner to resize." },
+    {
+      icon: <FolderSimpleIcon className="size-4" weight="regular" />,
+      text: "Create folders on Home to group related links.",
+    },
+    {
+      icon: <LinkIcon className="size-4" weight="regular" />,
+      text: "Paste a URL inside a folder to add it as a bookmark.",
+    },
+    {
+      icon: <NoteBlankIcon className="size-4" weight="regular" />,
+      text: "Add notes to jot down ideas alongside your links.",
+    },
+    {
+      icon: <ImageIcon className="size-4" weight="regular" />,
+      text: "Choose Image or paste an image onto the board.",
+    },
+    {
+      icon: <HandIcon className="size-4" weight="regular" />,
+      text: "Drag items to arrange; drag the corner to resize.",
+    },
   ]
   return (
     <div className="space-y-2">
-      <SectionTitle icon={<CursorIcon className="size-4" weight="regular" />}>Basics</SectionTitle>
+      <SectionTitle icon={<CursorIcon className="size-4" weight="regular" />}>
+        Basics
+      </SectionTitle>
       <ul className="space-y-1.5">
         {items.map((item, i) => (
-          <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+          <li
+            key={i}
+            className="flex items-start gap-2 text-sm text-muted-foreground"
+          >
             <span className="mt-0.5 shrink-0">{item.icon}</span>
             {item.text}
           </li>
@@ -90,19 +122,24 @@ function BasicsSection() {
 
 function ShortcutsSection({ mod }: { mod: string }) {
   const items = [
-    { keys: [mod, "K"], text: "Open command palette" },
-    { keys: [mod, "N"], text: "New folder" },
-    { keys: [mod, "Enter"], text: "Add link to selected folder" },
+    { keys: [mod, "N"], text: "New folder on Home" },
+    { keys: [mod, "Z"], text: "Undo" },
+    { keys: [mod, "Shift", "Z"], text: "Redo" },
+    { keys: ["Enter"], text: "Rename selected folder or bookmark" },
     { keys: ["Delete"], text: "Delete selected" },
-    { keys: [mod, "S"], text: "Force sync now" },
-    { keys: ["?"], text: "Open this guide" },
+    { keys: ["Esc"], text: "Clear selection or leave note editing" },
   ]
   return (
     <div className="space-y-2">
-      <SectionTitle icon={<KeyboardIcon className="size-4" weight="regular" />}>Shortcuts</SectionTitle>
+      <SectionTitle icon={<KeyboardIcon className="size-4" weight="regular" />}>
+        Shortcuts
+      </SectionTitle>
       <ul className="space-y-1.5">
         {items.map((item, i) => (
-          <li key={i} className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
+          <li
+            key={i}
+            className="flex items-center justify-between gap-2 text-sm text-muted-foreground"
+          >
             <span>{item.text}</span>
             <span className="flex items-center gap-1">
               {item.keys.map((k, j) => (
@@ -118,16 +155,30 @@ function ShortcutsSection({ mod }: { mod: string }) {
 
 function SyncSection() {
   const items = [
-    { icon: <CloudIcon className="size-4" weight="regular" />, text: "Saved — your workspace is synced to the cloud." },
-    { icon: <CloudSlashIcon className="size-4" weight="regular" />, text: "Offline — queued — changes will sync when you reconnect." },
-    { icon: <CloudWarningIcon className="size-4" weight="regular" />, text: "Conflict — pick which version to keep." },
+    {
+      icon: <CloudIcon className="size-4" weight="regular" />,
+      text: "Saved — your workspace is synced to the cloud.",
+    },
+    {
+      icon: <CloudSlashIcon className="size-4" weight="regular" />,
+      text: "Offline — queued — changes will sync when you reconnect.",
+    },
+    {
+      icon: <CloudWarningIcon className="size-4" weight="regular" />,
+      text: "Conflict — pick which version to keep.",
+    },
   ]
   return (
     <div className="space-y-2">
-      <SectionTitle icon={<CloudIcon className="size-4" weight="regular" />}>Sync status</SectionTitle>
+      <SectionTitle icon={<CloudIcon className="size-4" weight="regular" />}>
+        Sync status
+      </SectionTitle>
       <ul className="space-y-1.5">
         {items.map((item, i) => (
-          <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+          <li
+            key={i}
+            className="flex items-start gap-2 text-sm text-muted-foreground"
+          >
             <span className="mt-0.5 shrink-0">{item.icon}</span>
             {item.text}
           </li>

@@ -21,16 +21,10 @@ import {
 export const workspaces = pgTable(
   "workspaces",
   {
-    id: text("id")
-      .primaryKey()
-      .notNull(),
-    userId: text("user_id")
-      .notNull(),
-    state: jsonb("state")
-      .notNull(),
-    version: integer("version")
-      .notNull()
-      .default(1),
+    id: text("id").primaryKey().notNull(),
+    userId: text("user_id").notNull(),
+    state: jsonb("state").notNull(),
+    version: integer("version").notNull().default(1),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .default(sql`now()`),
@@ -38,9 +32,7 @@ export const workspaces = pgTable(
       .notNull()
       .default(sql`now()`),
   },
-  (table) => [
-    uniqueIndex("workspaces_user_id_idx").on(table.userId),
-  ],
+  (table) => [uniqueIndex("workspaces_user_id_idx").on(table.userId)]
 )
 
 /**
@@ -54,15 +46,10 @@ export const workspaces = pgTable(
 export const assets = pgTable(
   "assets",
   {
-    id: text("id")
-      .primaryKey()
-      .notNull(),
-    userId: text("user_id")
-      .notNull(),
-    objectKey: text("object_key")
-      .notNull(),
-    mime: text("mime")
-      .notNull(),
+    id: text("id").primaryKey().notNull(),
+    userId: text("user_id").notNull(),
+    objectKey: text("object_key").notNull(),
+    mime: text("mime").notNull(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -71,7 +58,7 @@ export const assets = pgTable(
   (table) => [
     index("assets_user_id_idx").on(table.userId),
     index("assets_deleted_at_idx").on(table.deletedAt),
-  ],
+  ]
 )
 
 export type Workspace = typeof workspaces.$inferSelect

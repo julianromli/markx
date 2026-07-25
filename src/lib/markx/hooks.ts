@@ -18,7 +18,7 @@ export function useAuthSession() {
   const session = useSyncExternalStore(
     subscribeAuthSession,
     getAuthSessionSnapshot,
-    getAuthSessionServerSnapshot,
+    getAuthSessionServerSnapshot
   )
   return { user: session.user, isPending: session.isPending }
 }

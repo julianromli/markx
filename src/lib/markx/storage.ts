@@ -1,7 +1,8 @@
-import { openDB, type DBSchema, type IDBPDatabase } from "idb"
+import { openDB } from "idb"
+import type { DBSchema, IDBPDatabase } from "idb"
 
 import { createDemoState } from "./seed"
-import type { Bookmark, Folder, MarkxState } from "./types"
+import type { MarkxState } from "./types"
 
 const DB_NAME = "markx-db-v2"
 const DB_VERSION = 3
@@ -44,6 +45,18 @@ const pendingDeletedKey = (userId: string) => `pendingDeletedImageIds:${userId}`
 const assetQueueKey = (userId: string) => `assetQueue:${userId}`
 const LAST_USER_ID_KEY = "lastUserId"
 
+type LegacyStoredState = Omit<MarkxState, "notes" | "images"> &
+  Partial<Pick<MarkxState, "notes" | "images">>
+
+function normalizeStoredState(state: MarkxState): MarkxState {
+  const legacyState: LegacyStoredState = state
+  return {
+    ...state,
+    notes: legacyState.notes ?? [],
+    images: legacyState.images ?? [],
+  }
+}
+
 export type PendingAsset = {
   imageId: string
   mime: string
@@ -65,7 +78,7 @@ interface MarkxDB extends DBSchema {
   }
 }
 
-async function getDb(): Promise<IDBPDatabase<MarkxDB>> {
+async function openMarkxDatabase(): Promise<IDBPDatabase<MarkxDB>> {
   return openDB<MarkxDB>(DB_NAME, DB_VERSION, {
     upgrade(db, oldVersion) {
       if (oldVersion < 1) {
@@ -93,14 +106,10 @@ export async function loadState(): Promise<MarkxState> {
   if (typeof indexedDB === "undefined") {
     return createDemoState()
   }
-  const db = await getDb()
+  const db = await openMarkxDatabase()
   const existing = await db.get("meta", GUEST_STATE_KEY)
   if (existing) {
-    return {
-      ...existing,
-      notes: existing.notes ?? [],
-      images: existing.images ?? [],
-    }
+    return normalizeStoredState(existing)
   }
   const demo = createDemoState()
   await db.put("meta", demo, GUEST_STATE_KEY)
@@ -112,7 +121,7 @@ export async function loadState(): Promise<MarkxState> {
  */
 export async function saveState(state: MarkxState): Promise<void> {
   if (typeof indexedDB === "undefined") return
-  const db = await getDb()
+  const db = await openMarkxDatabase()
   await db.put("meta", state, GUEST_STATE_KEY)
 }
 
@@ -121,17 +130,13 @@ export async function saveState(state: MarkxState): Promise<void> {
  * exists for this user yet (first login on this device).
  */
 export async function loadUserState(
-  userId: string,
+  userId: string
 ): Promise<MarkxState | null> {
   if (typeof indexedDB === "undefined") return null
-  const db = await getDb()
+  const db = await openMarkxDatabase()
   const existing = await db.get("meta", userStateKey(userId))
   if (!existing) return null
-  return {
-    ...existing,
-    notes: existing.notes ?? [],
-    images: existing.images ?? [],
-  }
+  return normalizeStoredState(existing)
 }
 
 /**
@@ -139,10 +144,10 @@ export async function loadUserState(
  */
 export async function saveUserState(
   userId: string,
-  state: MarkxState,
+  state: MarkxState
 ): Promise<void> {
   if (typeof indexedDB === "undefined") return
-  const db = await getDb()
+  const db = await openMarkxDatabase()
   await db.put("meta", state, userStateKey(userId))
 }
 
@@ -157,7 +162,7 @@ export async function saveUserState(
  */
 export async function clearUserCache(userId: string): Promise<void> {
   if (typeof indexedDB === "undefined") return
-  const db = await getDb()
+  const db = await openMarkxDatabase()
   await db.delete("meta", userStateKey(userId))
   await db.delete("sync", cloudVersionKey(userId))
   await db.delete("sync", pendingSnapshotKey(userId))
@@ -171,25 +176,25 @@ export async function clearUserCache(userId: string): Promise<void> {
 
 export async function saveImageBlob(id: string, blob: Blob): Promise<void> {
   if (typeof indexedDB === "undefined") return
-  const db = await getDb()
+  const db = await openMarkxDatabase()
   await db.put(IMAGES_STORE, blob, id)
 }
 
 export async function getImageBlob(id: string): Promise<Blob | undefined> {
   if (typeof indexedDB === "undefined") return undefined
-  const db = await getDb()
+  const db = await openMarkxDatabase()
   return db.get(IMAGES_STORE, id)
 }
 
 export async function sweepOrphanImageBlobs(
-  referencedIds: Set<string>,
+  referencedIds: Set<string>
 ): Promise<void> {
   if (typeof indexedDB === "undefined") return
-  const db = await getDb()
+  const db = await openMarkxDatabase()
   const tx = db.transaction(IMAGES_STORE, "readwrite")
   let cursor = await tx.store.openCursor()
   while (cursor) {
-    if (!referencedIds.has(cursor.key as string)) {
+    if (!referencedIds.has(cursor.key)) {
       cursor.delete()
     }
     cursor = await cursor.continue()
@@ -199,7 +204,7 @@ export async function sweepOrphanImageBlobs(
 
 export async function deleteImageBlobs(ids: string[]): Promise<void> {
   if (typeof indexedDB === "undefined" || ids.length === 0) return
-  const db = await getDb()
+  const db = await openMarkxDatabase()
   const tx = db.transaction(IMAGES_STORE, "readwrite")
   await Promise.all(ids.map((id) => tx.store.delete(id)))
   await tx.done
@@ -211,29 +216,29 @@ export async function deleteImageBlobs(ids: string[]): Promise<void> {
 
 export async function getCloudVersion(userId: string): Promise<number> {
   if (typeof indexedDB === "undefined") return 0
-  const db = await getDb()
+  const db = await openMarkxDatabase()
   const v = await db.get("sync", cloudVersionKey(userId))
   return typeof v === "number" ? v : 0
 }
 
 export async function setCloudVersion(
   userId: string,
-  version: number,
+  version: number
 ): Promise<void> {
   if (typeof indexedDB === "undefined") return
-  const db = await getDb()
+  const db = await openMarkxDatabase()
   await db.put("sync", version, cloudVersionKey(userId))
 }
 
 export async function isGuestImported(userId: string): Promise<boolean> {
   if (typeof indexedDB === "undefined") return false
-  const db = await getDb()
+  const db = await openMarkxDatabase()
   return (await db.get("sync", guestImportedKey(userId))) === "1"
 }
 
 export async function markGuestImported(userId: string): Promise<void> {
   if (typeof indexedDB === "undefined") return
-  const db = await getDb()
+  const db = await openMarkxDatabase()
   await db.put("sync", "1", guestImportedKey(userId))
 }
 
@@ -241,10 +246,10 @@ export async function markGuestImported(userId: string): Promise<void> {
  * Read the coalesced pending snapshot (or `null` if the queue is empty).
  */
 export async function getPendingSnapshot(
-  userId: string,
+  userId: string
 ): Promise<MarkxState | null> {
   if (typeof indexedDB === "undefined") return null
-  const db = await getDb()
+  const db = await openMarkxDatabase()
   const v = await db.get("sync", pendingSnapshotKey(userId))
   return (v as MarkxState | undefined) ?? null
 }
@@ -255,10 +260,10 @@ export async function getPendingSnapshot(
  */
 export async function setPendingSnapshot(
   userId: string,
-  state: MarkxState | null,
+  state: MarkxState | null
 ): Promise<void> {
   if (typeof indexedDB === "undefined") return
-  const db = await getDb()
+  const db = await openMarkxDatabase()
   if (state === null) {
     await db.delete("sync", pendingSnapshotKey(userId))
   } else {
@@ -272,12 +277,11 @@ export async function setPendingSnapshot(
  */
 export async function addDeletedImageIds(
   userId: string,
-  ids: string[],
+  ids: string[]
 ): Promise<string[]> {
   if (typeof indexedDB === "undefined" || ids.length === 0) return []
-  const db = await getDb()
-  const existing =
-    (await db.get("sync", pendingDeletedKey(userId))) ?? []
+  const db = await openMarkxDatabase()
+  const existing = (await db.get("sync", pendingDeletedKey(userId))) ?? []
   const set = new Set(existing as string[])
   for (const id of ids) set.add(id)
   const merged = [...set]
@@ -287,13 +291,13 @@ export async function addDeletedImageIds(
 
 export async function getDeletedImageIds(userId: string): Promise<string[]> {
   if (typeof indexedDB === "undefined") return []
-  const db = await getDb()
+  const db = await openMarkxDatabase()
   return ((await db.get("sync", pendingDeletedKey(userId))) ?? []) as string[]
 }
 
 export async function clearDeletedImageIds(userId: string): Promise<void> {
   if (typeof indexedDB === "undefined") return
-  const db = await getDb()
+  const db = await openMarkxDatabase()
   await db.delete("sync", pendingDeletedKey(userId))
 }
 
@@ -302,28 +306,43 @@ export async function clearDeletedImageIds(userId: string): Promise<void> {
  */
 export async function enqueueAsset(
   userId: string,
-  asset: PendingAsset,
+  asset: PendingAsset
 ): Promise<void> {
   if (typeof indexedDB === "undefined") return
-  const db = await getDb()
-  const existing =
-    ((await db.get("sync", assetQueueKey(userId))) ?? []) as PendingAsset[]
-  existing.push(asset)
-  await db.put("sync", existing, assetQueueKey(userId))
+  const db = await openMarkxDatabase()
+  const tx = db.transaction("sync", "readwrite")
+  const existing = ((await tx.store.get(assetQueueKey(userId))) ??
+    []) as PendingAsset[]
+  const next = existing.filter((item) => item.imageId !== asset.imageId)
+  next.push(asset)
+  await tx.store.put(next, assetQueueKey(userId))
+  await tx.done
 }
 
-export async function getAssetQueue(
-  userId: string,
-): Promise<PendingAsset[]> {
+export async function getAssetQueue(userId: string): Promise<PendingAsset[]> {
   if (typeof indexedDB === "undefined") return []
-  const db = await getDb()
+  const db = await openMarkxDatabase()
   return ((await db.get("sync", assetQueueKey(userId))) ?? []) as PendingAsset[]
 }
 
-export async function clearAssetQueue(userId: string): Promise<void> {
+export async function removeAssetsFromQueue(
+  userId: string,
+  uploadedImageIds: readonly string[]
+): Promise<void> {
+  if (uploadedImageIds.length === 0) return
   if (typeof indexedDB === "undefined") return
-  const db = await getDb()
-  await db.delete("sync", assetQueueKey(userId))
+  const db = await openMarkxDatabase()
+  const tx = db.transaction("sync", "readwrite")
+  const existing = ((await tx.store.get(assetQueueKey(userId))) ??
+    []) as PendingAsset[]
+  const uploaded = new Set(uploadedImageIds)
+  const remaining = existing.filter((asset) => !uploaded.has(asset.imageId))
+  if (remaining.length === 0) {
+    await tx.store.delete(assetQueueKey(userId))
+  } else {
+    await tx.store.put(remaining, assetQueueKey(userId))
+  }
+  await tx.done
 }
 
 /**
@@ -332,20 +351,20 @@ export async function clearAssetQueue(userId: string): Promise<void> {
  */
 export async function getLastUserId(): Promise<string | null> {
   if (typeof indexedDB === "undefined") return null
-  const db = await getDb()
+  const db = await openMarkxDatabase()
   const v = await db.get("sync", LAST_USER_ID_KEY)
   return typeof v === "string" && v.length > 0 ? v : null
 }
 
 export async function setLastUserId(userId: string): Promise<void> {
   if (typeof indexedDB === "undefined") return
-  const db = await getDb()
+  const db = await openMarkxDatabase()
   await db.put("sync", userId, LAST_USER_ID_KEY)
 }
 
 export async function clearLastUserId(): Promise<void> {
   if (typeof indexedDB === "undefined") return
-  const db = await getDb()
+  const db = await openMarkxDatabase()
   await db.delete("sync", LAST_USER_ID_KEY)
 }
 
@@ -361,23 +380,4 @@ export type MarkxStorage = {
 export const localMarkxStorage: MarkxStorage = {
   load: loadState,
   save: saveState,
-}
-
-export function nextZ(state: MarkxState): { z: number; zCounter: number } {
-  const z = state.zCounter + 1
-  return { z, zCounter: z }
-}
-
-export function countBookmarksInFolder(
-  bookmarks: Bookmark[],
-  folderId: string,
-): number {
-  return bookmarks.filter((b) => b.folderId === folderId).length
-}
-
-export function getFolder(
-  folders: Folder[],
-  id: string,
-): Folder | undefined {
-  return folders.find((f) => f.id === id)
 }

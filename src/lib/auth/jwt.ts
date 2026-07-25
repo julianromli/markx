@@ -1,4 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from "jose"
+import type { VerifiedAuthUser } from "./types"
 
 /**
  * JWKS key set cached at module scope. Workers reuse the same isolate
@@ -16,12 +17,6 @@ function getJwks(jwksUrl: string, issuer: string) {
   return jwksCache
 }
 
-export type VerifiedUser = {
-  id: string
-  email: string
-  emailVerified: boolean
-}
-
 /**
  * Verify a Neon Auth JWT (EdDSA / Ed25519) against the JWKS endpoint.
  *
@@ -31,8 +26,8 @@ export type VerifiedUser = {
  */
 export async function verifyNeonJwt(
   token: string | null | undefined,
-  env: { NEON_AUTH_JWKS_URL: string; NEON_AUTH_BASE_URL: string },
-): Promise<VerifiedUser | null> {
+  env: { NEON_AUTH_JWKS_URL: string; NEON_AUTH_BASE_URL: string }
+): Promise<VerifiedAuthUser | null> {
   if (!token) return null
 
   const issuer = new URL(env.NEON_AUTH_BASE_URL).origin
@@ -63,7 +58,7 @@ export async function verifyNeonJwt(
  * Extract the Bearer token from an Authorization header.
  */
 export function extractBearer(
-  header: string | null | undefined,
+  header: string | null | undefined
 ): string | null {
   if (!header) return null
   const match = /^Bearer\s+(.+)$/i.exec(header.trim())

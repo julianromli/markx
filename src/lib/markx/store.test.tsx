@@ -93,8 +93,10 @@ async function setupProvider(opts: {
   }))
 
   const module = await import("@/lib/markx/store")
+  const bootstrap = await import("@/lib/markx/store-bootstrap")
   return {
     ...module,
+    getSessionUserWithTimeout: bootstrap.getSessionUserWithTimeout,
     getAuthSession,
     getLastUserId,
     setLastUserId,
@@ -108,9 +110,37 @@ async function setupProvider(opts: {
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 describe("MarkxProvider authenticated bootstrap", () => {
+  it("returns timeout without adopting a late session completion", async () => {
+    vi.useFakeTimers()
+    const session = deferred<{
+      user: { id: string; email: string } | null
+      token: string | null
+      isPending: boolean
+      checkedAt: number
+    }>()
+    const { getSessionUserWithTimeout } = await setupProvider({
+      session: session.promise,
+      lastUserId: Promise.resolve(null),
+    })
+
+    const result = getSessionUserWithTimeout()
+    await vi.advanceTimersByTimeAsync(3000)
+    await expect(result).resolves.toEqual({ status: "timeout" })
+
+    session.resolve({
+      user: { id: "late-user", email: "late@example.com" },
+      token: "token",
+      isPending: false,
+      checkedAt: Date.now(),
+    })
+    await session.promise
+    await expect(result).resolves.toEqual({ status: "timeout" })
+  })
+
   it("starts session restore before the IndexedDB cache lookup settles", async () => {
     const session = deferred<never>()
     const lastUserId = deferred<string | null>()

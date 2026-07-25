@@ -1,15 +1,12 @@
 /// <reference types="@cloudflare/vite-plugin" />
 import handler from "@tanstack/react-start/server-entry"
-import { cleanupExpiredAssets } from "@/lib/server/assets"
-
-/**
- * Secrets not declared as `vars` in wrangler.jsonc (set via
- * `wrangler secret put` or `.dev.vars`). Augment the generated Env.
- */
-interface MarkxEnv extends Env {
-  DATABASE_URL?: string
-  NEON_AUTH_COOKIE_SECRET?: string
-}
+import { cleanupExpiredAssets } from "@/lib/server/assets.server"
+import {
+  buildAuthProxyHeaders,
+  buildAuthTargetUrl,
+  isAuthProxyPath,
+  rewriteAuthCookie,
+} from "@/lib/server/auth-proxy"
 
 /**
  * Same-origin reverse proxy for Neon Auth (Better Auth).
@@ -20,43 +17,17 @@ interface MarkxEnv extends Env {
  * avoids Safari ITP blocking third-party cookies on the cross-origin auth
  * host while keeping JWT verification against the Neon JWKS endpoint.
  */
-async function proxyAuth(
-  request: Request,
-  env: MarkxEnv,
-): Promise<Response | null> {
+async function proxyAuth(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url)
-  if (!url.pathname.startsWith("/api/auth/")) return null
+  if (!isAuthProxyPath(url.pathname)) return null
 
-  // Strip the `/api/auth` prefix, leaving the sub-path WITHOUT a leading
-  // slash so `new URL()` resolves it relative to the base URL's path
-  // (e.g. `/neondb/auth`), not as an absolute path that would replace it.
-  const subPath = url.pathname.replace(/^\/api\/auth\/?/, "")
-  // Ensure the base URL ends with `/` so `new URL()` treats it as a
-  // directory. Without the trailing slash, RFC 3986 drops the last path
-  // segment (e.g. `/neondb/auth` → `/neondb/`) and the route 404s.
-  const base = env.NEON_AUTH_BASE_URL.endsWith("/")
-    ? env.NEON_AUTH_BASE_URL
-    : `${env.NEON_AUTH_BASE_URL}/`
-  const target = new URL(subPath, base)
-  target.search = url.search
+  const target = buildAuthTargetUrl(request.url, env.NEON_AUTH_BASE_URL)
 
   // Build a minimal header set for the upstream request. We deliberately do
   // NOT copy all request headers — the browser/dev-server sends headers
   // (Host, X-Forwarded-*, Referer, …) that Better Auth's hostname validation
   // rejects. The Workers runtime auto-sets `Host` from the target URL.
-  const forwardHeaders = [
-    "content-type",
-    "origin",
-    "cookie",
-    "authorization",
-    "accept",
-    "accept-language",
-  ]
-  const headers = new Headers()
-  for (const name of forwardHeaders) {
-    const value = request.headers.get(name)
-    if (value) headers.set(name, value)
-  }
+  const headers = buildAuthProxyHeaders(request.headers)
 
   const upstream = await fetch(target, {
     method: request.method,
@@ -74,17 +45,13 @@ async function proxyAuth(
     headers: upstream.headers,
   })
 
-  // Rewrite Set-Cookie: strip any Domain= attribute so the browser scopes
-  // the cookie to the Worker origin (first-party). Force SameSite=Lax so
-  // top-level navigations and same-origin fetches carry the cookie.
-  const setCookies = response.headers.getSetCookie?.() ?? []
+  // Strip Domain so cookies are first-party, and normalize an existing
+  // SameSite attribute to Lax.
+  const setCookies = response.headers.getSetCookie()
   if (setCookies.length > 0) {
     response.headers.delete("set-cookie")
     for (const cookie of setCookies) {
-      const rewritten = cookie
-        .replace(/;\s*Domain=[^;]*/gi, "")
-        .replace(/;\s*SameSite=[^;]*/gi, "; SameSite=Lax")
-      response.headers.append("set-cookie", rewritten)
+      response.headers.append("set-cookie", rewriteAuthCookie(cookie))
     }
   }
 
@@ -94,8 +61,8 @@ async function proxyAuth(
 export default {
   async fetch(
     request: Request,
-    env: MarkxEnv,
-    _ctx: ExecutionContext,
+    env: Env,
+    _ctx: ExecutionContext
   ): Promise<Response> {
     const authResponse = await proxyAuth(request, env)
     if (authResponse) return authResponse
@@ -108,8 +75,8 @@ export default {
 
   async scheduled(
     _event: ScheduledEvent,
-    _env: MarkxEnv,
-    ctx: ExecutionContext,
+    _env: Env,
+    ctx: ExecutionContext
   ): Promise<void> {
     ctx.waitUntil(cleanupExpiredAssets())
   },

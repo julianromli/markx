@@ -24,12 +24,7 @@ export type Bookmark = {
 }
 
 export type NoteColor =
-  | "yellow"
-  | "blue"
-  | "pink"
-  | "green"
-  | "orange"
-  | "purple"
+  "yellow" | "blue" | "pink" | "green" | "orange" | "purple"
 
 export type NoteFont = "sans" | "serif" | "mono" | "hand"
 

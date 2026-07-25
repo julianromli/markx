@@ -46,7 +46,9 @@ export function SyncStatusBadge({
     },
     saved: {
       label: "Saved",
-      icon: <CheckCircleIcon className="size-3.5 text-green-600" weight="fill" />,
+      icon: (
+        <CheckCircleIcon className="size-3.5 text-green-600" weight="fill" />
+      ),
       className: "text-green-700 bg-green-50",
       tooltip: "All changes saved to the cloud",
     },
@@ -60,7 +62,8 @@ export function SyncStatusBadge({
       label: "Offline — queued",
       icon: <CloudSlashIcon className="size-3.5" weight="regular" />,
       className: "text-amber-700 bg-amber-50",
-      tooltip: "You're offline. Changes are saved locally and will sync when you reconnect.",
+      tooltip:
+        "You're offline. Changes are saved locally and will sync when you reconnect.",
     },
     conflict: {
       label: "Conflict",
@@ -86,7 +89,7 @@ export function SyncStatusBadge({
       className={cn(
         "flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors",
         c.className,
-        status === "conflict" && "cursor-pointer hover:opacity-80",
+        status === "conflict" && "cursor-pointer hover:opacity-80"
       )}
     >
       {c.icon}
@@ -137,14 +140,14 @@ export function ConflictResolutionDialog({
     <div
       className={cn(
         "fixed inset-0 z-50 flex items-center justify-center bg-black/50",
-        !open && "hidden",
+        !open && "hidden"
       )}
     >
       <div className="mx-4 w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
         <h2 className="text-lg font-semibold">Sync conflict</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          The cloud workspace was updated from another device or browser.
-          Choose how to resolve the conflict:
+          The cloud workspace was updated from another device or browser. Choose
+          how to resolve the conflict:
         </p>
         <div className="mt-4 space-y-2">
           <button
@@ -153,12 +156,15 @@ export function ConflictResolutionDialog({
             disabled={resolving}
             className="flex w-full items-start gap-3 rounded-lg border p-4 text-left transition-colors hover:bg-accent"
           >
-            <CheckCircleIcon className="mt-0.5 size-5 text-green-600" weight="fill" />
+            <CheckCircleIcon
+              className="mt-0.5 size-5 text-green-600"
+              weight="fill"
+            />
             <div>
               <div className="font-medium">Use cloud workspace</div>
               <div className="text-sm text-muted-foreground">
-                Keep the cloud version. Your local changes on this device
-                will be discarded.
+                Keep the cloud version. Your local changes on this device will
+                be discarded.
               </div>
             </div>
           </button>
@@ -168,12 +174,15 @@ export function ConflictResolutionDialog({
             disabled={resolving}
             className="flex w-full items-start gap-3 rounded-lg border p-4 text-left transition-colors hover:bg-accent"
           >
-            <CloudWarningIcon className="mt-0.5 size-5 text-amber-600" weight="regular" />
+            <CloudWarningIcon
+              className="mt-0.5 size-5 text-amber-600"
+              weight="regular"
+            />
             <div>
               <div className="font-medium">Replace cloud with this device</div>
               <div className="text-sm text-muted-foreground">
-                Overwrite the cloud with your local changes. The previous
-                cloud version will be lost.
+                Overwrite the cloud with your local changes. The previous cloud
+                version will be lost.
               </div>
             </div>
           </button>

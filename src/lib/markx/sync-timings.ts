@@ -1,0 +1,3 @@
+export const STORE_PERSIST_DEBOUNCE_MS = 120
+export const SYNC_STATE_DEBOUNCE_MS = 1500
+export const SYNC_RETRY_DEBOUNCE_MS = 500

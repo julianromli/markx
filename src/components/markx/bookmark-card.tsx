@@ -1,5 +1,5 @@
-import { BOOKMARK_SIZE, RESIZE_HANDLE_SIZE } from "@/lib/markx/geometry"
-import { useIsMobile } from "@/hooks/use-mobile"
+import { ResizeHandle } from "@/components/markx/resize-handle"
+import { BOOKMARK_SIZE } from "@/lib/markx/geometry"
 import { cn } from "@/lib/utils"
 import type { Bookmark } from "@/lib/markx/types"
 
@@ -16,7 +16,6 @@ export function BookmarkCard({
 }: BookmarkCardProps) {
   const hasImage = Boolean(bookmark.imageUrl)
   const brandFallback = !hasImage
-  const isMobile = useIsMobile()
   const width = bookmark.width ?? BOOKMARK_SIZE.width
   const height = bookmark.height ?? BOOKMARK_SIZE.height
 
@@ -67,42 +66,7 @@ export function BookmarkCard({
         </div>
       )}
 
-      <div
-        className={cn(
-          "absolute right-0 bottom-0 flex cursor-se-resize items-end justify-end opacity-0 transition-opacity group-hover:opacity-100",
-          selected && "opacity-100"
-        )}
-        style={{
-          width: isMobile ? 32 : RESIZE_HANDLE_SIZE,
-          height: isMobile ? 32 : RESIZE_HANDLE_SIZE,
-        }}
-        aria-hidden
-      >
-        <svg
-          viewBox="0 0 16 16"
-          className="mr-1.5 mb-1.5 size-3.5 text-black/35"
-          fill="none"
-        >
-          <path
-            d="M14 4L4 14"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-          />
-          <path
-            d="M14 8L8 14"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-          />
-          <path
-            d="M14 12L12 14"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-          />
-        </svg>
-      </div>
+      <ResizeHandle selected={selected} />
     </div>
   )
 }

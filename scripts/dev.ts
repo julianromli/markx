@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
-const HYPERDRIVE_ENV = "CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE"
+const HYPERDRIVE_ENV =
+  "CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE"
 const DEV_VARS_PATH = resolve(import.meta.dirname, "..", ".dev.vars")
 
 function parseDevVars(contents: string): Record<string, string> {
@@ -31,7 +32,7 @@ function parseDevVars(contents: string): Record<string, string> {
 
 if (!existsSync(DEV_VARS_PATH)) {
   console.error(
-    `Missing ${DEV_VARS_PATH}. Copy .dev.vars.example to .dev.vars and set DATABASE_URL.`,
+    `Missing ${DEV_VARS_PATH}. Copy .dev.vars.example to .dev.vars and set DATABASE_URL.`
   )
   process.exit(1)
 }
@@ -44,8 +45,7 @@ if (!databaseUrl) {
   process.exit(1)
 }
 
-process.env[HYPERDRIVE_ENV] ??=
-  devVars[HYPERDRIVE_ENV] ?? databaseUrl
+process.env[HYPERDRIVE_ENV] ??= devVars[HYPERDRIVE_ENV] ?? databaseUrl
 
 const vite = Bun.spawn(["vite", "dev", "--port", "3000"], {
   stdin: "inherit",

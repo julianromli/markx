@@ -3,7 +3,37 @@ import ogs from "open-graph-scraper"
 import type { ErrorResult, SuccessResult } from "open-graph-scraper/types"
 import { z } from "zod"
 
+import {
+  createFixedWindowRateLimiter,
+  isSafePublicHttpUrl,
+} from "@/lib/server/guest-guards"
+import { enforceRateLimit } from "@/lib/server/guest-rate-limit"
 import type { LinkMetadata } from "./types"
+
+export const MAX_ENRICH_URL_LENGTH = 2048
+
+export const enrichLinkInputSchema = z
+  .object({
+    url: z
+      .string()
+      .trim()
+      .min(1, "URL is required")
+      .max(
+        MAX_ENRICH_URL_LENGTH,
+        `URL must be at most ${MAX_ENRICH_URL_LENGTH} characters`
+      )
+      .url("URL must be valid")
+      .refine(
+        isSafePublicHttpUrl,
+        "URL must use HTTP(S) and target a public host without credentials"
+      ),
+  })
+  .strict()
+
+const enrichLinkRateLimiter = createFixedWindowRateLimiter({
+  limit: 30,
+  windowMs: 60_000,
+})
 
 function hostnameTitle(url: string): string {
   try {
@@ -29,6 +59,8 @@ async function enrichFromOgs(url: string): Promise<LinkMetadata | null> {
       url,
       timeout: 8,
       fetchOptions: {
+        // Do not follow an otherwise-public URL to an unvalidated target.
+        redirect: "error",
         headers: {
           "user-agent":
             "Mozilla/5.0 (compatible; markxBot/1.0; +https://markx.app) AppleWebKit/537.36",
@@ -37,9 +69,7 @@ async function enrichFromOgs(url: string): Promise<LinkMetadata | null> {
         },
       },
     })
-  } catch (error) {
-    const failed = error as ErrorResult
-    if (failed?.result?.error) return null
+  } catch {
     return null
   }
 
@@ -64,14 +94,14 @@ async function enrichFromMicrolink(url: string): Promise<LinkMetadata | null> {
       signal: AbortSignal.timeout(10_000),
     })
     if (!response.ok) return null
-    const json = (await response.json()) as {
+    const json: {
       status?: string
       data?: {
         title?: string
         description?: string
         image?: { url?: string } | string
       }
-    }
+    } = await response.json()
     if (json.status !== "success" || !json.data) return null
     const image =
       typeof json.data.image === "string"
@@ -89,8 +119,10 @@ async function enrichFromMicrolink(url: string): Promise<LinkMetadata | null> {
 }
 
 export const enrichLink = createServerFn({ method: "POST" })
-  .validator(z.object({ url: z.string().url() }))
+  .validator(enrichLinkInputSchema)
   .handler(async ({ data }): Promise<LinkMetadata> => {
+    enforceRateLimit(enrichLinkRateLimiter, "enrichLink")
+
     const { url } = data
     const fallback: LinkMetadata = {
       title: hostnameTitle(url),

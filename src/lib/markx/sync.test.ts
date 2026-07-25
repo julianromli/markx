@@ -1,11 +1,7 @@
 import { describe, it, expect } from "vitest"
 
 import { createEmptyState, createDemoState } from "@/lib/markx/seed"
-import {
-  isGuestModified,
-  blobToDataUrl,
-  dataUrlToBlob,
-} from "@/lib/markx/sync"
+import { isGuestModified, blobToDataUrl, dataUrlToBlob } from "@/lib/markx/sync"
 import type { MarkxState } from "@/lib/markx/types"
 
 /**

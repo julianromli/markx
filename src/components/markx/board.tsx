@@ -1,45 +1,34 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-  type ReactNode,
-} from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
+import type { PointerEvent as ReactPointerEvent, ReactNode } from "react"
 
 import { useIsMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
 import {
-  BOOKMARK_SIZE,
   DRAG_THRESHOLD,
-  FOLDER_SIZE,
   MAX_ZOOM,
   MIN_BOOKMARK_SIZE,
   MIN_IMAGE_SIZE,
   MIN_NOTE_SIZE,
   MIN_ZOOM,
-  NOTE_SIZE,
   RESIZE_HANDLE_SIZE,
-  fitImageToWidth,
+  clampBottomRightResize,
+  getBoardItemRect,
+  hitTestBoardItems,
   intersects,
+  isInBottomRightResizeZone,
   normalizeRect,
   screenToBoard,
-  type Camera,
-  type Rect,
+  withLiveResize,
 } from "@/lib/markx/geometry"
 import type {
-  BoardImage,
-  Bookmark,
-  Folder,
-  Note,
-  ToolId,
-} from "@/lib/markx/types"
+  BoardItemModel,
+  Camera,
+  LiveResize,
+  Rect,
+} from "@/lib/markx/geometry"
+import type { ToolId } from "@/lib/markx/types"
 
-export type BoardItemModel =
-  | { id: string; kind: "folder"; data: Folder }
-  | { id: string; kind: "bookmark"; data: Bookmark }
-  | { id: string; kind: "note"; data: Note }
-  | { id: string; kind: "image"; data: BoardImage }
+export type { BoardItemModel } from "@/lib/markx/geometry"
 
 export type BoardApi = {
   getViewCenter: () => { x: number; y: number }
@@ -85,127 +74,11 @@ type DragState = {
   aspectRatio?: number
 }
 
-type LiveResize = { x: number; width: number; height: number }
-
 type PendingGesture = {
   camera?: Camera
   liveOffsets?: Map<string, { x: number; y: number }>
   liveResize?: Map<string, LiveResize>
   marquee?: Rect | null
-}
-
-function getBookmarkDimensions(bookmark: Bookmark) {
-  return {
-    width: bookmark.width ?? BOOKMARK_SIZE.width,
-    height: bookmark.height ?? BOOKMARK_SIZE.height,
-  }
-}
-
-function getNoteDimensions(note: Note) {
-  return {
-    width: note.width ?? NOTE_SIZE.width,
-    height: note.height ?? NOTE_SIZE.height,
-  }
-}
-
-function getImageDimensions(image: BoardImage) {
-  if (image.width && image.height) {
-    return { width: image.width, height: image.height }
-  }
-  return fitImageToWidth(image.naturalWidth, image.naturalHeight)
-}
-
-function isInBottomRightResizeZone(
-  boardX: number,
-  boardY: number,
-  rect: Rect,
-  handleSize: number = RESIZE_HANDLE_SIZE
-): boolean {
-  return (
-    boardX >= rect.x + rect.width - handleSize &&
-    boardX <= rect.x + rect.width &&
-    boardY >= rect.y + rect.height - handleSize &&
-    boardY <= rect.y + rect.height
-  )
-}
-
-function clampBottomRightResize(
-  origin: Rect,
-  boardDx: number,
-  boardDy: number,
-  minSize: { width: number; height: number },
-  aspectRatio?: number
-): LiveResize {
-  let newWidth = origin.width + boardDx
-  let newHeight = origin.height + boardDy
-
-  if (aspectRatio) {
-    // Aspect-locked: use the dominant drag axis to determine size
-    const fromWidth = newWidth
-    const fromHeight = newWidth / aspectRatio
-    const fromHeight2 = newHeight
-    const fromWidth2 = newHeight * aspectRatio
-    // Pick the larger of the two to follow the dominant drag direction
-    if (fromWidth >= fromWidth2) {
-      newWidth = fromWidth
-      newHeight = fromHeight
-    } else {
-      newWidth = fromWidth2
-      newHeight = fromHeight2
-    }
-  }
-
-  if (newWidth < minSize.width) {
-    newWidth = minSize.width
-    if (aspectRatio) newHeight = newWidth / aspectRatio
-  }
-  if (newHeight < minSize.height) {
-    newHeight = minSize.height
-    if (aspectRatio) newWidth = newHeight * aspectRatio
-  }
-
-  return { x: origin.x, width: newWidth, height: newHeight }
-}
-
-function withLiveResize(
-  item: BoardItemModel,
-  resize: LiveResize | undefined
-): BoardItemModel {
-  if (!resize) return item
-  if (item.kind === "bookmark") {
-    return {
-      ...item,
-      data: {
-        ...item.data,
-        x: resize.x,
-        width: resize.width,
-        height: resize.height,
-      },
-    }
-  }
-  if (item.kind === "note") {
-    return {
-      ...item,
-      data: {
-        ...item.data,
-        x: resize.x,
-        width: resize.width,
-        height: resize.height,
-      },
-    }
-  }
-  if (item.kind === "image") {
-    return {
-      ...item,
-      data: {
-        ...item.data,
-        x: resize.x,
-        width: resize.width,
-        height: resize.height,
-      },
-    }
-  }
-  return item
 }
 
 export function Board({
@@ -318,59 +191,10 @@ export function Board({
     }
   }, [])
 
-  const getItemRect = useCallback((item: BoardItemModel): Rect => {
-    if (item.kind === "folder") {
-      return {
-        x: item.data.x,
-        y: item.data.y,
-        width: FOLDER_SIZE.width,
-        height: FOLDER_SIZE.height,
-      }
-    }
-    if (item.kind === "note") {
-      const size = getNoteDimensions(item.data)
-      return {
-        x: item.data.x,
-        y: item.data.y,
-        width: size.width,
-        height: size.height,
-      }
-    }
-    if (item.kind === "image") {
-      const size = getImageDimensions(item.data)
-      return {
-        x: item.data.x,
-        y: item.data.y,
-        width: size.width,
-        height: size.height,
-      }
-    }
-    const size = getBookmarkDimensions(item.data)
-    return {
-      x: item.data.x,
-      y: item.data.y,
-      width: size.width,
-      height: size.height,
-    }
-  }, [])
-
   const hitTest = useCallback(
-    (boardX: number, boardY: number) => {
-      const sorted = [...itemsRef.current].sort((a, b) => b.data.z - a.data.z)
-      for (const item of sorted) {
-        const rect = getItemRect(item)
-        if (
-          boardX >= rect.x &&
-          boardX <= rect.x + rect.width &&
-          boardY >= rect.y &&
-          boardY <= rect.y + rect.height
-        ) {
-          return item
-        }
-      }
-      return null
-    },
-    [getItemRect]
+    (boardX: number, boardY: number) =>
+      hitTestBoardItems(itemsRef.current, boardX, boardY),
+    []
   )
 
   const getViewportRect = () => viewportRef.current!.getBoundingClientRect()
@@ -378,7 +202,7 @@ export function Board({
   const applySelectionFromMarquee = (rect: Rect, additive: boolean) => {
     const next = additive ? new Set(selectedRef.current) : new Set<string>()
     for (const item of itemsRef.current) {
-      if (intersects(rect, getItemRect(item))) next.add(item.id)
+      if (intersects(rect, getBoardItemRect(item))) next.add(item.id)
     }
     onSelectedIdsChange(next)
   }
@@ -444,7 +268,7 @@ export function Board({
         hit.kind === "image") &&
       tool === "select"
     ) {
-      const rect = getItemRect(hit)
+      const rect = getBoardItemRect(hit)
       const minSize =
         hit.kind === "note"
           ? MIN_NOTE_SIZE
@@ -508,8 +332,8 @@ export function Board({
       const target = itemsRef.current.find((i) => i.id === hit.id)
       nextSelection = new Set([hit.id])
       if (anchor && target) {
-        const a = getItemRect(anchor)
-        const b = getItemRect(target)
+        const a = getBoardItemRect(anchor)
+        const b = getBoardItemRect(target)
         const union = normalizeRect(
           { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y) },
           {
@@ -519,7 +343,7 @@ export function Board({
         )
         nextSelection = new Set()
         for (const item of itemsRef.current) {
-          const r = getItemRect(item)
+          const r = getBoardItemRect(item)
           const cx = r.x + r.width / 2
           const cy = r.y + r.height / 2
           if (

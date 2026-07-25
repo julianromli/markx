@@ -1,9 +1,7 @@
 import { getAuthClient } from "@/lib/auth/client"
+import type { AuthUser } from "@/lib/auth/types"
 
-export type AuthSessionUser = {
-  id: string
-  email: string
-}
+export type AuthSessionUser = AuthUser
 
 export type AuthSessionSnapshot = {
   user: AuthSessionUser | null

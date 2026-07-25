@@ -13,10 +13,7 @@ export type PreparedImage = {
 
 const objectUrlCache = new Map<string, string>()
 
-export function getImageObjectUrl(
-  imageId: string,
-  blob: Blob,
-): string {
+export function getImageObjectUrl(imageId: string, blob: Blob): string {
   const cached = objectUrlCache.get(imageId)
   if (cached) return cached
   const url = URL.createObjectURL(blob)
@@ -38,7 +35,7 @@ export function revokeImageObjectUrl(imageId: string): void {
  * when the blob cannot be found (e.g. offline and not cached).
  */
 export async function resolveImageBlob(
-  imageId: string,
+  imageId: string
 ): Promise<Blob | undefined> {
   const cached = await getImageBlob(imageId)
   if (cached) return cached
@@ -61,7 +58,7 @@ function fileToBase64(file: File): Promise<string> {
 }
 
 function getNaturalDimensions(
-  blob: Blob,
+  blob: Blob
 ): Promise<{ width: number; height: number }> {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(blob)

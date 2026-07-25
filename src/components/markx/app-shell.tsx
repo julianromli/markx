@@ -55,7 +55,6 @@ type AppShellProps = {
   tool: ToolId
   onToolChange: (tool: ToolId) => void
   trashRef: RefObject<HTMLButtonElement | null>
-  trashHot?: boolean
   zoomPercent?: number
   onImageTool?: () => void
   children: ReactNode
@@ -88,7 +87,6 @@ export function AppShell({
   tool,
   onToolChange,
   trashRef,
-  trashHot,
   zoomPercent,
   onImageTool,
   children,
@@ -320,12 +318,7 @@ export function AppShell({
         <button
           ref={trashRef}
           type="button"
-          className={cn(
-            "flex size-11 items-center justify-center rounded-xl text-black/55 transition-[transform,background-color,box-shadow] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96]",
-            trashHot
-              ? "bg-red-500/15 text-red-600 shadow-[0_0_0_2px_rgba(239,68,68,0.35)]"
-              : "hover:bg-black/5"
-          )}
+          className="flex size-11 items-center justify-center rounded-xl text-black/55 transition-[transform,background-color,box-shadow] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/5 active:scale-[0.96]"
           aria-label="Trash"
         >
           <TrashIcon className="size-5" />

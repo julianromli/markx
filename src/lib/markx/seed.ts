@@ -20,7 +20,8 @@ export function createDemoState(): MarkxState {
         url: "https://cursor.com",
         title: "Cursor",
         description: "The AI code editor",
-        faviconUrl: "https://www.google.com/s2/favicons?domain=cursor.com&sz=64",
+        faviconUrl:
+          "https://www.google.com/s2/favicons?domain=cursor.com&sz=64",
         x: 120,
         y: 120,
         z: 1,
@@ -31,7 +32,8 @@ export function createDemoState(): MarkxState {
         url: "https://linear.app",
         title: "Linear",
         description: "Purpose-built for planning and building products",
-        faviconUrl: "https://www.google.com/s2/favicons?domain=linear.app&sz=64",
+        faviconUrl:
+          "https://www.google.com/s2/favicons?domain=linear.app&sz=64",
         x: 420,
         y: 280,
         z: 2,
@@ -43,7 +45,8 @@ export function createDemoState(): MarkxState {
         title: "shadcn/ui",
         description:
           "The Foundation for your Design System. Beautifully designed components you can customize.",
-        faviconUrl: "https://www.google.com/s2/favicons?domain=ui.shadcn.com&sz=64",
+        faviconUrl:
+          "https://www.google.com/s2/favicons?domain=ui.shadcn.com&sz=64",
         x: 280,
         y: 480,
         z: 3,
@@ -53,7 +56,8 @@ export function createDemoState(): MarkxState {
         folderId: aiId,
         url: "https://openai.com",
         title: "OpenAI",
-        faviconUrl: "https://www.google.com/s2/favicons?domain=openai.com&sz=64",
+        faviconUrl:
+          "https://www.google.com/s2/favicons?domain=openai.com&sz=64",
         x: 200,
         y: 200,
         z: 1,
@@ -64,7 +68,8 @@ export function createDemoState(): MarkxState {
         url: "https://animations.dev",
         title: "animations.dev",
         description: "Emil Kowalski's course on animations",
-        faviconUrl: "https://www.google.com/s2/favicons?domain=animations.dev&sz=64",
+        faviconUrl:
+          "https://www.google.com/s2/favicons?domain=animations.dev&sz=64",
         x: 240,
         y: 240,
         z: 1,

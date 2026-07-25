@@ -1,35 +1,37 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react"
-import type { ReactNode } from "react"
 import { nanoid } from "nanoid"
 
-import { getAuthSession } from "@/lib/auth/session"
 import { enrichLink } from "./enrich"
-import { createEmptyState } from "./seed"
-import {
-  isGuestImported,
-  loadState,
-  loadUserState,
-  localMarkxStorage,
-  nextZ,
-  setLastUserId,
-  getLastUserId,
-  sweepOrphanImageBlobs,
-} from "./storage"
-import { isGuestModified, SyncEngine } from "./sync"
-import type { BoardImage, Bookmark, Folder, MarkxState, Note } from "./types"
+import { cloneState, createEmptyState, nextZ } from "./state"
+import { localMarkxStorage, sweepOrphanImageBlobs } from "./storage"
+import type { MarkxStorage } from "./storage"
+import type { SyncEngine } from "./sync"
+import { STORE_PERSIST_DEBOUNCE_MS } from "./sync-timings"
+import type {
+  BoardImage,
+  Bookmark,
+  Folder,
+  LinkMetadata,
+  MarkxState,
+  Note,
+} from "./types"
 
 type Listener = () => void
 type PositionUpdate = { id: string; x: number; y: number; z?: number }
 
 const MAX_HISTORY = 50
+
+function applyBookmarkMetadata(
+  bookmark: Bookmark,
+  metadata: LinkMetadata
+): Bookmark {
+  return {
+    ...bookmark,
+    title: metadata.title || bookmark.title,
+    description: metadata.description ?? bookmark.description,
+    imageUrl: metadata.imageUrl ?? bookmark.imageUrl,
+    faviconUrl: metadata.faviconUrl || bookmark.faviconUrl,
+  }
+}
 
 export type MarkxActions = {
   undo: () => void
@@ -72,52 +74,37 @@ export type MarkxHistory = {
   canRedo: boolean
 }
 
-export type InitialSyncStatus = "idle" | "loading" | "error"
-
-type MarkxStoreApi = {
+export type MarkxStore = {
   getState: () => MarkxState
   getHistory: () => MarkxHistory
   subscribe: (listener: Listener) => () => void
   actions: MarkxActions
-  ready: boolean
-  /** First cloud hydration state for an authenticated user without a cache. */
-  initialSyncStatus: InitialSyncStatus
-  /** Retry the first cloud hydration after a timeout or network failure. */
-  retryInitialSync: () => void
-  /** The active SyncEngine, or `null` in guest mode. */
   getSyncEngine: () => SyncEngine | null
-  /** Attach a SyncEngine (on login) and hydrate from the cloud. */
   attachSync: (engine: SyncEngine) => void
-  /** Detach the SyncEngine (on sign-out) and switch back to guest mode. */
   detachSync: () => void
-  /** Replace the in-memory state without touching history (cloud load / conflict resolution). */
   replaceState: (newState: MarkxState, opts?: { persist?: boolean }) => void
-  /** Hydrate from local guest storage (guest mode). */
   hydrate: () => Promise<void>
-  /** Mark the store ready after a sync-engine state replacement. */
-  markReady: () => void
-  /** Resolve a sync conflict by keeping the cloud version. */
+  finishHydration: () => void
   resolveConflictUseCloud: () => Promise<void>
-  /** Resolve a sync conflict by overwriting the cloud with local. */
   resolveConflictOverwriteCloud: () => Promise<void>
 }
 
-const MarkxStoreContext = createContext<MarkxStoreApi | null>(null)
-
-function cloneState(source: MarkxState): MarkxState {
-  return {
-    hasOnboarded: source.hasOnboarded,
-    zCounter: source.zCounter,
-    folders: source.folders.map((folder) => ({ ...folder })),
-    bookmarks: source.bookmarks.map((bookmark) => ({ ...bookmark })),
-    notes: source.notes.map((note) => ({ ...note })),
-    images: source.images.map((image) => ({ ...image })),
-  }
+export type MarkxStoreDependencies = {
+  storage: MarkxStorage
+  enrich: (input: { data: { url: string } }) => Promise<LinkMetadata>
+  sweepOrphanImages: typeof sweepOrphanImageBlobs
 }
 
-function createMarkxStore() {
+const defaultDependencies: MarkxStoreDependencies = {
+  storage: localMarkxStorage,
+  enrich: enrichLink,
+  sweepOrphanImages: sweepOrphanImageBlobs,
+}
+
+export function createMarkxStore(
+  dependencies: MarkxStoreDependencies = defaultDependencies
+): MarkxStore {
   let state: MarkxState = createEmptyState()
-  let ready = false
   let past: MarkxState[] = []
   let future: MarkxState[] = []
   const listeners = new Set<Listener>()
@@ -149,9 +136,9 @@ function createMarkxStore() {
         pendingDeletedImageIds.clear()
         syncEngine.onStateChange(state, deleted)
       } else {
-        void localMarkxStorage.save(state)
+        void dependencies.storage.save(state)
       }
-    }, 120)
+    }, STORE_PERSIST_DEBOUNCE_MS)
   }
 
   let historySnapshot: MarkxHistory = { canUndo: false, canRedo: false }
@@ -419,19 +406,11 @@ function createMarkxStore() {
       })
 
       try {
-        const meta = await enrichLink({ data: { url: normalized } })
+        const meta = await dependencies.enrich({ data: { url: normalized } })
         patch((prev) => ({
           ...prev,
           bookmarks: prev.bookmarks.map((b) =>
-            b.id === created.id
-              ? {
-                  ...b,
-                  title: meta.title || b.title,
-                  description: meta.description,
-                  imageUrl: meta.imageUrl,
-                  faviconUrl: meta.faviconUrl || b.faviconUrl,
-                }
-              : b
+            b.id === created.id ? applyBookmarkMetadata(b, meta) : b
           ),
         }))
       } catch {
@@ -544,19 +523,13 @@ function createMarkxStore() {
       await Promise.all(
         missing.map(async (bookmark) => {
           try {
-            const meta = await enrichLink({ data: { url: bookmark.url } })
+            const meta = await dependencies.enrich({
+              data: { url: bookmark.url },
+            })
             patch((prev) => ({
               ...prev,
               bookmarks: prev.bookmarks.map((b) =>
-                b.id === bookmark.id
-                  ? {
-                      ...b,
-                      title: meta.title || b.title,
-                      description: meta.description ?? b.description,
-                      imageUrl: meta.imageUrl ?? b.imageUrl,
-                      faviconUrl: meta.faviconUrl || b.faviconUrl,
-                    }
-                  : b
+                b.id === bookmark.id ? applyBookmarkMetadata(b, meta) : b
               ),
             }))
           } catch {
@@ -570,7 +543,6 @@ function createMarkxStore() {
   return {
     getState: () => state,
     getHistory,
-    getReady: () => ready,
     subscribe: (listener: Listener) => {
       listeners.add(listener)
       return () => {
@@ -604,22 +576,19 @@ function createMarkxStore() {
       }
     },
     async hydrate() {
-      state = await localMarkxStorage.load()
+      state = await dependencies.storage.load()
       past = []
       future = []
-      ready = true
       emit()
       void actions.enrichMissingBookmarks()
-      // Sweep orphaned image blobs (from deleted images in previous sessions)
       const referencedImageIds = new Set(state.images.map((i) => i.imageId))
-      void sweepOrphanImageBlobs(referencedImageIds)
+      void dependencies.sweepOrphanImages(referencedImageIds)
     },
-    markReady() {
-      ready = true
+    finishHydration() {
       emit()
       void actions.enrichMissingBookmarks()
       const referencedImageIds = new Set(state.images.map((i) => i.imageId))
-      void sweepOrphanImageBlobs(referencedImageIds)
+      void dependencies.sweepOrphanImages(referencedImageIds)
     },
     async resolveConflictUseCloud() {
       if (!syncEngine) return
@@ -638,415 +607,12 @@ function createMarkxStore() {
 
 export const store = createMarkxStore()
 
-const SESSION_TIMEOUT_MS = 3000
-const CLOUD_FIRST_LOAD_TIMEOUT_MS = 8000
-
-type SessionUser = { id: string; email?: string | null }
-
-async function needsGuestImport(userId: string): Promise<boolean> {
-  if (await isGuestImported(userId)) return false
-  return isGuestModified(await loadState())
-}
-
-type SessionCheckResult =
-  | { status: "user"; user: SessionUser }
-  | { status: "guest" }
-  | { status: "timeout" }
-
-async function getSessionUserWithTimeout(
-  timeoutMs = SESSION_TIMEOUT_MS
-): Promise<SessionCheckResult> {
-  try {
-    const result = await Promise.race([
-      getAuthSession().then((session) => ({
-        kind: "session" as const,
-        session,
-      })),
-      new Promise<{ kind: "timeout" }>((resolve) =>
-        setTimeout(() => resolve({ kind: "timeout" }), timeoutMs)
-      ),
-    ])
-    if (result.kind === "timeout") {
-      console.warn(`[markx init] getSession timed out after ${timeoutMs}ms`)
-      return { status: "timeout" }
-    }
-    const user = result.session.user
-    if (!user) return { status: "guest" }
-    return { status: "user", user }
-  } catch (err) {
-    console.error("[markx init] getSession failed", err)
-    return { status: "guest" }
-  }
-}
-
-async function attachEngineAndPaint(
-  engine: SyncEngine,
-  opts?: { persist?: boolean }
-): Promise<void> {
-  store.attachSync(engine)
-  const loaded = engine.getLoadedState()
-  if (loaded) {
-    store.replaceState(loaded, { persist: opts?.persist ?? false })
-  }
-  store.markReady()
-  await setLastUserId(engine.getUserId())
-}
-
-/**
- * Background cloud refresh after the UI has already painted from cache.
- * Applies the cloud snapshot only when the engine says it is safe.
- */
-function refreshEngineInBackground(
-  engine: SyncEngine,
-  cancelled: () => boolean
-): void {
-  void (async () => {
-    try {
-      const cloudState = await engine.refreshFromCloud()
-      if (cancelled() || !cloudState) return
-      // Engine still attached for this user?
-      if (store.getSyncEngine() !== engine) return
-      store.replaceState(cloudState, { persist: false })
-      console.info("[markx init] applied cloud refresh")
-    } catch (err) {
-      console.error("[markx init] background cloud refresh failed", err)
-    }
-  })()
-}
-
-export function MarkxProvider({ children }: { children: ReactNode }) {
-  // Always start false so SSR + first client paint match (singleton may already be ready after HMR).
-  const [ready, setReady] = useState(false)
-  const [initialSyncStatus, setInitialSyncStatus] =
-    useState<InitialSyncStatus>("idle")
-  const retryInitialSyncRef = useRef<() => void>(() => {})
-  const initialSyncEngineRef = useRef<SyncEngine | null>(null)
-
-  useEffect(
-    () =>
-      store.subscribe(() => {
-        const initialEngine = initialSyncEngineRef.current
-        if (initialEngine && store.getSyncEngine() !== initialEngine) {
-          initialSyncEngineRef.current = null
-          retryInitialSyncRef.current = () => {}
-          setInitialSyncStatus("idle")
-        }
-      }),
-    []
-  )
-
-  useEffect(() => {
-    const cancelled: { current: boolean } = { current: false }
-    const isCancelled = () => cancelled.current
-
-    async function init() {
-      const initStartedAt = performance.now()
-      const logTiming = (stage: string, startedAt = initStartedAt) => {
-        console.info("[markx init] timing", {
-          stage,
-          durationMs: Math.round(performance.now() - startedAt),
-        })
-      }
-      const markShellReady = (branch: string) => {
-        setReady(true)
-        requestAnimationFrame(() => logTiming("first-shell-paint"))
-        console.info("[markx init] ready", { branch })
-      }
-
-      console.info("[markx init] starting")
-      const sessionPromise = getSessionUserWithTimeout()
-
-      // Start session restore and cache hydration concurrently so returning
-      // visits are never serialized behind the auth request.
-      let optimisticEngine: SyncEngine | null = null
-      const lastUserId = await getLastUserId()
-      if (isCancelled()) return
-
-      if (lastUserId) {
-        try {
-          const cached = await loadUserState(lastUserId)
-          if (isCancelled()) return
-          if (cached) {
-            optimisticEngine = await SyncEngine.createFromCache(lastUserId)
-            if (isCancelled()) {
-              optimisticEngine.destroy()
-              return
-            }
-            await attachEngineAndPaint(optimisticEngine)
-            if (isCancelled()) {
-              optimisticEngine.destroy()
-              return
-            }
-            markShellReady("cache-optimistic")
-          }
-        } catch (err) {
-          console.error("[markx init] optimistic cache paint failed", err)
-          optimisticEngine?.destroy()
-          optimisticEngine = null
-        }
-      }
-      logTiming("cache-lookup")
-
-      const session = await sessionPromise
-      if (isCancelled()) {
-        optimisticEngine?.destroy()
-        return
-      }
-      console.info(
-        "[markx init] session checked",
-        session.status === "user" ? `user=${session.user.id}` : session.status
-      )
-      logTiming("session-restore")
-
-      // Session timed out but we already painted from lastUserId — keep it
-      // and attempt a background cloud refresh (auth may still succeed on
-      // the server-fn path via cookies).
-      if (session.status === "timeout" && optimisticEngine) {
-        console.warn(
-          "[markx init] session timeout — keeping optimistic cache paint"
-        )
-        refreshEngineInBackground(optimisticEngine, isCancelled)
-        return
-      }
-
-      // Confirmed guest (or timeout with no cache) → guest mode.
-      if (session.status !== "user") {
-        if (optimisticEngine) {
-          optimisticEngine.destroy()
-          store.detachSync()
-          optimisticEngine = null
-        }
-        await store.hydrate()
-        if (isCancelled()) return
-        markShellReady("guest")
-        return
-      }
-
-      const user = session.user
-
-      // Same user as optimistic paint. Keep the instant cache paint, but do
-      // not let any user cache suppress a pending one-time guest import.
-      if (optimisticEngine && optimisticEngine.getUserId() === user.id) {
-        if (!(await needsGuestImport(user.id))) {
-          refreshEngineInBackground(optimisticEngine, isCancelled)
-          return
-        }
-        optimisticEngine.destroy()
-        store.detachSync()
-        optimisticEngine = null
-      }
-
-      // Different user than optimistic guess — tear down and rebuild.
-      if (optimisticEngine) {
-        optimisticEngine.destroy()
-        store.detachSync()
-        optimisticEngine = null
-      }
-
-      try {
-        // Hydrate the authenticated cache first, but the durable import marker
-        // decides whether guest data still needs to be saved to this account.
-        const cachedEngine = await SyncEngine.createFromCache(user.id)
-        if (isCancelled()) {
-          cachedEngine.destroy()
-          return
-        }
-
-        const shouldImportGuest = await needsGuestImport(user.id)
-
-        if (cachedEngine.hasCachedState() && !shouldImportGuest) {
-          await attachEngineAndPaint(cachedEngine)
-          if (isCancelled()) {
-            cachedEngine.destroy()
-            return
-          }
-          markShellReady("cache")
-          refreshEngineInBackground(cachedEngine, isCancelled)
-          return
-        }
-
-        if (shouldImportGuest) {
-          cachedEngine.destroy()
-          // First login with local guest changes — must await network.
-          const createPromise = SyncEngine.create(user.id)
-          const engine = await Promise.race([
-            createPromise,
-            new Promise<null>((resolve) =>
-              setTimeout(() => resolve(null), CLOUD_FIRST_LOAD_TIMEOUT_MS)
-            ),
-          ])
-          if (isCancelled()) {
-            engine?.destroy()
-            return
-          }
-          if (!engine) {
-            console.warn(
-              `[markx init] SyncEngine.create timed out after ${CLOUD_FIRST_LOAD_TIMEOUT_MS}ms — falling back to guest`
-            )
-            // SyncEngine.create cannot currently be aborted. Dispose a late
-            // result so it cannot leave online listeners attached.
-            void createPromise
-              .then((lateEngine) => lateEngine.destroy())
-              .catch((err) =>
-                console.error("[markx init] late guest import failed", err)
-              )
-            await store.hydrate()
-            if (isCancelled()) return
-            markShellReady("guest-import-timeout")
-            return
-          }
-          await attachEngineAndPaint(engine)
-          if (isCancelled()) {
-            engine.destroy()
-            return
-          }
-          markShellReady("guest-import")
-          return
-        }
-
-        // First load on this device with no cache. Render the app shell
-        // immediately, but keep editing guarded until cloud hydration
-        // succeeds so an empty local state cannot race the real workspace.
-        const engine = cachedEngine
-        await attachEngineAndPaint(engine)
-        if (isCancelled()) {
-          engine.destroy()
-          return
-        }
-        initialSyncEngineRef.current = engine
-        setInitialSyncStatus("loading")
-        markShellReady("cloud-loading")
-
-        let activeCloudLoad: Promise<MarkxState | null> | null = null
-        let cloudLoadStartedAt = performance.now()
-
-        const applyCloudState = (cloudState: MarkxState | null) => {
-          if (isCancelled() || store.getSyncEngine() !== engine) return
-          if (cloudState) {
-            store.replaceState(cloudState, { persist: false })
-            initialSyncEngineRef.current = null
-            retryInitialSyncRef.current = () => {}
-            setInitialSyncStatus("idle")
-            console.info("[markx init] initial cloud load applied")
-          } else {
-            setInitialSyncStatus("error")
-            console.warn("[markx init] initial cloud load failed")
-          }
-          logTiming("initial-cloud-load", cloudLoadStartedAt)
-        }
-
-        const runInitialCloudLoad = () => {
-          if (isCancelled() || store.getSyncEngine() !== engine) return
-          setInitialSyncStatus("loading")
-          cloudLoadStartedAt = performance.now()
-
-          const cloudLoad =
-            activeCloudLoad ??
-            engine.refreshFromCloud().finally(() => {
-              activeCloudLoad = null
-            })
-          activeCloudLoad = cloudLoad
-
-          void cloudLoad.then(applyCloudState)
-          void Promise.race([
-            cloudLoad.then(() => "settled" as const),
-            new Promise<"timeout">((resolve) =>
-              setTimeout(() => resolve("timeout"), CLOUD_FIRST_LOAD_TIMEOUT_MS)
-            ),
-          ]).then((result) => {
-            if (
-              result === "timeout" &&
-              !isCancelled() &&
-              store.getSyncEngine() === engine
-            ) {
-              setInitialSyncStatus("error")
-              console.warn(
-                `[markx init] initial cloud load still pending after ${CLOUD_FIRST_LOAD_TIMEOUT_MS}ms`
-              )
-            }
-          })
-        }
-
-        retryInitialSyncRef.current = runInitialCloudLoad
-        runInitialCloudLoad()
-        return
-      } catch (err) {
-        console.error(
-          "[markx init] auth/sync error, falling back to guest",
-          err
-        )
-        if (isCancelled()) return
-        await store.hydrate()
-        if (isCancelled()) return
-        markShellReady("sync-error-guest-fallback")
-      }
-    }
-
-    void init()
-
-    return () => {
-      cancelled.current = true
-      initialSyncEngineRef.current = null
-      retryInitialSyncRef.current = () => {}
-    }
-  }, [])
-
-  const api = useMemo<MarkxStoreApi>(
-    () => ({
-      getState: store.getState,
-      getHistory: store.getHistory,
-      subscribe: store.subscribe,
-      actions: store.actions,
-      ready,
-      initialSyncStatus,
-      retryInitialSync: () => retryInitialSyncRef.current(),
-      getSyncEngine: store.getSyncEngine,
-      attachSync: store.attachSync,
-      detachSync: store.detachSync,
-      replaceState: store.replaceState,
-      hydrate: store.hydrate,
-      markReady: store.markReady,
-      resolveConflictUseCloud: store.resolveConflictUseCloud,
-      resolveConflictOverwriteCloud: store.resolveConflictOverwriteCloud,
-    }),
-    [initialSyncStatus, ready],
-  )
-
-  if (!ready) {
-    return <div className="markx-dot-bg h-svh" aria-busy="true" />
-  }
-
-  return (
-    <MarkxStoreContext.Provider value={api}>
-      {children}
-    </MarkxStoreContext.Provider>
-  )
-}
-
-export function useMarkxStore(): MarkxStoreApi {
-  const ctx = useContext(MarkxStoreContext)
-  if (!ctx) throw new Error("useMarkxStore must be used within MarkxProvider")
-  return ctx
-}
-
-export function useMarkxState(): MarkxState {
-  const storeApi = useMarkxStore()
-  return useSyncExternalStore(
-    storeApi.subscribe,
-    storeApi.getState,
-    storeApi.getState
-  )
-}
-
-export function useMarkxHistory(): MarkxHistory {
-  const storeApi = useMarkxStore()
-  return useSyncExternalStore(
-    storeApi.subscribe,
-    storeApi.getHistory,
-    storeApi.getHistory
-  )
-}
-
-export function useMarkxActions(): MarkxActions {
-  return useMarkxStore().actions
-}
+export {
+  MarkxProvider,
+  useMarkxActions,
+  useMarkxHistory,
+  useMarkxImageIngest,
+  useMarkxState,
+  useMarkxStore,
+} from "./store-react"
+export type { InitialSyncStatus, MarkxStoreApi } from "./store-react"

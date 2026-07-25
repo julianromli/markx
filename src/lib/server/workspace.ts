@@ -1,48 +1,19 @@
 import { createServerFn } from "@tanstack/react-start"
-import { and, eq, inArray } from "drizzle-orm"
 import { z } from "zod"
-import { getDb } from "@/lib/db/client"
-import { assets, workspaces } from "@/lib/db/schema"
 import { authMiddleware, requireUser } from "@/lib/auth/middleware"
 import { markxStateSchema } from "@/lib/markx/schema"
-import type { MarkxState } from "@/lib/markx/types"
+import {
+  importGuestWorkspaceForUser,
+  loadWorkspaceForUser,
+  overwriteWorkspaceForUser,
+  saveWorkspaceForUser,
+} from "@/lib/server/workspace.server"
+import type {
+  SaveResult,
+  WorkspaceSnapshot,
+} from "@/lib/server/workspace-helpers"
 
-export type WorkspaceSnapshot = {
-  id: string
-  userId: string
-  state: MarkxState
-  version: number
-  updatedAt: string
-}
-
-export type SaveResult =
-  | { ok: true; version: number; updatedAt: string }
-  | {
-      ok: false
-      reason: "conflict"
-      cloudVersion: number
-      cloudState: MarkxState
-      cloudUpdatedAt: string
-    }
-  | { ok: false; reason: "error"; message: string }
-
-const emptyState: MarkxState = {
-  folders: [],
-  bookmarks: [],
-  notes: [],
-  images: [],
-  hasOnboarded: true,
-  zCounter: 1,
-}
-
-function hasWorkspaceItems(state: MarkxState): boolean {
-  return (
-    state.folders.length > 0 ||
-    state.bookmarks.length > 0 ||
-    state.notes.length > 0 ||
-    state.images.length > 0
-  )
-}
+export type { SaveResult, WorkspaceSnapshot }
 
 /**
  * Load the caller's workspace. Creates an empty workspace row on first
@@ -54,38 +25,7 @@ export const loadWorkspace = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }): Promise<WorkspaceSnapshot | null> => {
     const user = requireUser(context)
-    const { db, sql: sqlClient } = await getDb()
-
-    try {
-      // Idempotent insert — safe under concurrent first-login races.
-      await db
-        .insert(workspaces)
-        .values({
-          id: crypto.randomUUID(),
-          userId: user.id,
-          state: emptyState,
-          version: 1,
-        })
-        .onConflictDoNothing()
-
-      const [ws] = await db
-        .select()
-        .from(workspaces)
-        .where(eq(workspaces.userId, user.id))
-        .limit(1)
-
-      if (!ws) return null
-
-      return {
-        id: ws.id,
-        userId: ws.userId,
-        state: ws.state as MarkxState,
-        version: ws.version,
-        updatedAt: ws.updatedAt.toISOString(),
-      }
-    } finally {
-      await sqlClient.end()
-    }
+    return loadWorkspaceForUser(user.id)
   })
 
 const saveSchema = z.object({
@@ -110,75 +50,7 @@ export const saveWorkspace = createServerFn({ method: "POST" })
   .validator(saveSchema)
   .handler(async ({ data, context }): Promise<SaveResult> => {
     const user = requireUser(context)
-    const { db, sql: sqlClient } = await getDb()
-
-    try {
-      const txResult = await db.transaction(async (tx) => {
-        const updated = await tx
-          .update(workspaces)
-          .set({
-            state: data.state as MarkxState,
-            version: data.baseVersion + 1,
-            updatedAt: new Date(),
-          })
-          .where(
-            and(
-              eq(workspaces.userId, user.id),
-              eq(workspaces.version, data.baseVersion),
-            ),
-          )
-          .returning({
-            version: workspaces.version,
-            updatedAt: workspaces.updatedAt,
-          })
-
-        if (updated.length === 0) return null
-
-        // Soft-delete removed image assets in the same transaction.
-        if (data.deletedImageIds && data.deletedImageIds.length > 0) {
-          await tx
-            .update(assets)
-            .set({ deletedAt: new Date() })
-            .where(
-              and(
-                eq(assets.userId, user.id),
-                inArray(assets.id, data.deletedImageIds),
-              ),
-            )
-        }
-
-        return updated[0]
-      })
-
-      if (!txResult) {
-        // Version mismatch — fetch current cloud state for conflict prompt.
-        const [cloud] = await db
-          .select()
-          .from(workspaces)
-          .where(eq(workspaces.userId, user.id))
-          .limit(1)
-
-        if (!cloud) {
-          return { ok: false, reason: "error", message: "Workspace not found" }
-        }
-
-        return {
-          ok: false,
-          reason: "conflict",
-          cloudVersion: cloud.version,
-          cloudState: cloud.state as MarkxState,
-          cloudUpdatedAt: cloud.updatedAt.toISOString(),
-        }
-      }
-
-      return {
-        ok: true,
-        version: txResult.version,
-        updatedAt: txResult.updatedAt.toISOString(),
-      }
-    } finally {
-      await sqlClient.end()
-    }
+    return saveWorkspaceForUser(user.id, data)
   })
 
 /**
@@ -195,51 +67,7 @@ export const importGuestWorkspace = createServerFn({ method: "POST" })
   .validator(z.object({ state: markxStateSchema }))
   .handler(async ({ data, context }): Promise<SaveResult> => {
     const user = requireUser(context)
-    const { db, sql: sqlClient } = await getDb()
-
-    try {
-      const [existing] = await db
-        .select()
-        .from(workspaces)
-        .where(eq(workspaces.userId, user.id))
-        .limit(1)
-
-      if (
-        existing &&
-        hasWorkspaceItems(existing.state as MarkxState)
-      ) {
-        return {
-          ok: false,
-          reason: "conflict",
-          cloudVersion: existing.version,
-          cloudState: existing.state as MarkxState,
-          cloudUpdatedAt: existing.updatedAt.toISOString(),
-        }
-      }
-
-      const state = data.state as MarkxState
-
-      if (!existing) {
-        await db
-          .insert(workspaces)
-          .values({
-            id: crypto.randomUUID(),
-            userId: user.id,
-            state,
-            version: 2,
-          })
-          .onConflictDoNothing()
-      } else {
-        await db
-          .update(workspaces)
-          .set({ state, version: 2, updatedAt: new Date() })
-          .where(eq(workspaces.id, existing.id))
-      }
-
-      return { ok: true, version: 2, updatedAt: new Date().toISOString() }
-    } finally {
-      await sqlClient.end()
-    }
+    return importGuestWorkspaceForUser(user.id, data.state)
   })
 
 /**
@@ -254,62 +82,9 @@ export const overwriteWorkspace = createServerFn({ method: "POST" })
     z.object({
       state: markxStateSchema,
       deletedImageIds: z.array(z.string()).optional(),
-    }),
+    })
   )
   .handler(async ({ data, context }): Promise<SaveResult> => {
     const user = requireUser(context)
-    const { db, sql: sqlClient } = await getDb()
-
-    try {
-      const txResult = await db.transaction(async (tx) => {
-        const [current] = await tx
-          .select({ version: workspaces.version, id: workspaces.id })
-          .from(workspaces)
-          .where(eq(workspaces.userId, user.id))
-          .limit(1)
-
-        if (!current) {
-          return { notFound: true as const, updated: undefined }
-        }
-
-        const [updated] = await tx
-          .update(workspaces)
-          .set({
-            state: data.state as MarkxState,
-            version: current.version + 1,
-            updatedAt: new Date(),
-          })
-          .where(eq(workspaces.id, current.id))
-          .returning({
-            version: workspaces.version,
-            updatedAt: workspaces.updatedAt,
-          })
-
-        if (data.deletedImageIds && data.deletedImageIds.length > 0) {
-          await tx
-            .update(assets)
-            .set({ deletedAt: new Date() })
-            .where(
-              and(
-                eq(assets.userId, user.id),
-                inArray(assets.id, data.deletedImageIds),
-              ),
-            )
-        }
-
-        return { notFound: false as const, updated }
-      })
-
-      if (txResult.notFound) {
-        return { ok: false, reason: "error", message: "Workspace not found" }
-      }
-
-      return {
-        ok: true,
-        version: txResult.updated!.version,
-        updatedAt: txResult.updated!.updatedAt.toISOString(),
-      }
-    } finally {
-      await sqlClient.end()
-    }
+    return overwriteWorkspaceForUser(user.id, data)
   })

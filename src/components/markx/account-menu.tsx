@@ -1,10 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
-import {
-  SignOutIcon,
-  UserCircleIcon,
-  SpinnerIcon,
-} from "@phosphor-icons/react"
+import { SignOutIcon, UserCircleIcon, SpinnerIcon } from "@phosphor-icons/react"
 
 import { cn } from "@/lib/utils"
 import { useAuthSession } from "@/lib/markx/hooks"
@@ -60,11 +56,14 @@ export function AccountMenu() {
         aria-label="Account"
         className="flex items-center rounded-md p-1.5 transition-colors hover:bg-black/[0.04]"
       >
-        <UserCircleIcon className="size-5 text-muted-foreground" weight="regular" />
+        <UserCircleIcon
+          className="size-5 text-muted-foreground"
+          weight="regular"
+        />
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 w-56 rounded-lg border bg-white p-1 shadow-lg">
+        <div className="absolute top-full right-0 mt-1 w-56 rounded-lg border bg-white p-1 shadow-lg">
           <div className="border-b px-3 py-2">
             <div className="text-xs text-muted-foreground">Signed in as</div>
             <div className="truncate text-sm font-medium">{user.email}</div>
@@ -74,7 +73,7 @@ export function AccountMenu() {
             onClick={() => void handleSignOut()}
             disabled={signingOut}
             className={cn(
-              "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-black/[0.04] disabled:opacity-50",
+              "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-black/[0.04] disabled:opacity-50"
             )}
           >
             {signingOut ? (

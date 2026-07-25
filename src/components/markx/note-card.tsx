@@ -2,12 +2,18 @@ import { CaretDownIcon } from "@phosphor-icons/react"
 import Underline from "@tiptap/extension-underline"
 import { EditorContent, useEditor } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState } from "react"
+import type { ReactNode } from "react"
 
+import {
+  NOTE_COLORS,
+  NoteColorChoices,
+} from "@/components/markx/note-color-choices"
+import { ResizeHandle } from "@/components/markx/resize-handle"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { NOTE_SIZE, RESIZE_HANDLE_SIZE } from "@/lib/markx/geometry"
+import { NOTE_SIZE } from "@/lib/markx/geometry"
 import { cn } from "@/lib/utils"
-import type { Note, NoteColor, NoteFont, NoteSize } from "@/lib/markx/types"
+import type { Note, NoteFont, NoteSize } from "@/lib/markx/types"
 
 type NoteCardProps = {
   note: Note
@@ -19,15 +25,6 @@ type NoteCardProps = {
     style: Partial<Pick<Note, "color" | "font" | "fontSize">>
   ) => void
   className?: string
-}
-
-export const NOTE_COLORS: Record<NoteColor, string> = {
-  yellow: "#fef08a",
-  blue: "#bfdbfe",
-  pink: "#fbcfe8",
-  green: "#bbf7d0",
-  orange: "#fed7aa",
-  purple: "#ddd6fe",
 }
 
 export const NOTE_FONTS: Record<NoteFont, string> = {
@@ -106,7 +103,7 @@ export function NoteCard({
   }, [editing])
 
   useEffect(() => {
-    if (!editing || !editor) return
+    if (!editing) return
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return
@@ -132,7 +129,7 @@ export function NoteCard({
       className={cn("relative", className)}
       style={{ width, height }}
     >
-      {editing && editor ? (
+      {editing ? (
         <div
           className={cn(
             "note-toolbar-in absolute z-10 flex items-center gap-0.5 rounded-[13px] border border-black/10 bg-white px-1.5 py-1 shadow-[0_2px_6px_rgba(0,0,0,0.08),0_8px_24px_rgba(0,0,0,0.12)]",
@@ -154,26 +151,15 @@ export function NoteCard({
             }
           >
             {(close) => (
-              <div className="flex gap-1.5 p-1">
-                {(Object.keys(NOTE_COLORS) as NoteColor[]).map((color) => (
-                  <button
-                    key={color}
-                    type="button"
-                    aria-label={color}
-                    onClick={() => {
-                      onStyleChange?.({ color })
-                      editor.commands.focus()
-                      close()
-                    }}
-                    className={cn(
-                      "size-7 rounded-full border-2 transition-transform active:scale-95 hover-fine:hover:scale-105",
-                      note.color === color
-                        ? "border-[#202020]"
-                        : "border-black/15"
-                    )}
-                    style={{ backgroundColor: NOTE_COLORS[color] }}
-                  />
-                ))}
+              <div className="p-1">
+                <NoteColorChoices
+                  selected={note.color}
+                  onSelect={(color) => {
+                    onStyleChange?.({ color })
+                    editor.commands.focus()
+                    close()
+                  }}
+                />
               </div>
             )}
           </ToolbarDropdown>
@@ -284,7 +270,7 @@ export function NoteCard({
           className="min-h-0 flex-1 overflow-y-auto leading-snug text-[#202020]"
           style={{ fontFamily, fontSize }}
         >
-          {editing && editor ? (
+          {editing ? (
             <EditorContent editor={editor} />
           ) : note.content ? (
             <div
@@ -296,44 +282,7 @@ export function NoteCard({
           )}
         </div>
 
-        {!editing ? (
-          <div
-            className={cn(
-              "absolute right-0 bottom-0 flex cursor-se-resize items-end justify-end opacity-0 transition-opacity group-hover:opacity-100",
-              selected && "opacity-100"
-            )}
-            style={{
-              width: isMobile ? 32 : RESIZE_HANDLE_SIZE,
-              height: isMobile ? 32 : RESIZE_HANDLE_SIZE,
-            }}
-            aria-hidden
-          >
-            <svg
-              viewBox="0 0 16 16"
-              className="mr-1.5 mb-1.5 size-3.5 text-black/35"
-              fill="none"
-            >
-              <path
-                d="M14 4L4 14"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-              <path
-                d="M14 8L8 14"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-              <path
-                d="M14 12L12 14"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-            </svg>
-          </div>
-        ) : null}
+        {!editing ? <ResizeHandle selected={selected} /> : null}
       </div>
     </div>
   )

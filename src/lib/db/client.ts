@@ -2,6 +2,11 @@ import { drizzle } from "drizzle-orm/postgres-js"
 import postgres from "postgres"
 import * as schema from "./schema"
 
+type DatabaseEnv = {
+  HYPERDRIVE?: Pick<Hyperdrive, "connectionString">
+  DATABASE_URL?: string
+}
+
 /**
  * Database client factory.
  *
@@ -21,18 +26,15 @@ import * as schema from "./schema"
 export async function getDb() {
   const { env } = await import("cloudflare:workers")
 
-  // `DATABASE_URL` is a secret (set via `.dev.vars` or `wrangler secret put`)
-  // and is not part of the generated `Env` type. `HYPERDRIVE` is a binding
-  // declared in `wrangler.jsonc` and is typed by `wrangler types`.
+  // Hyperdrive can be absent in local development, where `.dev.vars`
+  // supplies the typed DATABASE_URL fallback.
+  const bindings: DatabaseEnv = env
   const connectionString =
-    env.HYPERDRIVE?.connectionString ??
-    ((env as unknown as Record<string, unknown>).DATABASE_URL as
-      | string
-      | undefined)
+    bindings.HYPERDRIVE?.connectionString ?? bindings.DATABASE_URL
 
   if (!connectionString) {
     throw new Error(
-      "No database connection available. Set HYPERDRIVE binding or DATABASE_URL.",
+      "No database connection available. Set HYPERDRIVE binding or DATABASE_URL."
     )
   }
 
@@ -46,4 +48,22 @@ export async function getDb() {
   return { db: drizzle(sql, { schema }), sql }
 }
 
+export type DbConnection = Awaited<ReturnType<typeof getDb>>
 export type Database = Awaited<ReturnType<typeof getDb>>["db"]
+
+/**
+ * Run a database operation and always release its postgres client.
+ *
+ * Keeping lifecycle management here prevents server services from leaking
+ * connections when an operation throws or returns early.
+ */
+export async function withDb<T>(
+  operation: (connection: DbConnection) => Promise<T>
+): Promise<T> {
+  const connection = await getDb()
+  try {
+    return await operation(connection)
+  } finally {
+    await connection.sql.end()
+  }
+}

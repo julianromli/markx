@@ -46,15 +46,13 @@ export function resolveAuthBaseURL(opts?: {
   origin?: string
 }): string {
   const envUrl =
-    opts && "envUrl" in opts
-      ? opts.envUrl
-      : import.meta.env.VITE_NEON_AUTH_URL
+    opts && "envUrl" in opts ? opts.envUrl : import.meta.env.VITE_NEON_AUTH_URL
   // An explicitly-passed `origin` (even `undefined`) wins; otherwise fall
   // back to the browser's location so production resolves automatically.
   const origin =
     opts && "origin" in opts
       ? opts.origin
-      : typeof window !== "undefined" && window.location
+      : typeof window !== "undefined"
         ? window.location.origin
         : undefined
 
@@ -70,20 +68,19 @@ export function resolveAuthBaseURL(opts?: {
 
   throw new Error(
     "Auth client requires a browser environment (window.location) or an " +
-      "absolute VITE_NEON_AUTH_URL to resolve the base URL.",
+      "absolute VITE_NEON_AUTH_URL to resolve the base URL."
   )
 }
 
 export async function getAuthClient(): Promise<AuthClient> {
   if (_client) return _client
   const { createAuthClient } = await import("@neondatabase/neon-js/auth")
-  const { BetterAuthReactAdapter } = await import(
-    "@neondatabase/neon-js/auth/react/adapters"
-  )
+  const { BetterAuthReactAdapter } =
+    await import("@neondatabase/neon-js/auth/react/adapters")
   _client = createAuthClient(resolveAuthBaseURL(), {
     adapter: BetterAuthReactAdapter({
       fetchOptions: { credentials: "include" },
     }),
-  }) as AuthClient
+  })
   return _client
 }

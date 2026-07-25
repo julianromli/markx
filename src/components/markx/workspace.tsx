@@ -1,14 +1,9 @@
 import { useNavigate } from "@tanstack/react-router"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { nanoid } from "nanoid"
+import { useCallback, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 
-import { BookmarkCard } from "@/components/markx/bookmark-card"
-import {
-  Board,
-  type BoardApi,
-  type BoardItemModel,
-} from "@/components/markx/board"
+import { Board } from "@/components/markx/board"
+import type { BoardApi, BoardItemModel } from "@/components/markx/board"
 import { AppShell } from "@/components/markx/app-shell"
 import {
   AddLinkDialog,
@@ -16,32 +11,32 @@ import {
   MoveToDialog,
   RenameDialog,
 } from "@/components/markx/dialogs"
-import { FolderIcon } from "@/components/markx/folder-icon"
-import { ImageCard } from "@/components/markx/image-card"
-import { NOTE_COLORS, NoteCard } from "@/components/markx/note-card"
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu"
+import { useWorkspaceGlobalEvents } from "@/components/markx/use-workspace-global-events"
+import { WorkspaceBoardItem } from "@/components/markx/workspace-board-item"
+import { WorkspaceContextMenu } from "@/components/markx/workspace-context-menu"
+import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { Button } from "@/components/ui/button"
 import {
-  store,
   useMarkxActions,
+  useMarkxImageIngest,
   useMarkxState,
   useMarkxStore,
 } from "@/lib/markx/store"
-import { countBookmarksInFolder, saveImageBlob } from "@/lib/markx/storage"
 import { prepareImage } from "@/lib/markx/images"
-import type { NoteColor, ToolId } from "@/lib/markx/types"
+import type { ToolId } from "@/lib/markx/types"
+import {
+  classifyItemIds,
+  countItemsInFolders,
+  folderHasItems,
+  selectWorkspaceItems,
+} from "@/lib/markx/workspace-items"
 
 type WorkspaceProps = { mode: "home" } | { mode: "folder"; folderId: string }
 
 export function Workspace(props: WorkspaceProps) {
   const state = useMarkxState()
   const actions = useMarkxActions()
+  const ingestImage = useMarkxImageIngest()
   const { initialSyncStatus, retryInitialSync } = useMarkxStore()
   const initialSyncBlocked = initialSyncStatus !== "idle"
   const navigate = useNavigate()
@@ -70,32 +65,10 @@ export function Workspace(props: WorkspaceProps) {
       ? state.folders.find((f) => f.id === props.folderId)
       : undefined
 
-  const items: BoardItemModel[] = useMemo(() => {
-    if (props.mode === "home") {
-      const folders = state.folders.map((data) => ({
-        id: data.id,
-        kind: "folder" as const,
-        data,
-      }))
-      const notes = state.notes
-        .filter((note) => note.folderId == null)
-        .map((data) => ({ id: data.id, kind: "note" as const, data }))
-      const images = state.images
-        .filter((image) => image.folderId == null)
-        .map((data) => ({ id: data.id, kind: "image" as const, data }))
-      return [...folders, ...notes, ...images]
-    }
-    const bookmarks = state.bookmarks
-      .filter((b) => b.folderId === props.folderId)
-      .map((data) => ({ id: data.id, kind: "bookmark" as const, data }))
-    const notes = state.notes
-      .filter((note) => note.folderId === props.folderId)
-      .map((data) => ({ id: data.id, kind: "note" as const, data }))
-    const images = state.images
-      .filter((image) => image.folderId === props.folderId)
-      .map((data) => ({ id: data.id, kind: "image" as const, data }))
-    return [...bookmarks, ...notes, ...images]
-  }, [props, state.bookmarks, state.folders, state.notes, state.images])
+  const items: BoardItemModel[] = useMemo(
+    () => selectWorkspaceItems(state, props),
+    [props, state]
+  )
 
   const selectedItems = items.filter((i) => selectedIds.has(i.id))
 
@@ -123,26 +96,13 @@ export function Workspace(props: WorkspaceProps) {
     (ids: string[]) => {
       if (ids.length === 0) return
 
-      const folderIds = ids.filter((id) =>
-        state.folders.some((folder) => folder.id === id)
-      )
-      const bookmarkIds = ids.filter((id) =>
-        state.bookmarks.some((bookmark) => bookmark.id === id)
-      )
-      const noteIds = ids.filter((id) =>
-        state.notes.some((note) => note.id === id)
-      )
-      const imageIds = ids.filter((id) =>
-        state.images.some((image) => image.id === id)
+      const { folderIds, bookmarkIds, noteIds, imageIds } = classifyItemIds(
+        state,
+        ids
       )
 
       if (props.mode === "home") {
-        const nonempty = folderIds.filter(
-          (id) =>
-            countBookmarksInFolder(state.bookmarks, id) > 0 ||
-            state.notes.some((note) => note.folderId === id) ||
-            state.images.some((image) => image.folderId === id)
-        )
+        const nonempty = folderIds.filter((id) => folderHasItems(state, id))
         if (nonempty.length > 0) {
           setConfirmFolderOpen(true)
           return
@@ -209,9 +169,7 @@ export function Workspace(props: WorkspaceProps) {
   )
 
   const confirmDeleteFolders = () => {
-    const folderIds = [...selectedIds].filter((id) =>
-      state.folders.some((folder) => folder.id === id)
-    )
+    const { folderIds } = classifyItemIds(state, [...selectedIds])
     actions.deleteFolders(folderIds)
     setSelectedIds(new Set())
     toast("Folder deleted")
@@ -290,42 +248,35 @@ export function Workspace(props: WorkspaceProps) {
           toast("Could not add image (too large or unsupported)")
           continue
         }
-        const imageId = nanoid()
-        await saveImageBlob(imageId, prepared.blob)
-        const created = actions.createImage({
-          id: nanoid(),
+        const created = await ingestImage({
+          blob: prepared.blob,
           folderId,
-          imageId,
           mime: prepared.mime,
           naturalWidth: prepared.naturalWidth,
           naturalHeight: prepared.naturalHeight,
           x: center.x - 240 + cascade * 24,
           y: center.y - 160 + cascade * 24,
         })
-        // Enqueue the blob for R2 upload when the sync engine is active.
-        const engine = store.getSyncEngine()
-        if (engine) {
-          void engine.enqueueAsset(imageId, prepared.blob, prepared.mime)
-        }
         actions.raiseZ([created.id])
         cascade += 1
       }
       setTool("select")
     },
-    [actions, props]
+    [actions, ingestImage, props]
   )
 
   const selectedNotes = selectedItems.filter((item) => item.kind === "note")
+  const selectedItem = selectedItems.at(0)
   const selectedRenamable =
     selectedIds.size === 1 &&
-    selectedItems[0] != null &&
-    selectedItems[0].kind !== "note" &&
-    selectedItems[0].kind !== "image"
+    selectedItem != null &&
+    selectedItem.kind !== "note" &&
+    selectedItem.kind !== "image"
   const selectedOpenable =
     selectedIds.size === 1 &&
-    selectedItems[0] != null &&
-    selectedItems[0].kind !== "note" &&
-    selectedItems[0].kind !== "image"
+    selectedItem != null &&
+    selectedItem.kind !== "note" &&
+    selectedItem.kind !== "image"
 
   const renameTarget = (() => {
     const id = contextTargetId ?? [...selectedIds][0]
@@ -338,116 +289,34 @@ export function Workspace(props: WorkspaceProps) {
     return b ? { id: b.id, value: b.title, kind: "bookmark" as const } : null
   })()
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (initialSyncBlocked) return
-      const target = e.target as HTMLElement | null
-      if (
-        target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable)
-      ) {
-        return
-      }
-
-      if (editingNoteId) return
-
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
-        e.preventDefault()
-        if (props.mode === "home") {
-          openNewFolderDialog(180, 160)
-        } else {
-          toast("Folders are created on Home")
-        }
-        return
-      }
-
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
-        e.preventDefault()
-        if (e.shiftKey) actions.redo()
-        else actions.undo()
-        return
-      }
-
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "y") {
-        e.preventDefault()
-        actions.redo()
-        return
-      }
-
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "v") {
-        // Paste handled in paste listener
-        return
-      }
-
-      if (e.key === "Enter" && selectedRenamable) {
-        e.preventDefault()
-        setContextTargetId([...selectedIds][0]!)
-        setRenameOpen(true)
-        return
-      }
-
-      if (e.key === "Backspace" || e.key === "Delete") {
-        e.preventDefault()
-        deleteSelection([...selectedIds])
-      }
-
-      if (e.key === "Escape") {
-        setSelectedIds(new Set())
-        setTool("select")
-        setEditingNoteId(null)
-      }
-    }
-
-    const onPaste = (e: ClipboardEvent) => {
-      if (initialSyncBlocked) return
-      if (editingNoteId) return
-
-      // Check for pasted image files first
-      const imageFiles = Array.from(e.clipboardData?.files ?? []).filter((f) =>
-        f.type.startsWith("image/")
-      )
-      if (imageFiles.length > 0) {
-        e.preventDefault()
-        void addImageFiles(imageFiles)
-        return
-      }
-
-      const text = e.clipboardData?.getData("text")?.trim()
-      if (!text) return
-      const looksLikeUrl =
-        /^https?:\/\//i.test(text) ||
-        (!text.includes(" ") && text.includes(".") && text.length < 2048)
-      if (!looksLikeUrl) return
-
-      if (props.mode === "home") {
-        toast("Open a folder to add links")
-        return
-      }
-
-      e.preventDefault()
-      void actions.createBookmark(props.folderId, text, 200, 180)
-      setTool("select")
-    }
-
-    window.addEventListener("keydown", onKeyDown)
-    window.addEventListener("paste", onPaste)
-    return () => {
-      window.removeEventListener("keydown", onKeyDown)
-      window.removeEventListener("paste", onPaste)
-    }
-  }, [
-    actions,
-    addImageFiles,
-    deleteSelection,
-    editingNoteId,
-    initialSyncBlocked,
-    openNewFolderDialog,
-    props,
+  useWorkspaceGlobalEvents({
+    blocked: initialSyncBlocked,
+    editing: editingNoteId != null,
+    mode: props.mode,
     selectedIds,
     selectedRenamable,
-  ])
+    onAddImages: addImageFiles,
+    onCreateBookmark: (url) => {
+      if (props.mode !== "folder") return
+      void actions.createBookmark(props.folderId, url, 200, 180)
+      setTool("select")
+    },
+    onDeleteSelection: deleteSelection,
+    onNewFolder: () => openNewFolderDialog(180, 160),
+    onRedo: actions.redo,
+    onRename: (id) => {
+      setContextTargetId(id)
+      setRenameOpen(true)
+    },
+    onResetInteraction: () => {
+      setSelectedIds(new Set())
+      setTool("select")
+      setEditingNoteId(null)
+    },
+    onUndo: actions.undo,
+    onNewFolderUnavailable: () => toast("Folders are created on Home"),
+    onPasteUrlAtHome: () => toast("Open a folder to add links"),
+  })
 
   if (props.mode === "folder" && !folder && !initialSyncBlocked) {
     return (
@@ -499,138 +368,43 @@ export function Workspace(props: WorkspaceProps) {
             onContextPoint={setContextPoint}
             editingId={editingNoteId ?? undefined}
             boardApiRef={boardApiRef}
-            renderItem={(item, selected) => {
-              if (item.kind === "folder") {
-                return (
-                  <FolderIcon
-                    name={item.data.name}
-                    count={countBookmarksInFolder(
-                      state.bookmarks,
-                      item.data.id
-                    )}
-                    selected={selected}
-                  />
-                )
-              }
-              if (item.kind === "note") {
-                return (
-                  <NoteCard
-                    note={item.data}
-                    selected={selected}
-                    editing={editingNoteId === item.id}
-                    onCommit={(content) =>
-                      actions.updateNoteContent(item.id, content)
-                    }
-                    onExitEdit={() => setEditingNoteId(null)}
-                    onStyleChange={(style) =>
-                      actions.setNoteStyle(item.id, style)
-                    }
-                  />
-                )
-              }
-              if (item.kind === "image") {
-                return <ImageCard image={item.data} selected={selected} />
-              }
-              return <BookmarkCard bookmark={item.data} selected={selected} />
-            }}
+            renderItem={(item, selected) => (
+              <WorkspaceBoardItem
+                item={item}
+                selected={selected}
+                editingNoteId={editingNoteId}
+                bookmarks={state.bookmarks}
+                onCommitNote={actions.updateNoteContent}
+                onExitNoteEdit={() => setEditingNoteId(null)}
+                onNoteStyleChange={actions.setNoteStyle}
+              />
+            )}
           />
         </ContextMenuTrigger>
-        <ContextMenuContent>
-          {props.mode === "home" ? (
-            <ContextMenuItem
-              onClick={() =>
-                openNewFolderDialog(contextPoint.x, contextPoint.y)
-              }
-            >
-              New Board
-            </ContextMenuItem>
-          ) : (
-            <ContextMenuItem
-              onClick={() => {
-                setPendingCreate(contextPoint)
-                setLinkOpen(true)
-              }}
-            >
-              Add bookmark
-            </ContextMenuItem>
-          )}
-          <ContextMenuSeparator />
-          {selectedNotes.length > 0 ? (
-            <>
-              <div className="px-2 py-1.5">
-                <p className="mb-2 text-[11px] font-medium text-black/45">
-                  Note color
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {(Object.keys(NOTE_COLORS) as NoteColor[]).map((color) => (
-                    <button
-                      key={color}
-                      type="button"
-                      aria-label={color}
-                      className="size-9 rounded-full border border-black/10 transition-transform active:scale-95 hover-fine:hover:scale-105"
-                      style={{ backgroundColor: NOTE_COLORS[color] }}
-                      onClick={() => {
-                        for (const item of selectedNotes) {
-                          actions.setNoteStyle(item.id, { color })
-                        }
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-              <ContextMenuSeparator />
-            </>
-          ) : null}
-          <ContextMenuItem
-            disabled={!selectedOpenable}
-            onClick={() => {
-              const id = [...selectedIds][0]
-              if (id) openItem(id)
-            }}
-          >
-            Open
-          </ContextMenuItem>
-          <ContextMenuItem
-            disabled={!selectedRenamable}
-            onClick={() => {
-              setContextTargetId([...selectedIds][0] ?? null)
-              setRenameOpen(true)
-            }}
-          >
-            Rename
-          </ContextMenuItem>
-          {props.mode === "folder" ? (
-            <>
-              <ContextMenuItem
-                disabled={selectedIds.size === 0}
-                onClick={() => setMoveOpen(true)}
-              >
-                Move to…
-              </ContextMenuItem>
-              <ContextMenuItem
-                disabled={selectedIds.size === 0}
-                onClick={() => actions.resetSizes([...selectedIds])}
-              >
-                Reset Size
-              </ContextMenuItem>
-            </>
-          ) : props.mode === "home" ? (
-            <ContextMenuItem
-              disabled={selectedIds.size === 0}
-              onClick={() => actions.resetSizes([...selectedIds])}
-            >
-              Reset Size
-            </ContextMenuItem>
-          ) : null}
-          <ContextMenuSeparator />
-          <ContextMenuItem
-            variant="destructive"
-            disabled={selectedIds.size === 0}
-            onClick={() => deleteSelection([...selectedIds])}
-          >
-            Delete
-          </ContextMenuItem>
-        </ContextMenuContent>
+        <WorkspaceContextMenu
+          mode={props.mode}
+          contextPoint={contextPoint}
+          selectedIds={selectedIds}
+          selectedNotes={selectedNotes}
+          selectedOpenable={selectedOpenable}
+          selectedRenamable={selectedRenamable}
+          onCreateFolder={(point) => openNewFolderDialog(point.x, point.y)}
+          onCreateBookmark={(point) => {
+            setPendingCreate(point)
+            setLinkOpen(true)
+          }}
+          onDelete={deleteSelection}
+          onMove={() => setMoveOpen(true)}
+          onOpen={openItem}
+          onRename={(id) => {
+            setContextTargetId(id)
+            setRenameOpen(true)
+          }}
+          onResetSizes={actions.resetSizes}
+          onSetNoteColor={(ids, color) => {
+            for (const id of ids) actions.setNoteStyle(id, { color })
+          }}
+        />
       </ContextMenu>
 
       {initialSyncBlocked ? (
@@ -747,17 +521,12 @@ export function Workspace(props: WorkspaceProps) {
 
       <ConfirmDeleteFolderDialog
         open={confirmFolderOpen}
-        count={selectedItems.reduce((sum, item) => {
-          if (item.kind !== "folder") return sum
-          return (
-            sum +
-            countBookmarksInFolder(state.bookmarks, item.data.id) +
-            state.notes.filter((note) => note.folderId === item.data.id)
-              .length +
-            state.images.filter((image) => image.folderId === item.data.id)
-              .length
-          )
-        }, 0)}
+        count={countItemsInFolders(
+          state,
+          selectedItems
+            .filter((item) => item.kind === "folder")
+            .map((item) => item.id)
+        )}
         onOpenChange={setConfirmFolderOpen}
         onConfirm={confirmDeleteFolders}
       />

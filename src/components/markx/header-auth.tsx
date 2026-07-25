@@ -1,11 +1,12 @@
 import { useState } from "react"
 
-import { AuthDialog } from "@/components/markx/auth-dialog"
 import { AccountMenu } from "@/components/markx/account-menu"
+import { AuthDialog } from "@/components/markx/auth-dialog"
 import {
-  SyncStatusBadge,
   ConflictResolutionDialog,
+  SyncStatusBadge,
 } from "@/components/markx/sync-status"
+import { Button } from "@/components/ui/button"
 import { useAuthSession } from "@/lib/markx/hooks"
 
 /**
@@ -38,13 +39,10 @@ export function HeaderAuth() {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setAuthOpen(true)}
-        className="flex items-center gap-1.5 rounded-md bg-[rgba(32,32,32,0.9)] px-3 py-1.5 text-[13px] font-medium text-white transition-[transform,background-color] duration-150 ease-[var(--ease-out-strong)] hover:bg-[rgba(32,32,32,1)] active:scale-[0.96]"
-      >
-        Sign in to save
-      </button>
+      <Button size="sm" onClick={() => setAuthOpen(true)}>
+        <span className="md:hidden">Sign in</span>
+        <span className="hidden md:inline">Sign in to save</span>
+      </Button>
       <AuthDialog
         open={authOpen}
         onOpenChange={setAuthOpen}

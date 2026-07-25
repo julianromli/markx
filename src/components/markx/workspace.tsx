@@ -57,14 +57,19 @@ export function Workspace(props: WorkspaceProps) {
   const [linkOpen, setLinkOpen] = useState(false)
   const [moveOpen, setMoveOpen] = useState(false)
   const [confirmFolderOpen, setConfirmFolderOpen] = useState(false)
-  const [pendingCreate, setPendingCreate] = useState<{
+  const pendingCreateRef = useRef<{
     x: number
     y: number
   } | null>(null)
   const [contextTargetId, setContextTargetId] = useState<string | null>(null)
   const [contextPoint, setContextPoint] = useState({ x: 180, y: 160 })
-  const [zoomPercent, setZoomPercent] = useState(85)
+  const [zoomPercent, setZoomPercent] = useState(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 768) return 50
+    return 85
+  })
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
+  const [trashArmed, setTrashArmed] = useState(false)
+  const [itemMoveDragging, setItemMoveDragging] = useState(false)
 
   const folder =
     props.mode === "folder"
@@ -164,14 +169,7 @@ export function Workspace(props: WorkspaceProps) {
       }
       setSelectedIds(new Set())
     },
-    [
-      actions,
-      editingNoteId,
-      props.mode,
-      state.bookmarks,
-      state.folders,
-      state.notes,
-    ]
+    [actions, editingNoteId, props.mode, state]
   )
 
   const confirmDeleteFolders = () => {
@@ -212,14 +210,14 @@ export function Workspace(props: WorkspaceProps) {
 
   const openNewFolderDialog = useCallback(
     (point?: { x: number; y: number }) => {
-      setPendingCreate(point ?? null)
+      pendingCreateRef.current = point ?? null
       setNewFolderOpen(true)
     },
     []
   )
 
   const openAddLinkDialog = useCallback((point?: { x: number; y: number }) => {
-    setPendingCreate(point ?? null)
+    pendingCreateRef.current = point ?? null
     setLinkOpen(true)
   }, [])
 
@@ -277,7 +275,6 @@ export function Workspace(props: WorkspaceProps) {
 
   const addImageFiles = useCallback(
     async (files: FileList | File[]) => {
-      const folderId = props.mode === "folder" ? props.folderId : null
       const center = boardApiRef.current?.getViewCenter() ?? { x: 200, y: 200 }
       const fileArray = Array.from(files).filter((f) =>
         f.type.startsWith("image/")
@@ -293,7 +290,7 @@ export function Workspace(props: WorkspaceProps) {
         }
         const created = await ingestImage({
           blob: prepared.blob,
-          folderId,
+          folderId: activeFolderId,
           mime: prepared.mime,
           naturalWidth: prepared.naturalWidth,
           naturalHeight: prepared.naturalHeight,
@@ -304,7 +301,7 @@ export function Workspace(props: WorkspaceProps) {
         cascade += 1
       }
     },
-    [actions, ingestImage, props]
+    [actions, activeFolderId, ingestImage]
   )
 
   const selectedNotes = selectedItems.filter((item) => item.kind === "note")
@@ -393,7 +390,11 @@ export function Workspace(props: WorkspaceProps) {
       syncBlocked={initialSyncBlocked}
       onCreate={handleCreate}
       trashRef={trashRef}
+      trashArmed={trashArmed}
+      itemMoveDragging={itemMoveDragging}
       zoomPercent={zoomPercent}
+      onZoomPreset={(percent) => boardApiRef.current?.setZoomPercent(percent)}
+      onZoomFit={() => boardApiRef.current?.fitToContent()}
     >
       <ContextMenu>
         <ContextMenuTrigger className="block h-full">
@@ -407,6 +408,8 @@ export function Workspace(props: WorkspaceProps) {
             onOpenItem={openItem}
             onTrashDrop={deleteSelection}
             trashRef={trashRef}
+            onTrashArmedChange={setTrashArmed}
+            onItemMoveDragChange={setItemMoveDragging}
             onZoomChange={setZoomPercent}
             onContextPoint={setContextPoint}
             editingId={editingNoteId ?? undefined}
@@ -495,15 +498,15 @@ export function Workspace(props: WorkspaceProps) {
         initialValue=""
         onOpenChange={(open) => {
           setNewFolderOpen(open)
-          if (!open) setPendingCreate(null)
+          if (!open) pendingCreateRef.current = null
         }}
         onSubmit={(value) => {
-          const point = pendingCreate ?? resolveSlot(FOLDER_SIZE)
+          const point = pendingCreateRef.current ?? resolveSlot(FOLDER_SIZE)
           const folderItem = actions.createFolder(point.x, point.y, value)
           setSelectedIds(new Set([folderItem.id]))
           setContextTargetId(folderItem.id)
           actions.raiseZ([folderItem.id])
-          setPendingCreate(null)
+          pendingCreateRef.current = null
         }}
       />
 
@@ -529,11 +532,11 @@ export function Workspace(props: WorkspaceProps) {
         open={linkOpen}
         onOpenChange={(open) => {
           setLinkOpen(open)
-          if (!open) setPendingCreate(null)
+          if (!open) pendingCreateRef.current = null
         }}
         onSubmit={(url) => {
           if (props.mode !== "folder") return
-          const point = pendingCreate ?? resolveSlot(BOOKMARK_SIZE)
+          const point = pendingCreateRef.current ?? resolveSlot(BOOKMARK_SIZE)
           const bookmark = actions.createBookmark(
             props.folderId,
             url,
@@ -542,7 +545,7 @@ export function Workspace(props: WorkspaceProps) {
           )
           setSelectedIds(new Set([bookmark.id]))
           actions.raiseZ([bookmark.id])
-          setPendingCreate(null)
+          pendingCreateRef.current = null
         }}
       />
 
@@ -563,9 +566,9 @@ export function Workspace(props: WorkspaceProps) {
         open={confirmFolderOpen}
         count={countItemsInFolders(
           state,
-          selectedItems
-            .filter((item) => item.kind === "folder")
-            .map((item) => item.id)
+          selectedItems.flatMap((item) =>
+            item.kind === "folder" ? [item.id] : []
+          )
         )}
         onOpenChange={setConfirmFolderOpen}
         onConfirm={confirmDeleteFolders}

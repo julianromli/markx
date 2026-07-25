@@ -1,6 +1,17 @@
 import { NoteColorChoices } from "./note-color-choices"
 
 import {
+  ArrowBendUpRightIcon,
+  ArrowSquareOutIcon,
+  CornersInIcon,
+  FolderSimpleIcon,
+  LinkIcon,
+  NoteBlankIcon,
+  PencilSimpleIcon,
+  TrashIcon,
+} from "@phosphor-icons/react"
+
+import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
@@ -52,14 +63,17 @@ export function WorkspaceContextMenu({
           rather than using the sidebar's automatic slot placement. */}
       {mode === "home" ? (
         <ContextMenuItem onClick={() => onCreateFolder(contextPoint)}>
+          <FolderSimpleIcon weight="regular" />
           New Board
         </ContextMenuItem>
       ) : (
         <ContextMenuItem onClick={() => onCreateBookmark(contextPoint)}>
+          <LinkIcon weight="regular" />
           Add bookmark
         </ContextMenuItem>
       )}
       <ContextMenuItem onClick={() => onCreateNote(contextPoint)}>
+        <NoteBlankIcon weight="regular" />
         New Note
       </ContextMenuItem>
       <ContextMenuSeparator />
@@ -89,6 +103,7 @@ export function WorkspaceContextMenu({
           if (id) onOpen(id)
         }}
       >
+        <ArrowSquareOutIcon weight="regular" />
         Open
       </ContextMenuItem>
       <ContextMenuItem
@@ -98,10 +113,12 @@ export function WorkspaceContextMenu({
           if (id) onRename(id)
         }}
       >
+        <PencilSimpleIcon weight="regular" />
         Rename
       </ContextMenuItem>
       {mode === "folder" ? (
         <ContextMenuItem disabled={ids.length === 0} onClick={onMove}>
+          <ArrowBendUpRightIcon weight="regular" />
           Move to…
         </ContextMenuItem>
       ) : null}
@@ -109,6 +126,7 @@ export function WorkspaceContextMenu({
         disabled={ids.length === 0}
         onClick={() => onResetSizes(ids)}
       >
+        <CornersInIcon weight="regular" />
         Reset Size
       </ContextMenuItem>
       <ContextMenuSeparator />
@@ -117,6 +135,7 @@ export function WorkspaceContextMenu({
         disabled={ids.length === 0}
         onClick={() => onDelete(ids)}
       >
+        <TrashIcon weight="regular" />
         Delete
       </ContextMenuItem>
     </ContextMenuContent>

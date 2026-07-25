@@ -200,7 +200,74 @@ export function withLiveResize(
 
 export const MIN_ZOOM = 0.25
 export const MAX_ZOOM = 2
+/** Discrete zoom picker steps (percent). Matches MIN_ZOOM…MAX_ZOOM. */
+export const ZOOM_PRESET_PERCENTS = [
+  25, 50, 75, 100, 125, 150, 175, 200,
+] as const
 export const DRAG_THRESHOLD = 5
+
+/**
+ * Zoom around the viewport center so content under the middle of the screen
+ * stays put while the scale changes.
+ */
+export function cameraZoomAroundViewportCenter(
+  camera: Camera,
+  nextZoom: number,
+  viewport: Pick<DOMRect, "width" | "height">
+): Camera {
+  const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, nextZoom))
+  const cx = viewport.width / 2
+  const cy = viewport.height / 2
+  const boardX = (cx - camera.x) / camera.zoom
+  const boardY = (cy - camera.y) / camera.zoom
+  return {
+    zoom,
+    x: cx - boardX * zoom,
+    y: cy - boardY * zoom,
+  }
+}
+
+/**
+ * Frame all items in the viewport with padding. Empty boards fall back to a
+ * comfortable default camera.
+ */
+export function cameraFitContent(
+  items: readonly BoardItemModel[],
+  viewport: Pick<DOMRect, "width" | "height">,
+  padding = 48
+): Camera {
+  if (items.length === 0 || viewport.width <= 0 || viewport.height <= 0) {
+    return { x: 80, y: 40, zoom: 0.85 }
+  }
+
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const item of items) {
+    const r = getBoardItemRect(item)
+    minX = Math.min(minX, r.x)
+    minY = Math.min(minY, r.y)
+    maxX = Math.max(maxX, r.x + r.width)
+    maxY = Math.max(maxY, r.y + r.height)
+  }
+
+  const contentW = Math.max(1, maxX - minX)
+  const contentH = Math.max(1, maxY - minY)
+  const availW = Math.max(1, viewport.width - padding * 2)
+  const availH = Math.max(1, viewport.height - padding * 2)
+  const zoom = Math.min(
+    MAX_ZOOM,
+    Math.max(MIN_ZOOM, Math.min(availW / contentW, availH / contentH))
+  )
+  const contentCx = (minX + maxX) / 2
+  const contentCy = (minY + maxY) / 2
+  return {
+    zoom,
+    x: viewport.width / 2 - contentCx * zoom,
+    y: viewport.height / 2 - contentCy * zoom,
+  }
+}
 
 /**
  * Fraction of the new item's own area that may be covered by an existing item

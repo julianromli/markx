@@ -6,10 +6,10 @@ import { toast } from "sonner"
 import {
   ArrowClockwiseIcon,
   ArrowCounterClockwiseIcon,
+  ArrowLeftIcon,
   CaretDownIcon,
   DotsThreeOutlineIcon,
   FolderSimpleIcon,
-  GearIcon,
   ImageIcon,
   LinkIcon,
   ListIcon,
@@ -24,6 +24,15 @@ import pixelFolder from "@/assets/markx/pixel-folder.svg"
 import { HeaderAuth } from "@/components/markx/header-auth"
 import { HelpDialog } from "@/components/markx/help-dialog"
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
   Sheet,
   SheetContent,
   SheetHeader,
@@ -34,6 +43,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { ZOOM_PRESET_PERCENTS } from "@/lib/markx/geometry"
 import { useMarkxActions, useMarkxHistory } from "@/lib/markx/store"
 import { cn } from "@/lib/utils"
 
@@ -56,7 +66,13 @@ type AppShellProps = {
   syncBlocked?: boolean
   onCreate: (action: CreateAction) => void
   trashRef: RefObject<HTMLButtonElement | null>
+  /** Desktop trash mirrors mobile dock armed feedback while dragging. */
+  trashArmed?: boolean
+  /** True while a board item drag is active (past move threshold). */
+  itemMoveDragging?: boolean
   zoomPercent?: number
+  onZoomPreset?: (percent: number) => void
+  onZoomFit?: () => void
   children: ReactNode
 }
 
@@ -94,7 +110,11 @@ export function AppShell({
   syncBlocked = false,
   onCreate,
   trashRef,
+  trashArmed = false,
+  itemMoveDragging = false,
   zoomPercent,
+  onZoomPreset,
+  onZoomFit,
   children,
 }: AppShellProps) {
   const actions = useMarkxActions()
@@ -107,6 +127,14 @@ export function AppShell({
     breadcrumb && breadcrumb.length > 0
       ? breadcrumb
       : [{ label: "Home", to: "/", home: true }]
+
+  const backTo =
+    crumbs.length > 1
+      ? crumbs
+          .slice(0, -1)
+          .reverse()
+          .find((crumb) => crumb.to)?.to
+      : undefined
 
   const centerTitle =
     crumbs.length > 0 ? (crumbs[crumbs.length - 1]?.label ?? title) : title
@@ -131,20 +159,29 @@ export function AppShell({
   return (
     <div className="markx-shell grid h-svh grid-cols-1 grid-rows-[auto_minmax(0,1fr)] bg-[#ebedee] antialiased md:grid-cols-[63px_minmax(0,1fr)]">
       <header className="relative z-30 col-span-full bg-white shadow-[0_1px_1px_rgba(51,61,78,0.2)]">
-        <div className="relative flex h-12 w-full items-center justify-between">
-          <div className="relative z-10 flex h-12 min-w-0 items-center pl-[env(safe-area-inset-left)]">
+        <div className="relative flex h-12 w-full items-center justify-between gap-1">
+          <div className="relative z-10 flex h-12 min-w-0 flex-1 items-center pl-[max(0.25rem,env(safe-area-inset-left))] md:pl-0">
             <button
               type="button"
               aria-label="Tools"
               aria-expanded={toolsOpen}
               onClick={() => setToolsOpen(true)}
-              className="flex h-12 w-11 shrink-0 items-center justify-center text-[rgba(32,32,32,0.8)] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.03] active:scale-[0.96] md:hidden"
+              className="flex size-11 shrink-0 items-center justify-center text-[rgba(32,32,32,0.8)] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.03] active:scale-[0.96] md:hidden"
             >
               <ListIcon className="size-5" weight="regular" />
             </button>
+            {backTo ? (
+              <Link
+                to={backTo}
+                aria-label="Back"
+                className="flex size-11 shrink-0 items-center justify-center text-[rgba(32,32,32,0.8)] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.03] active:scale-[0.96] md:hidden"
+              >
+                <ArrowLeftIcon className="size-5" weight="regular" />
+              </Link>
+            ) : null}
             <nav
               aria-label="Breadcrumb"
-              className="relative z-10 flex h-7 min-w-0 items-center"
+              className="relative z-10 flex h-11 min-w-0 items-center"
             >
               {crumbs.map((crumb, index) => {
                 const isLast = index === crumbs.length - 1
@@ -171,7 +208,7 @@ export function AppShell({
                         />
                       </span>
                     )}
-                    <span className="max-w-[40vw] truncate text-[12px] leading-3 font-semibold text-[rgba(32,32,32,0.8)] md:max-w-[270px]">
+                    <span className="min-w-0 truncate text-[12px] leading-none font-semibold text-[rgba(32,32,32,0.8)] md:max-w-[270px]">
                       {crumb.label}
                     </span>
                   </>
@@ -179,31 +216,31 @@ export function AppShell({
 
                 return (
                   <div
-                    key={`${crumb.label}-${index}`}
+                    key={crumb.to ?? (crumb.home ? "home" : crumb.label)}
                     className={cn(
-                      "flex h-7 items-center",
+                      "flex h-11 min-w-0 items-center",
                       isLast ? "flex" : "hidden md:flex"
                     )}
                   >
                     {index > 0 ? (
                       <span
-                        className="hidden w-[4.32px] text-center text-[12px] leading-3 text-[#cbced2] md:inline"
+                        className="hidden w-[4.32px] text-center text-[12px] leading-none text-[#cbced2] md:inline"
                         aria-hidden
                       >
                         /
                       </span>
                     ) : null}
-                    <div className="flex h-7 items-start pr-1 pl-[9px] md:pl-[9px]">
+                    <div className="flex h-11 min-w-0 items-center pr-1 pl-1 md:pl-[9px]">
                       {crumb.to && !isLast ? (
                         <Link
                           to={crumb.to}
-                          className="flex h-7 items-center gap-1.5 rounded-[3px] px-[7px] pt-1.5 pb-[7px] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.04] active:scale-[0.96]"
+                          className="flex h-8 max-w-full items-center gap-1.5 rounded-[3px] px-1.5 transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.04] active:scale-[0.96] md:h-7 md:px-[7px]"
                         >
                           {content}
                         </Link>
                       ) : (
                         <span
-                          className="flex h-7 items-center gap-1.5 rounded-[3px] px-[7px] pt-1.5 pb-[7px]"
+                          className="flex h-8 max-w-full items-center gap-1.5 rounded-[3px] px-1.5 md:h-7 md:px-[7px]"
                           aria-current={isLast ? "page" : undefined}
                         >
                           {content}
@@ -217,26 +254,62 @@ export function AppShell({
           </div>
 
           <div className="pointer-events-none absolute inset-0 hidden items-center justify-center px-4 md:flex">
-            <h1 className="max-w-[45vw] truncate text-center text-[19.8px] font-bold tracking-[-0.18px] text-[rgba(32,32,32,0.8)]">
+            <h1 className="max-w-[45vw] truncate text-center text-[19.8px] font-bold tracking-[-0.18px] text-balance text-[rgba(32,32,32,0.8)]">
               {centerTitle}
             </h1>
           </div>
 
-          <div className="relative z-10 flex h-12 items-center justify-end pr-[calc(1rem+env(safe-area-inset-right))]">
-            {typeof zoomPercent === "number" ? (
-              <button
-                type="button"
-                disabled
-                className="mr-1 hidden h-6 items-center px-1 text-[12px] leading-4 text-[rgba(32,32,32,0.8)] md:flex"
-              >
-                <span className="min-w-[25px] pr-1 text-right tabular-nums">
+          <div className="relative z-10 flex h-12 shrink-0 items-center justify-end gap-1 pr-[max(0.5rem,env(safe-area-inset-right))] md:gap-0 md:pr-[calc(1rem+env(safe-area-inset-right))]">
+            {typeof zoomPercent === "number" && onZoomPreset && onZoomFit ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  className="mr-1 hidden h-8 items-center gap-0.5 rounded-md px-2 text-[12px] leading-none text-[rgba(32,32,32,0.8)] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] outline-none hover:bg-black/[0.04] active:scale-[0.96] focus-visible:ring-2 focus-visible:ring-black/10 md:flex"
+                  aria-label="Zoom"
+                >
+                  <span className="min-w-[2rem] text-right tabular-nums">
+                    {zoomPercent}%
+                  </span>
+                  <CaretDownIcon className="size-[14px]" weight="bold" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-[9.5rem]">
+                  <DropdownMenuRadioGroup
+                    value={
+                      (ZOOM_PRESET_PERCENTS as readonly number[]).includes(
+                        zoomPercent
+                      )
+                        ? String(zoomPercent)
+                        : undefined
+                    }
+                    onValueChange={(value) => {
+                      const percent = Number(value)
+                      if (Number.isFinite(percent)) onZoomPreset(percent)
+                    }}
+                  >
+                    {ZOOM_PRESET_PERCENTS.map((percent) => (
+                      <DropdownMenuRadioItem
+                        key={percent}
+                        value={String(percent)}
+                        className="tabular-nums"
+                      >
+                        {percent}%
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => onZoomFit()}>
+                    Fit
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : typeof zoomPercent === "number" ? (
+              <div className="mr-1 hidden h-8 items-center px-2 text-[12px] leading-none text-[rgba(32,32,32,0.8)] md:flex">
+                <span className="min-w-[2rem] text-right tabular-nums">
                   {zoomPercent}%
                 </span>
-                <CaretDownIcon className="size-[14px]" weight="bold" />
-              </button>
+              </div>
             ) : null}
 
-            <div className="flex items-center">
+            <div className="hidden items-center md:flex">
               <HeaderIconButton
                 label="Undo"
                 icon={
@@ -282,11 +355,6 @@ export function AppShell({
                 }
                 frame
               />
-              <HeaderIconButton
-                label="Settings"
-                icon={<GearIcon className="size-5" weight="regular" />}
-                frame
-              />
             </div>
 
             <button
@@ -294,12 +362,12 @@ export function AppShell({
               aria-label="More"
               aria-expanded={moreOpen}
               onClick={() => setMoreOpen(true)}
-              className="flex h-12 w-11 items-center justify-center text-[rgba(32,32,32,0.8)] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.03] active:scale-[0.96] md:hidden"
+              className="flex size-11 shrink-0 items-center justify-center text-[rgba(32,32,32,0.8)] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.03] active:scale-[0.96] md:hidden"
             >
               <DotsThreeOutlineIcon className="size-5" weight="regular" />
             </button>
 
-            <div className="ml-2 flex items-center">
+            <div className="flex shrink-0 items-center md:ml-2">
               <HeaderAuth />
             </div>
           </div>
@@ -314,10 +382,28 @@ export function AppShell({
         <button
           ref={trashRef}
           type="button"
-          className="flex size-11 items-center justify-center rounded-xl text-black/55 transition-[transform,background-color,box-shadow] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/5 active:scale-[0.96]"
           aria-label="Trash"
+          data-armed={trashArmed ? "true" : "false"}
+          data-dragging={itemMoveDragging ? "true" : "false"}
+          className={cn(
+            "flex size-11 items-center justify-center rounded-xl transition-[transform,background-color,box-shadow,color] duration-200 ease-[var(--ease-out-strong)] motion-reduce:transition-[background-color,color,opacity] motion-reduce:duration-150",
+            !itemMoveDragging &&
+              !trashArmed &&
+              "text-black/55 hover:bg-black/5 active:scale-[0.96]",
+            itemMoveDragging &&
+              !trashArmed &&
+              "scale-105 bg-[rgba(32,32,32,0.88)] text-white shadow-[0_8px_28px_rgba(0,0,0,0.18),0_1px_0_rgba(255,255,255,0.12)_inset]",
+            trashArmed &&
+              "scale-110 bg-[#e11d48] text-white shadow-[0_10px_32px_rgba(225,29,72,0.35)]"
+          )}
         >
-          <TrashIcon className="size-5" />
+          <TrashIcon
+            className={cn(
+              "size-5 transition-[transform] duration-200 ease-[var(--ease-out-strong)] motion-reduce:transition-none",
+              trashArmed ? "scale-110" : "scale-100"
+            )}
+            weight={trashArmed ? "fill" : "regular"}
+          />
         </button>
       </aside>
 
@@ -342,7 +428,7 @@ export function AppShell({
         </SheetContent>
       </Sheet>
 
-      {/* Mobile overflow menu (Help / Search / Settings) */}
+      {/* Mobile overflow menu (Help / Search) */}
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
         <SheetContent
           side="bottom"
@@ -364,11 +450,6 @@ export function AppShell({
           <MoreMenuItem
             label="Search"
             icon={<MagnifyingGlassIcon className="size-5" weight="regular" />}
-            onClick={() => setMoreOpen(false)}
-          />
-          <MoreMenuItem
-            label="Settings"
-            icon={<GearIcon className="size-5" weight="regular" />}
             onClick={() => setMoreOpen(false)}
           />
         </SheetContent>

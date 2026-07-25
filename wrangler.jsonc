@@ -3,7 +3,7 @@
   "name": "markx",
   "main": "src/server.ts",
   "compatibility_date": "2026-07-24",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": ["nodejs_compat", "disable_nodejs_console_module"],
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1

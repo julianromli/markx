@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 
 import {
   SLOT_STEP_RATIO,
+  cameraFitContent,
+  cameraZoomAroundViewportCenter,
   clampBottomRightResize,
   findEmptySlot,
   getBoardItemRect,
@@ -194,5 +196,55 @@ describe("findEmptySlot", () => {
   it("respects a panned viewport's board-space origin", () => {
     const panned = { x: 2000, y: 1500, width: 800, height: 600 }
     expect(findEmptySlot([], panned, size)).toEqual({ x: 2300, y: 1700 })
+  })
+})
+
+describe("cameraZoomAroundViewportCenter", () => {
+  it("keeps the board point under the viewport center stable", () => {
+    const camera = { x: 100, y: 50, zoom: 1 }
+    const viewport = { width: 800, height: 600 }
+    const centerBoardBefore = {
+      x: (400 - camera.x) / camera.zoom,
+      y: (300 - camera.y) / camera.zoom,
+    }
+    const next = cameraZoomAroundViewportCenter(camera, 2, viewport)
+    expect(next.zoom).toBe(2)
+    expect((400 - next.x) / next.zoom).toBeCloseTo(centerBoardBefore.x)
+    expect((300 - next.y) / next.zoom).toBeCloseTo(centerBoardBefore.y)
+  })
+})
+
+describe("cameraFitContent", () => {
+  it("fits a single item inside the viewport with padding", () => {
+    const note: BoardItemModel = {
+      id: "n1",
+      kind: "note",
+      data: {
+        id: "n1",
+        folderId: null,
+        content: "",
+        color: "yellow",
+        font: "sans",
+        fontSize: "m",
+        x: 0,
+        y: 0,
+        z: 1,
+        width: 200,
+        height: 100,
+      },
+    }
+    const camera = cameraFitContent([note], { width: 800, height: 600 }, 48)
+    const scaledW = 200 * camera.zoom
+    const scaledH = 100 * camera.zoom
+    expect(scaledW).toBeLessThanOrEqual(800 - 96)
+    expect(scaledH).toBeLessThanOrEqual(600 - 96)
+  })
+
+  it("returns a default camera when the board is empty", () => {
+    expect(cameraFitContent([], { width: 800, height: 600 })).toEqual({
+      x: 80,
+      y: 40,
+      zoom: 0.85,
+    })
   })
 })

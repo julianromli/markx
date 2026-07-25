@@ -1,7 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react"
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react"
 
+import { DeleteDock } from "@/components/markx/delete-dock"
 import { useIsMobile } from "@/hooks/use-mobile"
+import {
+  pointInElement,
+  vibrateDeleteFeedback,
+} from "@/lib/markx/delete-dock"
 import { cn } from "@/lib/utils"
 import {
   DRAG_THRESHOLD,
@@ -11,6 +22,8 @@ import {
   MIN_NOTE_SIZE,
   MIN_ZOOM,
   RESIZE_HANDLE_SIZE,
+  cameraFitContent,
+  cameraZoomAroundViewportCenter,
   clampBottomRightResize,
   getBoardItemRect,
   hitTestBoardItems,
@@ -33,6 +46,10 @@ export type BoardApi = {
   getViewCenter: () => { x: number; y: number }
   /** The visible area in board coordinates, for placing items the user didn't point at. */
   getViewBounds: () => Rect
+  /** Zoom to a percent (25–200), keeping the viewport center stable. */
+  setZoomPercent: (percent: number) => void
+  /** Fit all board items in the viewport with padding. */
+  fitToContent: () => void
 }
 
 type BoardProps = {
@@ -53,6 +70,10 @@ type BoardProps = {
     dragging: boolean
   ) => ReactNode
   trashRef: React.RefObject<HTMLElement | null>
+  /** Desktop sidebar trash (and any host chrome) can mirror armed feedback. */
+  onTrashArmedChange?: (armed: boolean) => void
+  /** True while items are past the move threshold (drag in progress). */
+  onItemMoveDragChange?: (active: boolean) => void
   onZoomChange?: (zoomPercent: number) => void
   onContextPoint?: (point: { x: number; y: number }) => void
   editingId?: string
@@ -91,6 +112,8 @@ export function Board({
   onTrashDrop,
   renderItem,
   trashRef,
+  onTrashArmedChange,
+  onItemMoveDragChange,
   onZoomChange,
   onContextPoint,
   editingId,
@@ -98,7 +121,15 @@ export function Board({
   className,
 }: BoardProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
+  const deleteDockHitRef = useRef<HTMLDivElement>(null)
   const isMobile = useIsMobile()
+  const [moveDockOpen, setMoveDockOpen] = useState(false)
+  const [trashArmed, setTrashArmed] = useState(false)
+  const [dragItemCount, setDragItemCount] = useState(1)
+  const trashArmedRef = useRef(false)
+  const onTrashArmedChangeRef = useRef(onTrashArmedChange)
+  const onItemMoveDragChangeRef = useRef(onItemMoveDragChange)
+  const onZoomChangeRef = useRef(onZoomChange)
   // Start zoomed-out on small screens so the large default items (bookmarks,
   // notes, folders) are visible without an immediate pinch-out. The lazy
   // initializer reads window once on the client; the wrapper div carries
@@ -110,11 +141,57 @@ export function Board({
     return { x: 80, y: 40, zoom: 0.85 }
   })
   const cameraRef = useRef(camera)
-  cameraRef.current = camera
+  const lastNotifiedZoomRef = useRef(camera.zoom)
 
-  useEffect(() => {
-    onZoomChange?.(Math.round(camera.zoom * 100))
-  }, [camera.zoom, onZoomChange])
+  const [marquee, setMarquee] = useState<Rect | null>(null)
+  const [liveOffsets, setLiveOffsets] = useState<
+    Map<string, { x: number; y: number }>
+  >(new Map())
+  const [liveResize, setLiveResize] = useState<Map<string, LiveResize>>(
+    new Map()
+  )
+  const dragRef = useRef<DragState | null>(null)
+  const selectedRef = useRef(selectedIds)
+  const itemsRef = useRef(items)
+  const anchorIdRef = useRef<string | null>(null)
+  const lastClickRef = useRef<{ id: string; time: number } | null>(null)
+  const resizeRectRef = useRef<LiveResize | null>(null)
+
+  // Coalesce gesture previews to one React commit per frame (single write path).
+  const rafIdRef = useRef<number | null>(null)
+  const pendingRef = useRef<PendingGesture>({})
+
+  useLayoutEffect(() => {
+    onTrashArmedChangeRef.current = onTrashArmedChange
+    onItemMoveDragChangeRef.current = onItemMoveDragChange
+    onZoomChangeRef.current = onZoomChange
+    cameraRef.current = camera
+    selectedRef.current = selectedIds
+    itemsRef.current = items
+  })
+
+  const commitCamera = useCallback((next: Camera) => {
+    cameraRef.current = next
+    setCamera(next)
+    if (next.zoom !== lastNotifiedZoomRef.current) {
+      lastNotifiedZoomRef.current = next.zoom
+      onZoomChangeRef.current?.(Math.round(next.zoom * 100))
+    }
+  }, [])
+
+  const setTrashArmedState = useCallback((next: boolean) => {
+    if (trashArmedRef.current === next) return
+    trashArmedRef.current = next
+    setTrashArmed(next)
+    onTrashArmedChangeRef.current?.(next)
+    if (next) vibrateDeleteFeedback("armed")
+  }, [])
+
+  const clearMoveTrashUi = useCallback(() => {
+    setMoveDockOpen(false)
+    setTrashArmedState(false)
+    onItemMoveDragChangeRef.current?.(false)
+  }, [setTrashArmedState])
 
   useEffect(() => {
     if (!boardApiRef) return
@@ -143,36 +220,32 @@ export function Board({
           height: rect.height / cam.zoom,
         }
       },
+      setZoomPercent: (percent: number) => {
+        const viewport = viewportRef.current
+        if (!viewport) return
+        const rect = viewport.getBoundingClientRect()
+        const next = cameraZoomAroundViewportCenter(
+          cameraRef.current,
+          percent / 100,
+          rect
+        )
+        commitCamera(next)
+      },
+      fitToContent: () => {
+        const viewport = viewportRef.current
+        if (!viewport) return
+        const rect = viewport.getBoundingClientRect()
+        const next = cameraFitContent(itemsRef.current, rect)
+        commitCamera(next)
+      },
     }
   })
-
-  const [marquee, setMarquee] = useState<Rect | null>(null)
-  const [liveOffsets, setLiveOffsets] = useState<
-    Map<string, { x: number; y: number }>
-  >(new Map())
-  const [liveResize, setLiveResize] = useState<Map<string, LiveResize>>(
-    new Map()
-  )
-  const dragRef = useRef<DragState | null>(null)
-  const selectedRef = useRef(selectedIds)
-  const itemsRef = useRef(items)
-  const anchorIdRef = useRef<string | null>(null)
-  const lastClickRef = useRef<{ id: string; time: number } | null>(null)
-  const resizeRectRef = useRef<LiveResize | null>(null)
-
-  // Coalesce gesture previews to one React commit per frame (single write path).
-  const rafIdRef = useRef<number | null>(null)
-  const pendingRef = useRef<PendingGesture>({})
-
-  selectedRef.current = selectedIds
-  itemsRef.current = items
 
   const flushPending = () => {
     const pending = pendingRef.current
     pendingRef.current = {}
     if (pending.camera) {
-      cameraRef.current = pending.camera
-      setCamera(pending.camera)
+      commitCamera(pending.camera)
     }
     if (pending.liveOffsets) setLiveOffsets(pending.liveOffsets)
     if (pending.liveResize) setLiveResize(pending.liveResize)
@@ -365,10 +438,10 @@ export function Board({
     }
 
     onRaiseZ([...nextSelection])
-    const movingIds = [...nextSelection]
+    const movingIds = new Set(nextSelection)
     const origins = new Map<string, { x: number; y: number }>()
     for (const item of itemsRef.current) {
-      if (movingIds.includes(item.id)) {
+      if (movingIds.has(item.id)) {
         origins.set(item.id, { x: item.data.x, y: item.data.y })
       }
     }
@@ -437,6 +510,11 @@ export function Board({
     if (drag.mode === "pending") {
       if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return
       drag.mode = "move"
+      setDragItemCount(drag.origins?.size ?? 1)
+      onItemMoveDragChangeRef.current?.(true)
+      if (isMobile) {
+        setMoveDockOpen(true)
+      }
     }
 
     if (drag.mode === "move" && drag.origins) {
@@ -448,6 +526,11 @@ export function Board({
       }
       pendingRef.current.liveOffsets = next
       scheduleFlush()
+
+      const overTrash = isMobile
+        ? pointInElement(e.clientX, e.clientY, deleteDockHitRef.current)
+        : pointInElement(e.clientX, e.clientY, trashRef.current)
+      setTrashArmedState(Boolean(overTrash))
     }
   }
 
@@ -469,20 +552,12 @@ export function Board({
     }
 
     if (drag.mode === "move" && drag.origins) {
-      const trashEl = trashRef.current
-      const overTrash =
-        trashEl &&
-        (() => {
-          const r = trashEl.getBoundingClientRect()
-          return (
-            e.clientX >= r.left &&
-            e.clientX <= r.right &&
-            e.clientY >= r.top &&
-            e.clientY <= r.bottom
-          )
-        })()
+      const overTrash = isMobile
+        ? pointInElement(e.clientX, e.clientY, deleteDockHitRef.current)
+        : pointInElement(e.clientX, e.clientY, trashRef.current)
 
       if (overTrash) {
+        vibrateDeleteFeedback("commit")
         onTrashDrop([...drag.origins.keys()])
       } else {
         const zoom = cameraRef.current.zoom
@@ -496,6 +571,7 @@ export function Board({
         onMoveItems(updates)
       }
       setLiveOffsets(new Map())
+      clearMoveTrashUi()
     }
 
     dragRef.current = null
@@ -609,7 +685,14 @@ export function Board({
                 zIndex: item.data.z,
               }}
             >
-              {renderItem(withLiveResize(item, resize), selected, dragging)}
+              <div
+                className={cn(
+                  "origin-center transition-[opacity,transform] duration-150 ease-[var(--ease-out-strong)] motion-reduce:transition-opacity",
+                  dragging && trashArmed && "scale-90 opacity-50"
+                )}
+              >
+                {renderItem(withLiveResize(item, resize), selected, dragging)}
+              </div>
             </div>
           )
         })}
@@ -625,6 +708,15 @@ export function Board({
           />
         ) : null}
       </div>
+
+      {isMobile ? (
+        <DeleteDock
+          open={moveDockOpen}
+          armed={trashArmed}
+          count={dragItemCount}
+          hitRef={deleteDockHitRef}
+        />
+      ) : null}
     </div>
   )
 }

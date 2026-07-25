@@ -1,8 +1,15 @@
-import { useEffect, useRef, useState } from "react"
+import { useRef, useState } from "react"
+import { useNavigate } from "@tanstack/react-router"
 import { toast } from "sonner"
 import { SignOutIcon, UserCircleIcon, SpinnerIcon } from "@phosphor-icons/react"
 
-import { cn } from "@/lib/utils"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { useAuthSession } from "@/lib/markx/hooks"
 import { signOut } from "@/lib/markx/auth-actions"
 
@@ -16,75 +23,65 @@ import { signOut } from "@/lib/markx/auth-actions"
  * Profile management and account deletion are a separate task.
  */
 export function AccountMenu() {
+  const navigate = useNavigate()
   const { user, isPending } = useAuthSession()
   const [open, setOpen] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
-
-  // Close on outside click.
-  useEffect(() => {
-    if (!open) return
-    function handleClick(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
-    }
-    document.addEventListener("mousedown", handleClick)
-    return () => document.removeEventListener("mousedown", handleClick)
-  }, [open])
+  const signingOutRef = useRef(false)
 
   if (isPending || !user) return null
 
   async function handleSignOut() {
+    signingOutRef.current = true
     setSigningOut(true)
     try {
       await signOut()
+      // Guest mode resets to the demo seed, so folder URLs from the signed-in
+      // workspace would 404 — land on home instead.
+      await navigate({ to: "/" })
       toast.success("Signed out. You're now in guest mode.")
       setOpen(false)
     } catch {
       toast.error("Failed to sign out. Please try again.")
     } finally {
+      signingOutRef.current = false
       setSigningOut(false)
     }
   }
 
   return (
-    <div ref={menuRef} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
+    <DropdownMenu
+      open={open}
+      onOpenChange={(next) => {
+        if (signingOutRef.current) return
+        setOpen(next)
+      }}
+    >
+      <DropdownMenuTrigger
         aria-label="Account"
-        className="flex items-center rounded-md p-1.5 transition-colors hover:bg-black/[0.04]"
+        className="flex items-center rounded-md p-1.5 text-muted-foreground transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] outline-none hover:bg-black/[0.04] active:scale-[0.96] focus-visible:ring-2 focus-visible:ring-black/10"
       >
-        <UserCircleIcon
-          className="size-5 text-muted-foreground"
-          weight="regular"
-        />
-      </button>
+        <UserCircleIcon className="size-5" weight="regular" />
+      </DropdownMenuTrigger>
 
-      {open && (
-        <div className="absolute top-full right-0 mt-1 w-56 rounded-lg border bg-white p-1 shadow-lg">
-          <div className="border-b px-3 py-2">
-            <div className="text-xs text-muted-foreground">Signed in as</div>
-            <div className="truncate text-sm font-medium">{user.email}</div>
-          </div>
-          <button
-            type="button"
-            onClick={() => void handleSignOut()}
-            disabled={signingOut}
-            className={cn(
-              "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-black/[0.04] disabled:opacity-50"
-            )}
-          >
-            {signingOut ? (
-              <SpinnerIcon className="size-4 animate-spin" weight="regular" />
-            ) : (
-              <SignOutIcon className="size-4" weight="regular" />
-            )}
-            {signingOut ? "Signing out…" : "Sign out"}
-          </button>
+      <DropdownMenuContent align="end" className="min-w-56">
+        <div className="px-3 py-2.5">
+          <div className="text-xs text-muted-foreground">Signed in as</div>
+          <div className="truncate text-sm font-medium">{user.email}</div>
         </div>
-      )}
-    </div>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          disabled={signingOut}
+          onClick={() => void handleSignOut()}
+        >
+          {signingOut ? (
+            <SpinnerIcon className="animate-spin" weight="regular" />
+          ) : (
+            <SignOutIcon weight="regular" />
+          )}
+          {signingOut ? "Signing out…" : "Sign out"}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }

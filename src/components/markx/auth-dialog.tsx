@@ -16,7 +16,6 @@ import {
   InputOTPSlot,
   InputOTPSeparator,
 } from "@/components/ui/input-otp"
-import { Spinner } from "@/components/ui/spinner"
 import {
   ArrowLeftIcon,
   CheckCircleIcon,
@@ -214,18 +213,11 @@ export function AuthDialog({
               <Button
                 type="submit"
                 className="w-full"
-                disabled={sending || !email.trim()}
+                loading={sending}
+                disabled={!email.trim()}
               >
-                {sending ? (
-                  <>
-                    <Spinner className="size-4" /> Sending…
-                  </>
-                ) : (
-                  <>
-                    <PaperPlaneTiltIcon className="size-4" weight="regular" />
-                    Send code
-                  </>
-                )}
+                <PaperPlaneTiltIcon className="size-4" weight="regular" />
+                Send code
               </Button>
             </form>
           </>
@@ -271,15 +263,10 @@ export function AuthDialog({
               <Button
                 className="w-full"
                 onClick={() => void handleVerify()}
-                disabled={verifying || otp.length !== OTP_LENGTH}
+                loading={verifying}
+                disabled={otp.length !== OTP_LENGTH}
               >
-                {verifying ? (
-                  <>
-                    <Spinner className="size-4" /> Verifying…
-                  </>
-                ) : (
-                  "Verify"
-                )}
+                Verify
               </Button>
 
               <div className="flex items-center justify-between text-sm">

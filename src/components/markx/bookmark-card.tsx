@@ -26,6 +26,7 @@ export function BookmarkCard({
     Boolean(bookmark.imageUrl) && failedPreview !== bookmark.imageUrl
   const hasFavicon =
     Boolean(bookmark.faviconUrl) && failedFavicon !== bookmark.faviconUrl
+  const isEnriching = bookmark.enrichStatus === "pending" && !hasImage
   const brandFallback = !hasImage
   const width = bookmark.width ?? BOOKMARK_SIZE.width
   const height = bookmark.height ?? BOOKMARK_SIZE.height
@@ -45,14 +46,23 @@ export function BookmarkCard({
         <img
           src={bookmark.imageUrl}
           alt=""
-          className="size-full object-cover outline outline-1 outline-black/10"
+          className="size-full object-cover outline outline-1 outline-black/10 duration-300 animate-in fade-in"
           draggable={false}
           loading="lazy"
           referrerPolicy="no-referrer"
           onError={() => setFailedPreview(bookmark.imageUrl ?? null)}
         />
+      ) : isEnriching ? (
+        <div
+          aria-busy="true"
+          aria-label="Loading preview"
+          className="relative size-full overflow-hidden bg-[#202020]"
+        >
+          <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-[#2a2a2a] via-[#3d3d3d] to-[#242424]" />
+          <div className="absolute inset-0 -translate-x-full animate-[bookmark-shimmer_1.4s_ease-in-out_infinite] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+        </div>
       ) : (
-        <div className="flex size-full flex-col items-center justify-center gap-3 px-8 text-center text-white">
+        <div className="flex size-full flex-col items-center justify-center gap-3 px-8 text-center text-white duration-300 animate-in fade-in">
           {hasFavicon ? (
             <img
               src={bookmark.faviconUrl}

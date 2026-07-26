@@ -7,6 +7,7 @@ import {
   isAuthProxyPath,
   rewriteAuthCookie,
 } from "@/lib/server/auth-proxy"
+import { serveOgPreview } from "@/lib/server/og-preview"
 
 /**
  * Same-origin reverse proxy for Neon Auth (Better Auth).
@@ -66,6 +67,9 @@ export default {
   ): Promise<Response> {
     const authResponse = await proxyAuth(request, env)
     if (authResponse) return authResponse
+
+    const ogPreview = await serveOgPreview(request, env)
+    if (ogPreview) return ogPreview
 
     // TanStack Start's handler only needs the Request. Cloudflare bindings
     // (env) are accessed inside server functions via `cloudflare:workers`,

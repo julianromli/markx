@@ -30,6 +30,22 @@ function applyBookmarkMetadata(
     description: metadata.description ?? bookmark.description,
     imageUrl: metadata.imageUrl ?? bookmark.imageUrl,
     faviconUrl: metadata.faviconUrl || bookmark.faviconUrl,
+    enrichStatus: "done",
+  }
+}
+
+/** Pending enrich flags are session-local; never resume a shimmer after reload. */
+function settleStaleEnrichStatus(state: MarkxState): MarkxState {
+  if (!state.bookmarks.some((bookmark) => bookmark.enrichStatus === "pending")) {
+    return state
+  }
+  return {
+    ...state,
+    bookmarks: state.bookmarks.map((bookmark) =>
+      bookmark.enrichStatus === "pending"
+        ? { ...bookmark, enrichStatus: "done" as const }
+        : bookmark
+    ),
   }
 }
 
@@ -398,6 +414,7 @@ export function createMarkxStore(
           url: normalized,
           title: host.replace(/^www\./, ""),
           faviconUrl: `https://www.google.com/s2/favicons?domain=${host}&sz=64`,
+          enrichStatus: "pending",
           x,
           y,
           z,
@@ -422,7 +439,13 @@ export function createMarkxStore(
             ),
           }))
         } catch {
-          // keep optimistic card
+          // Keep the optimistic card, but clear the loading shimmer.
+          patch((prev) => ({
+            ...prev,
+            bookmarks: prev.bookmarks.map((b) =>
+              b.id === created.id ? { ...b, enrichStatus: "done" } : b
+            ),
+          }))
         }
       })()
 
@@ -542,7 +565,12 @@ export function createMarkxStore(
               ),
             }))
           } catch {
-            // leave bookmark as-is
+            patch((prev) => ({
+              ...prev,
+              bookmarks: prev.bookmarks.map((b) =>
+                b.id === bookmark.id ? { ...b, enrichStatus: "done" } : b
+              ),
+            }))
           }
         })
       )
@@ -580,7 +608,7 @@ export function createMarkxStore(
       pendingDeletedImageIds.clear()
     },
     replaceState(newState: MarkxState, opts?: { persist?: boolean }) {
-      state = newState
+      state = settleStaleEnrichStatus(newState)
       past = []
       future = []
       emit()
@@ -591,7 +619,7 @@ export function createMarkxStore(
       }
     },
     async hydrate() {
-      state = await dependencies.storage.load()
+      state = settleStaleEnrichStatus(await dependencies.storage.load())
       past = []
       future = []
       emit()
@@ -600,6 +628,7 @@ export function createMarkxStore(
       void dependencies.sweepOrphanImages(referencedImageIds)
     },
     finishHydration() {
+      state = settleStaleEnrichStatus(state)
       emit()
       void actions.enrichMissingBookmarks()
       const referencedImageIds = new Set(state.images.map((i) => i.imageId))
@@ -608,7 +637,7 @@ export function createMarkxStore(
     async resolveConflictUseCloud() {
       if (!syncEngine) return
       const cloudState = await syncEngine.resolveConflictUseCloud()
-      state = cloudState
+      state = settleStaleEnrichStatus(cloudState)
       past = []
       future = []
       emit()

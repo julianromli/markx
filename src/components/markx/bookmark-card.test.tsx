@@ -125,4 +125,41 @@ describe("BookmarkCard", () => {
     // jsdom doesn't reflect the property, so assert the attribute.
     expect(preview()?.getAttribute("referrerpolicy")).toBe("no-referrer")
   })
+
+  it("shows a loading shimmer while enrichment is pending", () => {
+    render(
+      <BookmarkCard
+        bookmark={makeBookmark({
+          enrichStatus: "pending",
+          faviconUrl: "https://icons.example.com/favicon.ico",
+        })}
+      />
+    )
+    expect(screen.getByLabelText("Loading preview")).not.toBeNull()
+    expect(document.querySelector("img")).toBeNull()
+  })
+
+  it("swaps the shimmer for the OG image once enrichment finishes", () => {
+    const { rerender } = render(
+      <BookmarkCard
+        bookmark={makeBookmark({
+          enrichStatus: "pending",
+          faviconUrl: "https://icons.example.com/favicon.ico",
+        })}
+      />
+    )
+    expect(screen.getByLabelText("Loading preview")).not.toBeNull()
+
+    rerender(
+      <BookmarkCard
+        bookmark={makeBookmark({
+          enrichStatus: "done",
+          imageUrl: "https://cdn.example.com/og.png",
+          faviconUrl: "https://icons.example.com/favicon.ico",
+        })}
+      />
+    )
+    expect(screen.queryByLabelText("Loading preview")).toBeNull()
+    expect(preview()?.src).toBe("https://cdn.example.com/og.png")
+  })
 })

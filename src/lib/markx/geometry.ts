@@ -228,6 +228,70 @@ export function cameraZoomAroundViewportCenter(
 }
 
 /**
+ * Two-finger pan + pinch: keep the board point under `prevCentroid` mapped to
+ * `nextCentroid` after scaling zoom by the finger-distance ratio.
+ */
+export function cameraFromTouchPinchPan(
+  camera: Camera,
+  viewport: Pick<DOMRect, "left" | "top">,
+  prevCentroid: { x: number; y: number },
+  nextCentroid: { x: number; y: number },
+  prevDistance: number,
+  nextDistance: number
+): Camera {
+  const scale =
+    prevDistance > 0 && nextDistance > 0 ? nextDistance / prevDistance : 1
+  const nextZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, camera.zoom * scale))
+
+  const prevCx = prevCentroid.x - viewport.left
+  const prevCy = prevCentroid.y - viewport.top
+  const boardX = (prevCx - camera.x) / camera.zoom
+  const boardY = (prevCy - camera.y) / camera.zoom
+
+  const nextCx = nextCentroid.x - viewport.left
+  const nextCy = nextCentroid.y - viewport.top
+  return {
+    zoom: nextZoom,
+    x: nextCx - boardX * nextZoom,
+    y: nextCy - boardY * nextZoom,
+  }
+}
+
+/** Average of active pointer screen positions. */
+export function pointerCentroid(
+  pointers: Iterable<{ x: number; y: number }>
+): { x: number; y: number } | null {
+  let count = 0
+  let sx = 0
+  let sy = 0
+  for (const p of pointers) {
+    sx += p.x
+    sy += p.y
+    count++
+  }
+  if (count === 0) return null
+  return { x: sx / count, y: sy / count }
+}
+
+/** Distance between the first two pointer screen positions. */
+export function pointerDistance(
+  pointers: Iterable<{ x: number; y: number }>
+): number {
+  let a: { x: number; y: number } | undefined
+  let b: { x: number; y: number } | undefined
+  for (const p of pointers) {
+    if (!a) {
+      a = p
+      continue
+    }
+    b = p
+    break
+  }
+  if (!a || !b) return 0
+  return Math.hypot(b.x - a.x, b.y - a.y)
+}
+
+/**
  * Frame all items in the viewport with padding. Empty boards fall back to a
  * comfortable default camera.
  */

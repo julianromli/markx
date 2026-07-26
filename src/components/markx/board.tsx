@@ -23,6 +23,7 @@ import {
   MIN_ZOOM,
   RESIZE_HANDLE_SIZE,
   cameraFitContent,
+  cameraFromTouchPinchPan,
   cameraZoomAroundViewportCenter,
   clampBottomRightResize,
   getBoardItemRect,
@@ -30,6 +31,8 @@ import {
   intersects,
   isInBottomRightResizeZone,
   normalizeRect,
+  pointerCentroid,
+  pointerDistance,
   screenToBoard,
   withLiveResize,
 } from "@/lib/markx/geometry"
@@ -82,7 +85,7 @@ type BoardProps = {
 }
 
 type DragState = {
-  mode: "pan" | "marquee" | "move" | "pending" | "resize"
+  mode: "pan" | "marquee" | "move" | "pending" | "resize" | "touchPan"
   pointerId: number
   startScreen: { x: number; y: number }
   startBoard: { x: number; y: number }
@@ -92,6 +95,10 @@ type DragState = {
   originRect?: Rect
   minSize?: { width: number; height: number }
   aspectRatio?: number
+  /** Last two-finger centroid (screen coords) while in touchPan. */
+  lastCentroid?: { x: number; y: number }
+  /** Last two-finger span while in touchPan. */
+  lastDistance?: number
 }
 
 type PendingGesture = {
@@ -151,6 +158,8 @@ export function Board({
     new Map()
   )
   const dragRef = useRef<DragState | null>(null)
+  /** Active pointer screen positions for multi-touch pan/pinch. */
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>())
   const selectedRef = useRef(selectedIds)
   const itemsRef = useRef(items)
   const anchorIdRef = useRef<string | null>(null)
@@ -290,10 +299,79 @@ export function Board({
     onSelectedIdsChange(next)
   }
 
+  const releasePointer = (
+    target: HTMLDivElement,
+    pointerId: number
+  ) => {
+    try {
+      target.releasePointerCapture(pointerId)
+    } catch {
+      // already released
+    }
+  }
+
+  /** Drop an in-progress one-finger gesture without committing move/resize. */
+  const abortSingleFingerGesture = () => {
+    const drag = dragRef.current
+    if (!drag || drag.mode === "touchPan") return
+
+    flushNow()
+
+    if (drag.mode === "marquee") {
+      pendingRef.current.marquee = null
+      setMarquee(null)
+    }
+    if (drag.mode === "resize") {
+      resizeRectRef.current = null
+      pendingRef.current.liveResize = new Map()
+      setLiveResize(new Map())
+    }
+    if (drag.mode === "move" || drag.mode === "pending") {
+      pendingRef.current.liveOffsets = new Map()
+      setLiveOffsets(new Map())
+      clearMoveTrashUi()
+    }
+    dragRef.current = null
+  }
+
+  const beginTouchPan = (target: HTMLDivElement, pointerId: number) => {
+    abortSingleFingerGesture()
+    for (const id of pointersRef.current.keys()) {
+      try {
+        target.setPointerCapture(id)
+      } catch {
+        // pointer may already be gone
+      }
+    }
+    const centroid = pointerCentroid(pointersRef.current.values())
+    const distance = pointerDistance(pointersRef.current.values())
+    if (!centroid || pointersRef.current.size < 2) return
+    const cam = cameraRef.current
+    dragRef.current = {
+      mode: "touchPan",
+      pointerId,
+      startScreen: { ...centroid },
+      startBoard: { x: 0, y: 0 },
+      originCamera: { ...cam },
+      lastCentroid: centroid,
+      lastDistance: distance,
+    }
+  }
+
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (!viewportRef.current) return
-    // Multi-touch protection: ignore additional pointers while a gesture is active.
+
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+
+    // Second (or later) finger: switch to two-finger pan + pinch.
+    if (pointersRef.current.size >= 2) {
+      beginTouchPan(e.currentTarget, e.pointerId)
+      return
+    }
+
+    // Ignore extra pointers if somehow already gesturing without a map entry.
     if (dragRef.current != null) return
+
     const cam = cameraRef.current
     if (e.button === 1 || (e.button === 0 && e.altKey)) {
       e.currentTarget.setPointerCapture(e.pointerId)
@@ -459,8 +537,38 @@ export function Board({
   }
 
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (pointersRef.current.has(e.pointerId)) {
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    }
+
     const drag = dragRef.current
-    if (!drag || drag.pointerId !== e.pointerId) return
+    if (!drag) return
+
+    if (drag.mode === "touchPan") {
+      if (pointersRef.current.size < 2) return
+      const centroid = pointerCentroid(pointersRef.current.values())
+      const distance = pointerDistance(pointersRef.current.values())
+      if (!centroid || !drag.lastCentroid) return
+
+      const viewport = getViewportRect()
+      const prev = pendingRef.current.camera ?? cameraRef.current
+      const next = cameraFromTouchPinchPan(
+        prev,
+        viewport,
+        drag.lastCentroid,
+        centroid,
+        drag.lastDistance ?? distance,
+        distance
+      )
+      drag.lastCentroid = centroid
+      drag.lastDistance = distance
+      cameraRef.current = next
+      pendingRef.current.camera = next
+      scheduleFlush()
+      return
+    }
+
+    if (drag.pointerId !== e.pointerId) return
 
     const dx = e.clientX - drag.startScreen.x
     const dy = e.clientY - drag.startScreen.y
@@ -535,8 +643,30 @@ export function Board({
   }
 
   const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    pointersRef.current.delete(e.pointerId)
+    releasePointer(e.currentTarget, e.pointerId)
+
     const drag = dragRef.current
-    if (!drag || drag.pointerId !== e.pointerId) return
+    if (!drag) return
+
+    if (drag.mode === "touchPan") {
+      // Stay in touchPan until every finger lifts so the remaining finger
+      // does not accidentally start a marquee / card drag.
+      if (pointersRef.current.size === 0) {
+        flushNow()
+        dragRef.current = null
+      } else if (pointersRef.current.size >= 2) {
+        const centroid = pointerCentroid(pointersRef.current.values())
+        const distance = pointerDistance(pointersRef.current.values())
+        if (centroid) {
+          drag.lastCentroid = centroid
+          drag.lastDistance = distance
+        }
+      }
+      return
+    }
+
+    if (drag.pointerId !== e.pointerId) return
 
     flushNow()
 
@@ -575,11 +705,6 @@ export function Board({
     }
 
     dragRef.current = null
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId)
-    } catch {
-      // already released
-    }
   }
 
   useEffect(() => {

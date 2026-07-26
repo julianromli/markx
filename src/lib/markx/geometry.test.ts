@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   SLOT_STEP_RATIO,
   cameraFitContent,
+  cameraFromTouchPinchPan,
   cameraZoomAroundViewportCenter,
   clampBottomRightResize,
   findEmptySlot,
@@ -10,6 +11,8 @@ import {
   hitTestBoardItems,
   isInBottomRightResizeZone,
   overlapRatio,
+  pointerCentroid,
+  pointerDistance,
   withLiveResize,
 } from "./geometry"
 import type { BoardItemModel } from "./geometry"
@@ -211,6 +214,79 @@ describe("cameraZoomAroundViewportCenter", () => {
     expect(next.zoom).toBe(2)
     expect((400 - next.x) / next.zoom).toBeCloseTo(centerBoardBefore.x)
     expect((300 - next.y) / next.zoom).toBeCloseTo(centerBoardBefore.y)
+  })
+})
+
+describe("cameraFromTouchPinchPan", () => {
+  const viewport = { left: 0, top: 0 }
+
+  it("pans when fingers move without changing distance", () => {
+    const camera = { x: 0, y: 0, zoom: 1 }
+    const prev = { x: 100, y: 100 }
+    const next = { x: 140, y: 160 }
+    const result = cameraFromTouchPinchPan(camera, viewport, prev, next, 80, 80)
+    expect(result.zoom).toBe(1)
+    expect(result.x).toBe(40)
+    expect(result.y).toBe(60)
+  })
+
+  it("zooms around the centroid when distance changes in place", () => {
+    const camera = { x: 0, y: 0, zoom: 1 }
+    const centroid = { x: 200, y: 150 }
+    const boardBefore = {
+      x: (200 - camera.x) / camera.zoom,
+      y: (150 - camera.y) / camera.zoom,
+    }
+    const result = cameraFromTouchPinchPan(
+      camera,
+      viewport,
+      centroid,
+      centroid,
+      100,
+      200
+    )
+    expect(result.zoom).toBe(2)
+    expect((200 - result.x) / result.zoom).toBeCloseTo(boardBefore.x)
+    expect((150 - result.y) / result.zoom).toBeCloseTo(boardBefore.y)
+  })
+
+  it("clamps zoom to MIN/MAX", () => {
+    const camera = { x: 0, y: 0, zoom: 1 }
+    const centroid = { x: 100, y: 100 }
+    const zoomedOut = cameraFromTouchPinchPan(
+      camera,
+      viewport,
+      centroid,
+      centroid,
+      100,
+      10
+    )
+    expect(zoomedOut.zoom).toBe(0.25)
+    const zoomedIn = cameraFromTouchPinchPan(
+      camera,
+      viewport,
+      centroid,
+      centroid,
+      100,
+      1000
+    )
+    expect(zoomedIn.zoom).toBe(2)
+  })
+})
+
+describe("pointerCentroid / pointerDistance", () => {
+  it("averages pointer positions and measures span", () => {
+    const pointers = [
+      { x: 0, y: 0 },
+      { x: 100, y: 50 },
+    ]
+    expect(pointerCentroid(pointers)).toEqual({ x: 50, y: 25 })
+    expect(pointerDistance(pointers)).toBeCloseTo(Math.hypot(100, 50))
+  })
+
+  it("returns null / 0 for insufficient pointers", () => {
+    expect(pointerCentroid([])).toBeNull()
+    expect(pointerDistance([{ x: 1, y: 2 }])).toBe(0)
   })
 })
 

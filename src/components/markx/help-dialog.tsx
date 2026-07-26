@@ -99,6 +99,10 @@ function BasicsSection() {
       icon: <HandIcon className="size-4" weight="regular" />,
       text: "Drag items to arrange; drag the corner to resize.",
     },
+    {
+      icon: <HandIcon className="size-4" weight="regular" />,
+      text: "On touch: one finger selects or moves cards; two fingers pan and pinch-zoom the board.",
+    },
   ]
   return (
     <div className="space-y-2">

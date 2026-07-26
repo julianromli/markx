@@ -23,6 +23,7 @@ const bookmarkSchema = z.object({
   description: z.string().optional(),
   imageUrl: z.string().optional(),
   faviconUrl: z.string().optional(),
+  enrichStatus: z.enum(["pending", "done"]).optional(),
   x: z.number(),
   y: z.number(),
   z: z.number(),

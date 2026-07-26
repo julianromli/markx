@@ -1,31 +1,52 @@
 import { describe, expect, it } from "vitest"
 
-import { absoluteFavicon, enrichLinkInputSchema } from "./enrich"
+import {
+  absoluteFavicon,
+  absoluteImageUrl,
+  absoluteUrl,
+  enrichLinkInputSchema,
+} from "./enrich"
 
 const PAGE = "https://example.com/blog/post"
 
-describe("absoluteFavicon", () => {
+describe("absoluteUrl", () => {
   it("resolves a site-relative path against the page origin", () => {
-    expect(absoluteFavicon("/favicon.ico", PAGE)).toBe(
-      "https://example.com/favicon.ico"
-    )
+    expect(absoluteUrl("/og.png", PAGE)).toBe("https://example.com/og.png")
   })
 
   it("resolves a path-relative reference against the page directory", () => {
-    expect(absoluteFavicon("icon.png", PAGE)).toBe(
-      "https://example.com/blog/icon.png"
+    expect(absoluteUrl("cover.jpg", PAGE)).toBe(
+      "https://example.com/blog/cover.jpg"
     )
   })
 
   it("leaves an absolute URL untouched", () => {
-    expect(absoluteFavicon("https://cdn.example.com/i.png", PAGE)).toBe(
+    expect(absoluteUrl("https://cdn.example.com/i.png", PAGE)).toBe(
       "https://cdn.example.com/i.png"
     )
   })
 
   it("keeps a protocol-relative URL on the page's scheme", () => {
-    expect(absoluteFavicon("//cdn.example.com/i.png", PAGE)).toBe(
+    expect(absoluteUrl("//cdn.example.com/i.png", PAGE)).toBe(
       "https://cdn.example.com/i.png"
+    )
+  })
+
+  it("rejects non-http schemes rather than passing them to an img src", () => {
+    for (const hostile of [
+      "javascript:alert(1)",
+      "data:image/svg+xml,<svg/>",
+      "file:///etc/passwd",
+    ]) {
+      expect(absoluteUrl(hostile, PAGE)).toBeUndefined()
+    }
+  })
+})
+
+describe("absoluteFavicon", () => {
+  it("resolves a site-relative path against the page origin", () => {
+    expect(absoluteFavicon("/favicon.ico", PAGE)).toBe(
+      "https://example.com/favicon.ico"
     )
   })
 
@@ -44,6 +65,19 @@ describe("absoluteFavicon", () => {
     ]) {
       expect(absoluteFavicon(hostile, PAGE)).toContain("google.com/s2/favicons")
     }
+  })
+})
+
+describe("absoluteImageUrl", () => {
+  it("absolutizes relative Open Graph images", () => {
+    expect(absoluteImageUrl("/assets/og.png", PAGE)).toBe(
+      "https://example.com/assets/og.png"
+    )
+  })
+
+  it("returns undefined when there is no image", () => {
+    expect(absoluteImageUrl(undefined, PAGE)).toBeUndefined()
+    expect(absoluteImageUrl("", PAGE)).toBeUndefined()
   })
 })
 

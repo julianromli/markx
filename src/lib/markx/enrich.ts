@@ -8,9 +8,15 @@ import {
   isSafePublicHttpUrl,
 } from "@/lib/server/guest-guards"
 import { enforceRateLimit } from "@/lib/server/guest-rate-limit"
+import { fetchPublicHttp, withTimeout } from "@/lib/server/safe-fetch"
 import type { LinkMetadata } from "./types"
 
 export const MAX_ENRICH_URL_LENGTH = 2048
+export const ENRICH_PROVIDER_BUDGET_MS = 3_500
+export const ENRICH_CACHE_TTL_MS = 10 * 60 * 1000
+
+const BROWSER_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"
 
 export const enrichLinkInputSchema = z
   .object({
@@ -35,6 +41,13 @@ const enrichLinkRateLimiter = createFixedWindowRateLimiter({
   windowMs: 60_000,
 })
 
+type EnrichCacheEntry = {
+  expiresAt: number
+  value: LinkMetadata
+}
+
+const enrichCache = new Map<string, EnrichCacheEntry>()
+
 function hostnameTitle(url: string): string {
   try {
     return new URL(url).hostname.replace(/^www\./, "")
@@ -53,43 +66,112 @@ function faviconFor(url: string): string {
 }
 
 /**
- * Scrapers often report the favicon as a site-relative path ("/favicon.ico").
- * Stored as-is it would later resolve against our own origin and 404, so resolve
- * it against the page and fall back to the Google service when that fails.
+ * Scrapers often report favicon / og:image as a site-relative path
+ * ("/favicon.ico", "/og.png"). Stored as-is it would later resolve against
+ * our own origin and 404, so resolve it against the page and fall back when
+ * that fails.
  */
+export function absoluteUrl(
+  value: string | undefined,
+  pageUrl: string
+): string | undefined {
+  if (!value) return undefined
+  try {
+    const resolved = new URL(value, pageUrl)
+    if (resolved.protocol !== "http:" && resolved.protocol !== "https:") {
+      return undefined
+    }
+    return resolved.toString()
+  } catch {
+    return undefined
+  }
+}
+
 export function absoluteFavicon(
   favicon: string | undefined,
   pageUrl: string
 ): string {
-  if (!favicon) return faviconFor(pageUrl)
-  try {
-    const resolved = new URL(favicon, pageUrl)
-    if (resolved.protocol !== "http:" && resolved.protocol !== "https:") {
-      return faviconFor(pageUrl)
-    }
-    return resolved.toString()
-  } catch {
-    return faviconFor(pageUrl)
+  return absoluteUrl(favicon, pageUrl) ?? faviconFor(pageUrl)
+}
+
+export function absoluteImageUrl(
+  image: string | undefined,
+  pageUrl: string
+): string | undefined {
+  return absoluteUrl(image, pageUrl)
+}
+
+function readEnrichCache(url: string): LinkMetadata | null {
+  const entry = enrichCache.get(url)
+  if (!entry) return null
+  if (entry.expiresAt <= Date.now()) {
+    enrichCache.delete(url)
+    return null
   }
+  return entry.value
+}
+
+function writeEnrichCache(url: string, value: LinkMetadata): void {
+  enrichCache.set(url, {
+    expiresAt: Date.now() + ENRICH_CACHE_TTL_MS,
+    value,
+  })
+}
+
+/** Test seam — clears the isolate-local enrich memo. */
+export function clearEnrichCache(): void {
+  enrichCache.clear()
+}
+
+function pickImageUrl(
+  images:
+    | Array<{ url?: string; secureUrl?: string } | undefined>
+    | undefined
+): string | undefined {
+  if (!images?.length) return undefined
+  for (const image of images) {
+    if (!image) continue
+    const candidate = image.secureUrl || image.url
+    if (candidate) return candidate
+  }
+  return undefined
 }
 
 async function enrichFromOgs(url: string): Promise<LinkMetadata | null> {
-  let data: SuccessResult | ErrorResult
+  let html: string
+  let finalUrl = url
   try {
-    data = await ogs({
-      url,
-      timeout: 8,
-      fetchOptions: {
-        // Do not follow an otherwise-public URL to an unvalidated target.
-        redirect: "error",
-        headers: {
-          "user-agent":
-            "Mozilla/5.0 (compatible; markxBot/1.0; +https://markx.app) AppleWebKit/537.36",
-          accept: "text/html,application/xhtml+xml",
-          "accept-language": "en-US,en;q=0.9",
-        },
+    const fetched = await fetchPublicHttp(url, {
+      timeoutMs: ENRICH_PROVIDER_BUDGET_MS,
+      maxRedirects: 5,
+      headers: {
+        "user-agent": BROWSER_UA,
+        accept: "text/html,application/xhtml+xml",
+        "accept-language": "en-US,en;q=0.9",
       },
     })
+    const { response } = fetched
+    finalUrl = fetched.finalUrl
+    if (!response.ok) return null
+    const contentType = response.headers.get("content-type")?.toLowerCase() ?? ""
+    if (
+      contentType &&
+      !contentType.includes("text/html") &&
+      !contentType.includes("application/xhtml")
+    ) {
+      void response.body?.cancel()
+      return null
+    }
+    html = await response.text()
+  } catch {
+    return null
+  }
+
+  let data: SuccessResult | ErrorResult
+  try {
+    // Pass HTML we already fetched with safe redirects. open-graph-scraper
+    // rejects combining `url` + `html`, so absolutize media against finalUrl.
+    data = await ogs({ html })
   } catch {
     return null
   }
@@ -97,13 +179,14 @@ async function enrichFromOgs(url: string): Promise<LinkMetadata | null> {
   if (data.error) return null
 
   const { result } = data
-  const imageUrl = result.ogImage?.[0]?.url || result.twitterImage?.[0]?.url
+  const rawImage =
+    pickImageUrl(result.ogImage) || pickImageUrl(result.twitterImage)
 
   return {
     title: result.ogTitle || result.twitterTitle || hostnameTitle(url),
     description: result.ogDescription || result.twitterDescription,
-    imageUrl,
-    faviconUrl: absoluteFavicon(result.favicon, url),
+    imageUrl: absoluteImageUrl(rawImage, finalUrl),
+    faviconUrl: absoluteFavicon(result.favicon, finalUrl),
   }
 }
 
@@ -112,7 +195,8 @@ async function enrichFromMicrolink(url: string): Promise<LinkMetadata | null> {
     const endpoint = new URL("https://api.microlink.io")
     endpoint.searchParams.set("url", url)
     const response = await fetch(endpoint, {
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(ENRICH_PROVIDER_BUDGET_MS),
+      headers: { "user-agent": BROWSER_UA },
     })
     if (!response.ok) return null
     const json: {
@@ -121,6 +205,7 @@ async function enrichFromMicrolink(url: string): Promise<LinkMetadata | null> {
         title?: string
         description?: string
         image?: { url?: string } | string
+        logo?: { url?: string } | string
       }
     } = await response.json()
     if (json.status !== "success" || !json.data) return null
@@ -128,10 +213,12 @@ async function enrichFromMicrolink(url: string): Promise<LinkMetadata | null> {
       typeof json.data.image === "string"
         ? json.data.image
         : json.data.image?.url
+    const logo =
+      typeof json.data.logo === "string" ? json.data.logo : json.data.logo?.url
     return {
       title: json.data.title || hostnameTitle(url),
       description: json.data.description,
-      imageUrl: image,
+      imageUrl: absoluteImageUrl(image || logo, url),
       faviconUrl: faviconFor(url),
     }
   } catch {
@@ -139,29 +226,60 @@ async function enrichFromMicrolink(url: string): Promise<LinkMetadata | null> {
   }
 }
 
+function mergeMetadata(
+  primary: LinkMetadata | null,
+  secondary: LinkMetadata | null,
+  url: string
+): LinkMetadata {
+  const fallback: LinkMetadata = {
+    title: hostnameTitle(url),
+    faviconUrl: faviconFor(url),
+  }
+  if (!primary && !secondary) return fallback
+
+  const a = primary
+  const b = secondary
+  // Prefer whichever source actually found a preview image; fill gaps from
+  // the other. Title/description prefer the primary (OGS) when present.
+  const withImage = a?.imageUrl ? a : b?.imageUrl ? b : a ?? b
+  return {
+    title: a?.title || b?.title || fallback.title,
+    description: a?.description || b?.description,
+    imageUrl: withImage?.imageUrl,
+    faviconUrl: a?.faviconUrl || b?.faviconUrl || fallback.faviconUrl,
+  }
+}
+
+async function enrichAndMirror(url: string): Promise<LinkMetadata> {
+  const cached = readEnrichCache(url)
+  if (cached) return cached
+
+  const [fromOgs, fromMicrolink] = await Promise.all([
+    withTimeout(enrichFromOgs(url), ENRICH_PROVIDER_BUDGET_MS),
+    withTimeout(enrichFromMicrolink(url), ENRICH_PROVIDER_BUDGET_MS),
+  ])
+
+  const merged = mergeMetadata(fromOgs, fromMicrolink, url)
+
+  if (merged.imageUrl) {
+    try {
+      // Dynamic import keeps the enrich module testable without Cloudflare
+      // bindings in the Vitest graph.
+      const { mirrorOgImageToR2 } = await import("@/lib/server/og-preview")
+      const mirrored = await mirrorOgImageToR2(merged.imageUrl)
+      if (mirrored) merged.imageUrl = mirrored
+    } catch {
+      // Keep the remote hotlink if mirroring fails — better than no preview.
+    }
+  }
+
+  writeEnrichCache(url, merged)
+  return merged
+}
+
 export const enrichLink = createServerFn({ method: "POST" })
   .validator(enrichLinkInputSchema)
   .handler(async ({ data }): Promise<LinkMetadata> => {
     enforceRateLimit(enrichLinkRateLimiter, "enrichLink")
-
-    const { url } = data
-    const fallback: LinkMetadata = {
-      title: hostnameTitle(url),
-      faviconUrl: faviconFor(url),
-    }
-
-    const fromOgs = await enrichFromOgs(url)
-    if (fromOgs?.imageUrl) return fromOgs
-
-    const fromMicrolink = await enrichFromMicrolink(url)
-    if (fromMicrolink?.imageUrl) {
-      return {
-        title: fromOgs?.title || fromMicrolink.title,
-        description: fromOgs?.description || fromMicrolink.description,
-        imageUrl: fromMicrolink.imageUrl,
-        faviconUrl: fromOgs?.faviconUrl || fromMicrolink.faviconUrl,
-      }
-    }
-
-    return fromOgs ?? fromMicrolink ?? fallback
+    return enrichAndMirror(data.url)
   })

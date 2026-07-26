@@ -6,6 +6,8 @@ export type Folder = {
   z: number
 }
 
+export type BookmarkEnrichStatus = "pending" | "done"
+
 export type Bookmark = {
   id: string
   folderId: string
@@ -14,6 +16,8 @@ export type Bookmark = {
   description?: string
   imageUrl?: string
   faviconUrl?: string
+  /** Transient UI flag while background OG enrich is in flight. */
+  enrichStatus?: BookmarkEnrichStatus
   x: number
   y: number
   z: number

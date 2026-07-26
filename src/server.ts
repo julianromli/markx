@@ -5,8 +5,10 @@ import {
   buildAuthProxyHeaders,
   buildAuthTargetUrl,
   isAuthProxyPath,
+  isEmailOtpSendPath,
   rewriteAuthCookie,
 } from "@/lib/server/auth-proxy"
+import { checkOtpSendRateLimit } from "@/lib/server/otp-send-rate-limit"
 import { serveOgPreview } from "@/lib/server/og-preview"
 
 /**
@@ -21,6 +23,15 @@ import { serveOgPreview } from "@/lib/server/og-preview"
 async function proxyAuth(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url)
   if (!isAuthProxyPath(url.pathname)) return null
+
+  // Throttle OTP email sends before they hit Neon Auth / SMTP.
+  if (
+    request.method === "POST" &&
+    isEmailOtpSendPath(url.pathname)
+  ) {
+    const limited = checkOtpSendRateLimit(request)
+    if (limited) return limited
+  }
 
   const target = buildAuthTargetUrl(request.url, env.NEON_AUTH_BASE_URL)
 

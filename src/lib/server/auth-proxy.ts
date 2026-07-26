@@ -11,6 +11,11 @@ export function isAuthProxyPath(pathname: string): boolean {
   return pathname.startsWith("/api/auth/")
 }
 
+/** Neon/Better Auth endpoint that triggers an OTP email send. */
+export function isEmailOtpSendPath(pathname: string): boolean {
+  return pathname === "/api/auth/email-otp/send-verification-otp"
+}
+
 export function buildAuthTargetUrl(
   requestUrl: string,
   authBaseUrl: string

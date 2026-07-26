@@ -24,6 +24,11 @@ import {
 } from "@phosphor-icons/react"
 
 import { sendOtp, verifyOtp, onLoginSuccess } from "@/lib/markx/auth-actions"
+import {
+  getOtpCooldownRemainingSeconds,
+  OTP_SEND_COOLDOWN_SECONDS,
+  startOtpCooldown,
+} from "@/lib/markx/otp-cooldown"
 
 type Step = "email" | "otp" | "success"
 
@@ -34,7 +39,6 @@ type AuthDialogProps = {
   onLoggedIn?: () => void
 }
 
-const RESEND_COOLDOWN_SECONDS = 60
 const OTP_LENGTH = 6
 
 /**
@@ -43,7 +47,7 @@ const OTP_LENGTH = 6
  * Step 1: the user enters their email and clicks "Send code".
  * Step 2: a 6-digit OTP is entered; the form auto-submits on completion.
  *         Includes a "Change email" link, paste support, inline errors,
- *         and a 60-second resend cooldown.
+ *         and a 60-second send/resend cooldown (persisted in sessionStorage).
  *
  * On success, the dialog calls `onLoginSuccess()` to create the
  * SyncEngine and switch from guest mode to cloud sync, then closes.
@@ -63,7 +67,7 @@ export function AuthDialog({
 
   const otpInputRef = useRef<HTMLDivElement>(null)
 
-  // Reset state when the dialog is closed.
+  // Reset form fields when the dialog is closed — keep cooldown (sessionStorage).
   useEffect(() => {
     if (!open) {
       const timer = setTimeout(() => {
@@ -71,20 +75,21 @@ export function AuthDialog({
         setEmail("")
         setOtp("")
         setError(null)
-        setCooldown(0)
       }, 200)
       return () => clearTimeout(timer)
     }
   }, [open])
 
-  // Resend cooldown timer.
+  // Sync remaining cooldown from sessionStorage for the current email.
   useEffect(() => {
-    if (cooldown <= 0) return
-    const timer = setInterval(() => {
-      setCooldown((c) => Math.max(0, c - 1))
-    }, 1000)
+    function syncCooldown() {
+      setCooldown(getOtpCooldownRemainingSeconds(email))
+    }
+    syncCooldown()
+    if (!open) return
+    const timer = setInterval(syncCooldown, 1000)
     return () => clearInterval(timer)
-  }, [cooldown])
+  }, [email, open])
 
   // Auto-submit when all 6 digits are entered.
   useEffect(() => {
@@ -103,11 +108,23 @@ export function AuthDialog({
     }
   }, [step])
 
+  function markCooldownStarted(targetEmail: string) {
+    startOtpCooldown(targetEmail)
+    setCooldown(OTP_SEND_COOLDOWN_SECONDS)
+  }
+
   async function handleSendCode() {
     setError(null)
     const trimmed = email.trim().toLowerCase()
     if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
       setError("Please enter a valid email address")
+      return
+    }
+
+    const remaining = getOtpCooldownRemainingSeconds(trimmed)
+    if (remaining > 0) {
+      setCooldown(remaining)
+      setError(`Please wait ${remaining}s before requesting another code.`)
       return
     }
 
@@ -117,15 +134,25 @@ export function AuthDialog({
 
     if (result.error) {
       setError(result.error)
+      // Server may have rate-limited us — keep the client in sync.
+      if (/wait|too many|rate/i.test(result.error)) {
+        markCooldownStarted(trimmed)
+      }
       return
     }
 
     setEmail(trimmed)
+    markCooldownStarted(trimmed)
     setStep("otp")
-    setCooldown(RESEND_COOLDOWN_SECONDS)
   }
 
   async function handleResend() {
+    const remaining = getOtpCooldownRemainingSeconds(email)
+    if (remaining > 0) {
+      setCooldown(remaining)
+      return
+    }
+
     setError(null)
     setSending(true)
     const result = await sendOtp(email)
@@ -133,10 +160,13 @@ export function AuthDialog({
 
     if (result.error) {
       setError(result.error)
+      if (/wait|too many|rate/i.test(result.error)) {
+        markCooldownStarted(email)
+      }
       return
     }
 
-    setCooldown(RESEND_COOLDOWN_SECONDS)
+    markCooldownStarted(email)
     setOtp("")
     toast.success("A new code has been sent to your email")
   }
@@ -214,10 +244,10 @@ export function AuthDialog({
                 type="submit"
                 className="w-full"
                 loading={sending}
-                disabled={!email.trim()}
+                disabled={!email.trim() || cooldown > 0}
               >
                 <PaperPlaneTiltIcon className="size-4" weight="regular" />
-                Send code
+                {cooldown > 0 ? `Send code in ${cooldown}s` : "Send code"}
               </Button>
             </form>
           </>

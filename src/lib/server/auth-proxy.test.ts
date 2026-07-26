@@ -4,6 +4,7 @@ import {
   buildAuthProxyHeaders,
   buildAuthTargetUrl,
   isAuthProxyPath,
+  isEmailOtpSendPath,
   rewriteAuthCookie,
 } from "./auth-proxy"
 
@@ -12,6 +13,14 @@ describe("auth proxy helpers", () => {
     expect(isAuthProxyPath("/api/auth/sign-in")).toBe(true)
     expect(isAuthProxyPath("/api/authentic")).toBe(false)
     expect(isAuthProxyPath("/api/auth")).toBe(false)
+  })
+
+  it("recognizes the email OTP send endpoint", () => {
+    expect(
+      isEmailOtpSendPath("/api/auth/email-otp/send-verification-otp")
+    ).toBe(true)
+    expect(isEmailOtpSendPath("/api/auth/sign-in/email-otp")).toBe(false)
+    expect(isEmailOtpSendPath("/api/auth/email-otp/verify-email")).toBe(false)
   })
 
   it("resolves auth subpaths against the full managed-auth base path", () => {

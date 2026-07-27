@@ -18,6 +18,7 @@ import { WorkspaceBoardItem } from "@/components/markx/workspace-board-item"
 import { WorkspaceContextMenu } from "@/components/markx/workspace-context-menu"
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { Button } from "@/components/ui/button"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import {
   useMarkxActions,
   useMarkxImageIngest,
@@ -399,34 +400,37 @@ export function Workspace(props: WorkspaceProps) {
     >
       <ContextMenu>
         <ContextMenuTrigger className="block h-full">
-          <Board
-            items={items}
-            selectedIds={selectedIds}
-            onSelectedIdsChange={setSelectedIds}
-            onRaiseZ={actions.raiseZ}
-            onMoveItems={handleMoveItems}
-            onResizeItem={handleResizeItem}
-            onOpenItem={openItem}
-            onTrashDrop={deleteSelection}
-            trashRef={trashRef}
-            onTrashArmedChange={setTrashArmed}
-            onItemMoveDragChange={setItemMoveDragging}
-            onZoomChange={setZoomPercent}
-            onContextPoint={setContextPoint}
-            editingId={editingNoteId ?? undefined}
-            boardApiRef={boardApiRef}
-            renderItem={(item, selected) => (
-              <WorkspaceBoardItem
-                item={item}
-                selected={selected}
-                editingNoteId={editingNoteId}
-                bookmarks={state.bookmarks}
-                onCommitNote={actions.updateNoteContent}
-                onExitNoteEdit={() => setEditingNoteId(null)}
-                onNoteStyleChange={actions.setNoteStyle}
-              />
-            )}
-          />
+          <TooltipProvider delay={500} closeDelay={150}>
+            <Board
+              items={items}
+              selectedIds={selectedIds}
+              onSelectedIdsChange={setSelectedIds}
+              onRaiseZ={actions.raiseZ}
+              onMoveItems={handleMoveItems}
+              onResizeItem={handleResizeItem}
+              onOpenItem={openItem}
+              onTrashDrop={deleteSelection}
+              trashRef={trashRef}
+              onTrashArmedChange={setTrashArmed}
+              onItemMoveDragChange={setItemMoveDragging}
+              onZoomChange={setZoomPercent}
+              onContextPoint={setContextPoint}
+              editingId={editingNoteId ?? undefined}
+              boardApiRef={boardApiRef}
+              renderItem={(item, selected, dragging) => (
+                <WorkspaceBoardItem
+                  item={item}
+                  selected={selected}
+                  interacting={dragging}
+                  editingNoteId={editingNoteId}
+                  bookmarks={state.bookmarks}
+                  onCommitNote={actions.updateNoteContent}
+                  onExitNoteEdit={() => setEditingNoteId(null)}
+                  onNoteStyleChange={actions.setNoteStyle}
+                />
+              )}
+            />
+          </TooltipProvider>
         </ContextMenuTrigger>
         <WorkspaceContextMenu
           mode={props.mode}

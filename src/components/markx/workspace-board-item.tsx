@@ -10,6 +10,8 @@ import type { Bookmark, Note } from "@/lib/markx/types"
 type WorkspaceBoardItemProps = {
   item: BoardItemModel
   selected: boolean
+  /** True while this item is being dragged or resized on the board. */
+  interacting?: boolean
   editingNoteId: string | null
   bookmarks: Bookmark[]
   onCommitNote: (id: string, content: string) => void
@@ -23,6 +25,7 @@ type WorkspaceBoardItemProps = {
 export function WorkspaceBoardItem({
   item,
   selected,
+  interacting = false,
   editingNoteId,
   bookmarks,
   onCommitNote,
@@ -53,5 +56,11 @@ export function WorkspaceBoardItem({
   if (item.kind === "image") {
     return <ImageCard image={item.data} selected={selected} />
   }
-  return <BookmarkCard bookmark={item.data} selected={selected} />
+  return (
+    <BookmarkCard
+      bookmark={item.data}
+      selected={selected}
+      interacting={interacting}
+    />
+  )
 }

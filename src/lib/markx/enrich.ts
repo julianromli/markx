@@ -10,6 +10,11 @@ import {
 import { enforceRateLimit } from "@/lib/server/guest-rate-limit"
 import { fetchPublicHttp, withTimeout } from "@/lib/server/safe-fetch"
 import type { LinkMetadata } from "./types"
+import {
+  parseYoutubeVideoId,
+  youtubeThumbnailUrl,
+  youtubeWatchUrl,
+} from "./youtube"
 
 export const MAX_ENRICH_URL_LENGTH = 2048
 export const ENRICH_PROVIDER_BUDGET_MS = 3_500
@@ -250,7 +255,100 @@ function mergeMetadata(
   }
 }
 
+async function fetchYoutubeOembedTitle(
+  watchUrl: string
+): Promise<string | null> {
+  try {
+    const endpoint = new URL("https://www.youtube.com/oembed")
+    endpoint.searchParams.set("url", watchUrl)
+    endpoint.searchParams.set("format", "json")
+    const { response } = await fetchPublicHttp(endpoint.toString(), {
+      timeoutMs: ENRICH_PROVIDER_BUDGET_MS,
+      headers: {
+        accept: "application/json",
+        "user-agent": BROWSER_UA,
+      },
+    })
+    if (!response.ok) {
+      void response.body?.cancel()
+      return null
+    }
+    const json: { title?: string } = await response.json()
+    const title = json.title?.trim()
+    return title || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Prefer maxres when the CDN serves it; hqdefault always exists for valid ids.
+ */
+async function resolveYoutubeThumbnailUrl(videoId: string): Promise<string> {
+  const maxres = youtubeThumbnailUrl(videoId, "maxresdefault")
+  const hq = youtubeThumbnailUrl(videoId, "hqdefault")
+  try {
+    const { response } = await fetchPublicHttp(maxres, {
+      timeoutMs: ENRICH_PROVIDER_BUDGET_MS,
+      headers: { "user-agent": BROWSER_UA },
+    })
+    // Missing maxres is usually 404; some edges return a tiny placeholder.
+    const length = Number(response.headers.get("content-length") || 0)
+    const usable =
+      response.ok && (length === 0 || length > 5_000)
+    void response.body?.cancel()
+    if (usable) return maxres
+  } catch {
+    // Fall through to hqdefault.
+  }
+  return hq
+}
+
+async function mirrorImageUrl(imageUrl: string): Promise<string> {
+  try {
+    // Dynamic import keeps the enrich module testable without Cloudflare
+    // bindings in the Vitest graph.
+    const { mirrorOgImageToR2 } = await import("@/lib/server/og-preview")
+    const mirrored = await mirrorOgImageToR2(imageUrl)
+    return mirrored || imageUrl
+  } catch {
+    // Keep the remote hotlink if mirroring fails — better than no preview.
+    return imageUrl
+  }
+}
+
+async function enrichYoutube(
+  url: string,
+  videoId: string
+): Promise<LinkMetadata> {
+  const watchUrl = youtubeWatchUrl(videoId)
+  const cached =
+    readEnrichCache(url) ?? readEnrichCache(watchUrl)
+  if (cached) return cached
+
+  const [title, imageUrl] = await Promise.all([
+    withTimeout(fetchYoutubeOembedTitle(watchUrl), ENRICH_PROVIDER_BUDGET_MS),
+    withTimeout(
+      resolveYoutubeThumbnailUrl(videoId),
+      ENRICH_PROVIDER_BUDGET_MS
+    ).then((resolved) => resolved ?? youtubeThumbnailUrl(videoId, "hqdefault")),
+  ])
+
+  const meta: LinkMetadata = {
+    title: title || hostnameTitle(url),
+    imageUrl: await mirrorImageUrl(imageUrl),
+    faviconUrl: faviconFor(url),
+  }
+
+  writeEnrichCache(watchUrl, meta)
+  writeEnrichCache(url, meta)
+  return meta
+}
+
 async function enrichAndMirror(url: string): Promise<LinkMetadata> {
+  const videoId = parseYoutubeVideoId(url)
+  if (videoId) return enrichYoutube(url, videoId)
+
   const cached = readEnrichCache(url)
   if (cached) return cached
 
@@ -262,15 +360,7 @@ async function enrichAndMirror(url: string): Promise<LinkMetadata> {
   const merged = mergeMetadata(fromOgs, fromMicrolink, url)
 
   if (merged.imageUrl) {
-    try {
-      // Dynamic import keeps the enrich module testable without Cloudflare
-      // bindings in the Vitest graph.
-      const { mirrorOgImageToR2 } = await import("@/lib/server/og-preview")
-      const mirrored = await mirrorOgImageToR2(merged.imageUrl)
-      if (mirrored) merged.imageUrl = mirrored
-    } catch {
-      // Keep the remote hotlink if mirroring fails — better than no preview.
-    }
+    merged.imageUrl = await mirrorImageUrl(merged.imageUrl)
   }
 
   writeEnrichCache(url, merged)

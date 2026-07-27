@@ -14,6 +14,7 @@ import type {
   MarkxState,
   Note,
 } from "./types"
+import { youtubeOptimisticImageUrl } from "./youtube"
 
 type Listener = () => void
 type PositionUpdate = { id: string; x: number; y: number; z?: number }
@@ -405,6 +406,7 @@ export function createMarkxStore(
       }
 
       const host = new URL(normalized).hostname
+      const optimisticImage = youtubeOptimisticImageUrl(normalized)
       let created!: Bookmark
       commit((prev) => {
         const { z, zCounter } = nextZ(prev)
@@ -414,6 +416,7 @@ export function createMarkxStore(
           url: normalized,
           title: host.replace(/^www\./, ""),
           faviconUrl: `https://www.google.com/s2/favicons?domain=${host}&sz=64`,
+          ...(optimisticImage ? { imageUrl: optimisticImage } : {}),
           enrichStatus: "pending",
           x,
           y,
@@ -551,6 +554,22 @@ export function createMarkxStore(
     async enrichMissingBookmarks() {
       const missing = state.bookmarks.filter((b) => !b.imageUrl)
       if (missing.length === 0) return
+
+      // Instant YouTube thumbnails while oEmbed / R2 mirror runs in enrich.
+      const youtubeImages = new Map<string, string>()
+      for (const bookmark of missing) {
+        const imageUrl = youtubeOptimisticImageUrl(bookmark.url)
+        if (imageUrl) youtubeImages.set(bookmark.id, imageUrl)
+      }
+      if (youtubeImages.size > 0) {
+        patch((prev) => ({
+          ...prev,
+          bookmarks: prev.bookmarks.map((b) => {
+            const imageUrl = youtubeImages.get(b.id)
+            return imageUrl && !b.imageUrl ? { ...b, imageUrl } : b
+          }),
+        }))
+      }
 
       await Promise.all(
         missing.map(async (bookmark) => {

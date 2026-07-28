@@ -10,11 +10,17 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as LandingRouteImport } from './routes/landing'
 import { Route as FolderFolderIdRouteImport } from './routes/folder.$folderId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LandingRoute = LandingRouteImport.update({
+  id: '/landing',
+  path: '/landing',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FolderFolderIdRoute = FolderFolderIdRouteImport.update({
@@ -25,27 +31,31 @@ const FolderFolderIdRoute = FolderFolderIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/landing': typeof LandingRoute
   '/folder/$folderId': typeof FolderFolderIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/landing': typeof LandingRoute
   '/folder/$folderId': typeof FolderFolderIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/landing': typeof LandingRoute
   '/folder/$folderId': typeof FolderFolderIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/folder/$folderId'
+  fullPaths: '/' | '/landing' | '/folder/$folderId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/folder/$folderId'
-  id: '__root__' | '/' | '/folder/$folderId'
+  to: '/' | '/landing' | '/folder/$folderId'
+  id: '__root__' | '/' | '/landing' | '/folder/$folderId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  LandingRoute: typeof LandingRoute
   FolderFolderIdRoute: typeof FolderFolderIdRoute
 }
 
@@ -56,6 +66,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/landing': {
+      id: '/landing'
+      path: '/landing'
+      fullPath: '/landing'
+      preLoaderRoute: typeof LandingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/folder/$folderId': {
@@ -70,6 +87,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  LandingRoute: LandingRoute,
   FolderFolderIdRoute: FolderFolderIdRoute,
 }
 export const routeTree = rootRouteImport

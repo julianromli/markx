@@ -1,0 +1,783 @@
+/*
+ * /landing — AFFiNE-style hero + navbar recreation (learning clone).
+ * All styles scoped under .affine-landing. Light mode only.
+ */
+
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+@import "@fontsource/inter/800.css";
+@import "@fontsource/kalam/400.css";
+@import "@fontsource/kalam/700.css";
+
+/* Metric-compatible Arial fallback so Inter swaps without layout shift */
+@font-face {
+  font-family: "Inter Fallback";
+  ascent-override: 90.2%;
+  descent-override: 22.48%;
+  line-gap-override: 0%;
+  size-adjust: 107.64%;
+  src: local("Arial");
+}
+
+.affine-landing {
+  --af-brand: #1e96eb;
+  --af-brand-rgb: 30, 150, 235;
+  --af-bg: #f8f8f7;
+  --af-ink: #424149; /* primary-deep (light) */
+  --af-ink-tertiary: #8e8d91;
+  --af-navbar-height: 72px;
+  --af-ease-out-quad: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+
+  background: var(--af-bg);
+  color: var(--af-ink);
+  font-family:
+    Inter, "Inter Fallback", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 1rem;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100dvh;
+}
+
+.affine-landing ::selection {
+  background: var(--af-brand);
+  color: #fff;
+}
+
+/* ---------------- entrance keyframes ---------------- */
+
+@keyframes af-animated-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-50px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.af-animated-in {
+  animation: af-animated-in 0.8s both;
+  animation-timing-function: ease;
+}
+.af-delay-50 {
+  animation-delay: 50ms;
+}
+.af-delay-100 {
+  animation-delay: 0.1s;
+}
+
+/* ---------------- scroll-driven hero zoom ---------------- */
+
+@keyframes af-hero-cover-zoom {
+  0% {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.1);
+  }
+}
+
+@media (min-width: 1024px) and (min-height: 800px) {
+  @supports (animation-timeline: scroll()) {
+    .affine-landing .af-hero-cover {
+      animation: af-hero-cover-zoom linear both;
+      animation-timeline: scroll(root);
+      animation-range: 0 600px;
+      will-change: transform;
+    }
+  }
+}
+@media (min-width: 1024px) and (min-height: 800px) and (prefers-reduced-motion: reduce) {
+  .affine-landing .af-hero-cover {
+    animation: none;
+  }
+}
+
+/* ---------------- navbar (desktop) ---------------- */
+
+.af-navbar {
+  position: relative;
+  z-index: 234;
+}
+.af-navbar-placeholder {
+  height: var(--af-navbar-height);
+  pointer-events: none;
+}
+.af-navbar-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  z-index: 235;
+  background: hsla(60, 7%, 97%, 0.98);
+  border-bottom: 0.5px solid transparent;
+  transition: background 318ms;
+}
+.af-navbar-bar.has-scroll {
+  border-bottom-color: rgba(0, 0, 0, 0.1);
+}
+.af-navbar-inner {
+  max-width: 1144px;
+  margin: 0 auto;
+  padding: 20px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.af-menu-list {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.af-logo-handler {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  margin-right: 20px;
+  display: block;
+}
+.af-logo-handler svg {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate3d(-50%, -50%, 0);
+  width: 32px;
+  height: 32px;
+  display: block;
+}
+
+.af-nav-item {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+}
+.af-nav-link,
+.af-nav-trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 4px;
+  color: #000;
+  letter-spacing: -0.28px;
+  padding: 8px 12px;
+  transition: 318ms;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  font: inherit;
+}
+.af-nav-link:hover,
+.af-nav-trigger:hover,
+.af-nav-trigger.is-open {
+  background: rgba(0, 0, 0, 0.04);
+  color: #000;
+}
+.af-arrow-icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  transform: rotate(90deg);
+  transition: 0.16s var(--af-ease-out-quad);
+}
+.af-nav-trigger.is-open .af-arrow-icon {
+  transform: rotate(-90deg);
+}
+
+/* mega menu popover */
+.af-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  background: var(--af-bg);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  box-shadow: 0 5px 25px 0 rgba(0, 0, 0, 0.1);
+  padding: 16px 12px;
+  transform-origin: top left;
+  opacity: 0;
+  transform: scale(0.98);
+  pointer-events: none;
+  transition:
+    transform 0.2s var(--af-ease-out-quad),
+    opacity 0.2s var(--af-ease-out-quad);
+}
+.af-popover.is-open {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+.af-popover-col {
+  width: 400px;
+}
+.af-popover-wide {
+  width: 542px;
+  display: flex;
+  gap: 8px;
+}
+
+.af-nav-sub-item {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  border-radius: 4px;
+  padding: 6px 12px;
+  margin-bottom: 2px;
+  transition: 218ms;
+  color: inherit;
+  text-decoration: none;
+}
+.af-nav-sub-item:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+.af-nav-sub-item .sub-icon {
+  font-size: 24px;
+  line-height: 1;
+  color: hsla(255, 3%, 47%, 0.6);
+  transition: 218ms;
+  display: inline-flex;
+  margin-top: 2px;
+}
+.af-nav-sub-item.item-ai .sub-icon {
+  color: var(--af-brand);
+}
+.af-sub-name {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: -0.014em;
+  color: #000;
+  margin-bottom: 2px;
+}
+.af-sub-desc {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+  color: var(--af-ink-tertiary);
+}
+
+.af-popover-links {
+  width: 140px;
+  display: flex;
+  flex-direction: column;
+}
+.af-popover-links .af-nav-link {
+  width: 100%;
+  margin-bottom: 2px;
+}
+.af-static-link {
+  border-radius: 4px;
+  color: #000;
+  display: flex;
+  font-weight: 500;
+  letter-spacing: -0.28px;
+  padding: 8px 12px;
+  font-size: 14px;
+}
+
+/* right part */
+.af-right-part {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  overflow: hidden;
+  padding-right: 8px;
+}
+.af-lang-trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 4px;
+  color: #000;
+  letter-spacing: -0.28px;
+  padding: 8px 12px;
+  transition: 318ms;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+}
+.af-lang-trigger:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+.af-lang-trigger .af-arrow-icon {
+  width: 20px;
+  height: 20px;
+}
+.af-lang-menu {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  width: 120px;
+  background: var(--af-bg);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  box-shadow: 0 5px 25px 0 rgba(0, 0, 0, 0.1);
+  padding: 6px;
+  transform-origin: top right;
+  opacity: 0;
+  transform: scale(0.98);
+  pointer-events: none;
+  transition:
+    transform 0.2s var(--af-ease-out-quad),
+    opacity 0.2s var(--af-ease-out-quad);
+}
+.af-lang-menu.is-open {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+.af-lang-menu button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--af-ink);
+  cursor: pointer;
+  transition: 218ms;
+}
+.af-lang-menu button:hover {
+  background: rgba(var(--af-brand-rgb), 0.1);
+}
+.af-lang-menu button.is-active {
+  color: var(--af-brand);
+}
+
+/* pill button (Get Started) */
+.af-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--af-brand);
+  border: none;
+  border-radius: 34px;
+  color: #fff;
+  font-family: inherit;
+  font-weight: 500;
+  letter-spacing: -0.28px;
+  padding: 7px 16px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: 0.15s ease-in-out;
+}
+.af-btn:hover {
+  background: rgba(var(--af-brand-rgb), 0.8);
+}
+.af-btn:active {
+  transform: scale(0.95);
+}
+.af-btn-nav {
+  font-size: 15px;
+  font-weight: 800;
+  height: 34px;
+}
+.af-btn-hero {
+  height: 43px;
+  font-size: 16px;
+  letter-spacing: -0.32px;
+  padding: 10px 20px;
+  width: 179px;
+}
+.af-explore-caption {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--af-ink-tertiary);
+  text-align: center;
+  margin-top: 4px;
+}
+
+/* GitHub stars button */
+.af-github-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #ccc;
+  border-radius: 34px;
+  color: var(--af-ink);
+  font-size: 14px;
+  line-height: 1;
+  padding: 6px 16px;
+  text-decoration: none;
+  transition: 0.15s ease-in-out;
+  background: transparent;
+}
+.af-github-btn:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+.af-github-btn:active {
+  transform: scale(0.95);
+}
+.af-github-btn .gh-icon {
+  width: 20px;
+  height: 20px;
+}
+.af-github-btn .stars-count {
+  font-weight: 500;
+  letter-spacing: -0.28px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.af-github-btn .star-icon {
+  width: 13px;
+  height: 13px;
+  fill: #eab308;
+  flex-shrink: 0;
+}
+@media (max-width: 569px) {
+  .af-github-btn {
+    padding: 6px;
+  }
+  .af-github-btn .stars-count,
+  .af-github-btn .star-icon {
+    display: none;
+  }
+}
+
+/* ---------------- navbar (mobile) ---------------- */
+
+.af-navbar-mobile {
+  display: none;
+}
+@media (max-width: 800px) {
+  .af-navbar {
+    display: none;
+  }
+  .af-navbar-mobile {
+    display: block;
+  }
+}
+.af-mobile-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  z-index: 234;
+  background: hsla(60, 7%, 97%, 0.9);
+  -webkit-backdrop-filter: blur(15px);
+  backdrop-filter: blur(15px);
+  border-bottom: 0.5px solid transparent;
+}
+.af-mobile-bar.has-scroll {
+  border-bottom-color: rgba(0, 0, 0, 0.1);
+}
+.af-mobile-row {
+  height: var(--af-navbar-height);
+  padding: 0 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+@media (max-width: 480px) {
+  .af-mobile-row {
+    padding: 0 20px;
+  }
+}
+.af-mobile-row .af-logo-handler {
+  margin-right: 0;
+}
+.af-mobile-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.af-mobile-try {
+  font-size: 14px;
+}
+.af-menu-icon {
+  display: inline-flex;
+  font-size: 24px;
+  color: var(--af-ink);
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+}
+.af-collapsed-menu {
+  overflow-y: auto;
+  max-height: 0;
+  transition: max-height 0.3s ease-in-out;
+}
+.af-collapsed-menu.is-open {
+  max-height: calc(100dvh - var(--af-navbar-height));
+}
+.af-collapsed-list {
+  padding: 0 32px 24px;
+}
+.af-collapsed-list .af-m-item {
+  border-bottom: 0.5px solid rgba(0, 0, 0, 0.1);
+  color: var(--af-ink);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.28px;
+  line-height: 20px;
+}
+.af-m-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 12px 0;
+  background: none;
+  border: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+.af-m-row .af-arrow-icon {
+  transform: rotate(90deg);
+  transition: 218ms;
+}
+.af-m-item.is-open .af-m-row .af-arrow-icon {
+  transform: rotate(-90deg);
+}
+.af-m-sub {
+  overflow: hidden;
+  max-height: 0;
+  transition: max-height 0.3s ease-in-out;
+}
+.af-m-item.is-open .af-m-sub {
+  max-height: 500px;
+}
+.af-m-sub .af-nav-sub-item {
+  padding: 8px 4px;
+}
+
+/* ---------------- hero ---------------- */
+
+.af-hero {
+  min-height: 600px;
+  position: relative;
+}
+.af-hero-container {
+  max-width: 1144px;
+  margin: 0 auto;
+  padding: 0 32px;
+}
+@media (max-width: 479px) {
+  .af-hero-container {
+    padding: 0 20px;
+  }
+}
+
+/* pinned headline: sticky achieves the same pin-until-covered behavior
+ * as the fixed+JS original, without scroll listeners.
+ * height: 0 keeps it out of flow — the .af-pin-space placeholder
+ * reserves the layout room instead (same as the original). */
+.af-pin-wrapper {
+  position: sticky;
+  top: var(--af-navbar-height);
+  margin: 0 auto;
+  width: min(1920px, 100%);
+  height: 0;
+  z-index: 3;
+}
+.af-pin-space {
+  height: clamp(22.375rem, 11.533rem + 44.48vw, 40rem);
+}
+@media (max-width: 478px) {
+  .af-pin-wrapper {
+    position: absolute;
+    top: 0;
+    left: 0;
+  }
+}
+
+.af-text-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: clamp(2.75rem, -0.556rem + 13.57vw, 8.125rem) 32px 0;
+}
+
+.af-hero-title {
+  color: var(--af-ink);
+  font-size: clamp(2.5rem, 0.578rem + 7.89vw, 5.625rem);
+  font-weight: 500;
+  letter-spacing: -0.07em;
+  line-height: 1;
+  margin: 0;
+  text-align: center;
+}
+.af-title-row {
+  display: flex;
+  justify-content: center;
+}
+.af-title-row-2 {
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  margin-top: 6px;
+}
+.af-write-word {
+  display: flex;
+}
+.af-symbol-cursor {
+  background-color: var(--af-brand);
+  border-radius: 0.0333em;
+  height: 0.7889em;
+  width: 0.0778em;
+  position: relative;
+  left: 0.0111em;
+  margin-top: 0.0778em;
+  flex-shrink: 0;
+}
+.af-draw-word {
+  font-family: Kalam, sans-serif;
+  font-size: 1.1889em;
+  font-weight: 400;
+  letter-spacing: -0.07em;
+  line-height: 84.112%;
+  margin-left: 0.0667em;
+  position: relative;
+  top: 0.0778em;
+}
+.af-draw-plan {
+  display: flex;
+  gap: 0.0932em;
+  margin-left: 0.1889em;
+  position: relative;
+  top: 0.0778em;
+}
+.af-big-checkbox {
+  position: relative;
+  top: 0.1444em;
+  width: 0.7222em;
+  height: 0.7222em;
+  border-radius: 0.1333em;
+  cursor: pointer;
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  padding: 0;
+}
+.af-big-checkbox svg {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transform: scale(0.9);
+  transition: 118ms;
+}
+.af-big-checkbox .icon-unchecked {
+  opacity: 1;
+  transform: scale(1);
+}
+.af-big-checkbox.is-checked .icon-checked {
+  opacity: 1;
+  transform: scale(1);
+}
+.af-big-checkbox.is-checked .icon-unchecked {
+  opacity: 0;
+  transform: scale(0.95);
+}
+.af-small-text {
+  font-size: 0.77em;
+  letter-spacing: -0.07em;
+  line-height: 1.15;
+  display: flex;
+  justify-content: center;
+  white-space: pre;
+}
+.af-color-brand {
+  color: var(--af-brand);
+}
+
+.af-hero-desc {
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 135%;
+  margin: 12px 4px 0;
+  text-align: center;
+  white-space: pre-line;
+}
+@media (max-width: 478px) {
+  .af-hero-desc {
+    font-size: 16px;
+  }
+}
+
+.af-hero-cta {
+  margin-top: 36px;
+}
+@media (max-width: 478px) {
+  .af-hero-cta {
+    margin-top: 24px;
+  }
+}
+.af-hero-cta-desktop {
+  display: block;
+}
+.af-hero-cta-mobile {
+  display: none;
+}
+@media (max-width: 767px) {
+  .af-hero-cta-desktop {
+    display: none;
+  }
+  .af-hero-cta-mobile {
+    display: block;
+  }
+}
+
+/* hero cover (video card) */
+.af-hero-cover {
+  background: #fff;
+  border-radius: clamp(0.5rem, 0.314rem + 0.77vw, 1rem);
+  box-shadow:
+    1px 18px 39px 0 rgba(0, 0, 0, 0.15),
+    5px 71px 71px 0 rgba(0, 0, 0, 0.09),
+    12px 160px 96px 0 rgba(0, 0, 0, 0.05),
+    20px 284px 114px 0 rgba(0, 0, 0, 0.01),
+    32px 443px 124px 0 transparent;
+  margin: 0 auto;
+  max-width: 1040px;
+  overflow: hidden;
+  position: relative;
+  z-index: 4;
+}
+.af-hero-cover video {
+  aspect-ratio: 721.15 / 500.8;
+  display: flex;
+  width: 100%;
+  object-fit: cover;
+}
+
+.af-bottom-gap {
+  background: var(--af-bg);
+  height: clamp(2.75rem, 1.058rem + 6.95vw, 5.5rem);
+  position: relative;
+  width: 100%;
+  z-index: 3;
+}
+
+/* Product Hunt badge */
+.af-ph-badge {
+  position: fixed;
+  bottom: 10px;
+  right: 20px;
+  z-index: 10;
+  line-height: 0;
+}
+@media (max-width: 767px) {
+  .af-ph-badge {
+    display: none;
+  }
+}

@@ -7,6 +7,8 @@
       "dependencies": {
         "@base-ui/react": "^1.6.0",
         "@fontsource-variable/geist": "^5.3.0",
+        "@fontsource/inter": "^5.3.0",
+        "@fontsource/kalam": "^5.3.0",
         "@neondatabase/neon-js": "^0.6.2-beta",
         "@phosphor-icons/react": "^2.1.10",
         "@shadcn/react": "^0.2.1",
@@ -292,6 +294,10 @@
     "@floating-ui/utils": ["@floating-ui/utils@0.2.12", "", {}, "sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww=="],
 
     "@fontsource-variable/geist": ["@fontsource-variable/geist@5.3.0", "", {}, "sha512-j0m+vLQuG5XAYoHtGCVu0spvlGreR3EzpECUVzkFmI1mTVnAO38l/NEPDCFgZ177JxzYJCLSmTQibIiYPilGrA=="],
+
+    "@fontsource/inter": ["@fontsource/inter@5.3.0", "", {}, "sha512-RofMylZmjlJEfELXeNHFWBRcSs75rGU/6bV2S2jfnvv/3rPXPGe0LgUJTklcHZ9lM4OZmAVFhcJPnACfb91A3g=="],
+
+    "@fontsource/kalam": ["@fontsource/kalam@5.3.0", "", {}, "sha512-FDkVoDfPDCSN/eO81FOYtUI67eMgpVBJmjBtAqSL0PmEhJyeFY2biC+CR+yEttksgXR9+swpFdYmQTyjwBq80Q=="],
 
     "@hcaptcha/loader": ["@hcaptcha/loader@2.4.2", "", {}, "sha512-+Pf0Vin6iJlJj5u/mq6XMgbJT1mi/Sg5LWHxxqO4YHt2YvdZgecp5V2sbC6vRaNPJUqQGk2HOu1K/i12mqs5vw=="],
 

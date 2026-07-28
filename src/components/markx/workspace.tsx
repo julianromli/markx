@@ -20,6 +20,7 @@ import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { Button } from "@/components/ui/button"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import {
+  MarkxProvider,
   useMarkxActions,
   useMarkxImageIngest,
   useMarkxState,
@@ -42,7 +43,20 @@ import {
 
 type WorkspaceProps = { mode: "home" } | { mode: "folder"; folderId: string }
 
+/**
+ * Owns the MarkxProvider so routes that don't need the board store (the
+ * public landing page) aren't gated behind the client-only bootstrap —
+ * otherwise SSR output for every route collapses to the empty loading div.
+ */
 export function Workspace(props: WorkspaceProps) {
+  return (
+    <MarkxProvider>
+      <WorkspaceContent {...props} />
+    </MarkxProvider>
+  )
+}
+
+function WorkspaceContent(props: WorkspaceProps) {
   const state = useMarkxState()
   const actions = useMarkxActions()
   const ingestImage = useMarkxImageIngest()
@@ -369,7 +383,7 @@ export function Workspace(props: WorkspaceProps) {
       <div className="markx-dot-bg flex h-svh items-center justify-center">
         <div className="space-y-3 text-center">
           <p className="text-sm text-black/60">Folder not found</p>
-          <Button onClick={() => void navigate({ to: "/" })}>
+          <Button onClick={() => void navigate({ to: "/app" })}>
             Back to markx
           </Button>
         </div>
@@ -383,10 +397,10 @@ export function Workspace(props: WorkspaceProps) {
       breadcrumb={
         props.mode === "folder"
           ? [
-              { label: "Home", to: "/", home: true },
+              { label: "Home", to: "/app", home: true },
               { label: folder?.name ?? "Folder" },
             ]
-          : [{ label: "Home", to: "/", home: true }]
+          : [{ label: "Home", to: "/app", home: true }]
       }
       mode={props.mode}
       syncBlocked={initialSyncBlocked}

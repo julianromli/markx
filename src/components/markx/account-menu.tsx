@@ -38,7 +38,7 @@ export function AccountMenu() {
       await signOut()
       // Guest mode resets to the demo seed, so folder URLs from the signed-in
       // workspace would 404 — land on home instead.
-      await navigate({ to: "/" })
+      await navigate({ to: "/app" })
       toast.success("Signed out. You're now in guest mode.")
       setOpen(false)
     } catch {

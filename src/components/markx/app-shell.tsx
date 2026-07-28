@@ -126,7 +126,7 @@ export function AppShell({
   const crumbs: BreadcrumbItem[] =
     breadcrumb && breadcrumb.length > 0
       ? breadcrumb
-      : [{ label: "Home", to: "/", home: true }]
+      : [{ label: "Home", to: "/app", home: true }]
 
   const backTo =
     crumbs.length > 1

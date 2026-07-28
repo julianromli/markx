@@ -157,28 +157,29 @@ function ShortcutsSection({ mod }: { mod: string }) {
   )
 }
 
+const SYNC_ITEMS = [
+  {
+    icon: <CloudIcon className="size-4" weight="regular" />,
+    text: "Saved. Your workspace is synced to the cloud.",
+  },
+  {
+    icon: <CloudSlashIcon className="size-4" weight="regular" />,
+    text: "Offline, queued. Changes will sync when you reconnect.",
+  },
+  {
+    icon: <CloudWarningIcon className="size-4" weight="regular" />,
+    text: "Conflict. Pick which version to keep.",
+  },
+]
+
 function SyncSection() {
-  const items = [
-    {
-      icon: <CloudIcon className="size-4" weight="regular" />,
-      text: "Saved — your workspace is synced to the cloud.",
-    },
-    {
-      icon: <CloudSlashIcon className="size-4" weight="regular" />,
-      text: "Offline — queued — changes will sync when you reconnect.",
-    },
-    {
-      icon: <CloudWarningIcon className="size-4" weight="regular" />,
-      text: "Conflict — pick which version to keep.",
-    },
-  ]
   return (
     <div className="space-y-2">
       <SectionTitle icon={<CloudIcon className="size-4" weight="regular" />}>
         Sync status
       </SectionTitle>
       <ul className="space-y-1.5">
-        {items.map((item, i) => (
+        {SYNC_ITEMS.map((item, i) => (
           <li
             key={i}
             className="flex items-start gap-2 text-sm text-muted-foreground"

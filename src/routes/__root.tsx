@@ -1,7 +1,6 @@
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router"
 
 import { Toaster } from "@/components/ui/sonner"
-import { MarkxProvider } from "@/lib/markx/store"
 import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site-meta"
 import appCss from "../styles.css?url"
 
@@ -113,10 +112,8 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body className="antialiased" suppressHydrationWarning>
-        <MarkxProvider>
-          {children}
-          <Toaster />
-        </MarkxProvider>
+        {children}
+        <Toaster />
         <Scripts />
       </body>
     </html>

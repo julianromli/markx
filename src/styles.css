@@ -175,6 +175,27 @@
     background-size: 20px 20px;
   }
 
+  @media (prefers-reduced-motion: no-preference) {
+    .animate-float {
+      animation: markx-float 8s ease-in-out infinite;
+    }
+    .animate-float-delayed {
+      animation: markx-float 9.5s ease-in-out 2s infinite;
+    }
+  }
+}
+
+@keyframes markx-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-12px);
+  }
+}
+
+@layer utilities {
   /* Note editing toolbar: fade + scale-up entrance (enter-only via
    * @starting-style). Animates `scale`/`opacity` only — independent of the
    * `-translate-x-1/2` centering (which uses `transform`), so no conflict. */

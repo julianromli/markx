@@ -11,6 +11,49 @@ import { useSyncStatus } from "@/lib/markx/hooks"
 import { useMarkxStore } from "@/lib/markx/store"
 import type { SyncStatus } from "@/lib/markx/sync"
 
+const SYNC_STATUS_CONFIG: Record<
+  SyncStatus,
+  { label: string; icon: React.ReactNode; className: string; tooltip: string }
+> = {
+  idle: {
+    label: "",
+    icon: null,
+    className: "",
+    tooltip: "",
+  },
+  saved: {
+    label: "Saved",
+    icon: <CheckCircleIcon className="size-3.5 text-green-600" weight="fill" />,
+    className: "text-green-700 bg-green-50",
+    tooltip: "All changes saved to the cloud",
+  },
+  saving: {
+    label: "Saving…",
+    icon: <SpinnerIcon className="size-3.5 animate-spin" weight="regular" />,
+    className: "text-blue-700 bg-blue-50",
+    tooltip: "Saving your changes to the cloud",
+  },
+  offline: {
+    label: "Offline, queued",
+    icon: <CloudSlashIcon className="size-3.5" weight="regular" />,
+    className: "text-amber-700 bg-amber-50",
+    tooltip:
+      "You're offline. Changes are saved locally and will sync when you reconnect.",
+  },
+  conflict: {
+    label: "Conflict",
+    icon: <CloudWarningIcon className="size-3.5" weight="regular" />,
+    className: "text-red-700 bg-red-50",
+    tooltip: "The cloud version changed. Click to resolve.",
+  },
+  error: {
+    label: "Retry",
+    icon: <CloudWarningIcon className="size-3.5" weight="regular" />,
+    className: "text-red-700 bg-red-50",
+    tooltip: "Last sync failed. Will retry automatically.",
+  },
+}
+
 /**
  * Sync status indicator shown in the header.
  *
@@ -34,52 +77,7 @@ export function SyncStatusBadge({
   // In guest mode (no engine), show nothing.
   if (status === "idle") return null
 
-  const config: Record<
-    SyncStatus,
-    { label: string; icon: React.ReactNode; className: string; tooltip: string }
-  > = {
-    idle: {
-      label: "",
-      icon: null,
-      className: "",
-      tooltip: "",
-    },
-    saved: {
-      label: "Saved",
-      icon: (
-        <CheckCircleIcon className="size-3.5 text-green-600" weight="fill" />
-      ),
-      className: "text-green-700 bg-green-50",
-      tooltip: "All changes saved to the cloud",
-    },
-    saving: {
-      label: "Saving…",
-      icon: <SpinnerIcon className="size-3.5 animate-spin" weight="regular" />,
-      className: "text-blue-700 bg-blue-50",
-      tooltip: "Saving your changes to the cloud",
-    },
-    offline: {
-      label: "Offline — queued",
-      icon: <CloudSlashIcon className="size-3.5" weight="regular" />,
-      className: "text-amber-700 bg-amber-50",
-      tooltip:
-        "You're offline. Changes are saved locally and will sync when you reconnect.",
-    },
-    conflict: {
-      label: "Conflict",
-      icon: <CloudWarningIcon className="size-3.5" weight="regular" />,
-      className: "text-red-700 bg-red-50",
-      tooltip: "The cloud version changed. Click to resolve.",
-    },
-    error: {
-      label: "Retry",
-      icon: <CloudWarningIcon className="size-3.5" weight="regular" />,
-      className: "text-red-700 bg-red-50",
-      tooltip: "Last sync failed. Will retry automatically.",
-    },
-  }
-
-  const c = config[status]
+  const c = SYNC_STATUS_CONFIG[status]
 
   return (
     <button

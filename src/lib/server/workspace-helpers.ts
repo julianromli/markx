@@ -15,6 +15,7 @@ export type WorkspaceSnapshot = {
   state: MarkxState
   version: number
   updatedAt: string
+  entitlements?: import("@/lib/server/subscription.server").UserEntitlements
 }
 
 export type SaveResult =
@@ -27,6 +28,13 @@ export type SaveResult =
       cloudUpdatedAt: string
     }
   | { ok: false; reason: "error"; message: string }
+  | {
+      ok: false
+      reason: "entity_limit"
+      entityCount: number
+      limit: number
+      message: string
+    }
 
 export function parseWorkspaceState(state: unknown): MarkxState {
   return markxStateSchema.parse(state)

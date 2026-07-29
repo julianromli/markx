@@ -65,3 +65,44 @@ export type Workspace = typeof workspaces.$inferSelect
 export type NewWorkspace = typeof workspaces.$inferInsert
 export type Asset = typeof assets.$inferSelect
 export type NewAsset = typeof assets.$inferInsert
+
+/**
+ * Billing state for a Neon Auth user (one row per user).
+ *
+ * `plan` is derived from Mayar membership status and webhook events.
+ * `email` is denormalized for webhook matching when only the Mayar
+ * customer email is available.
+ */
+export const userSubscriptions = pgTable("user_subscriptions", {
+  userId: text("user_id").primaryKey().notNull(),
+  email: text("email").notNull(),
+  plan: text("plan").notNull().default("free"),
+  status: text("status").notNull().default("inactive"),
+  mayarMemberId: text("mayar_member_id"),
+  mayarCustomerId: text("mayar_customer_id"),
+  currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+})
+
+/**
+ * Idempotent webhook processing — one row per Mayar transaction ID.
+ */
+export const mayarProcessedTransactions = pgTable(
+  "mayar_processed_transactions",
+  {
+    transactionId: text("transaction_id").primaryKey().notNull(),
+    userId: text("user_id"),
+    processedAt: timestamp("processed_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  }
+)
+
+export type UserSubscription = typeof userSubscriptions.$inferSelect
+export type MayarProcessedTransaction =
+  typeof mayarProcessedTransactions.$inferSelect

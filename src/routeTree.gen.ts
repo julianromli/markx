@@ -11,6 +11,8 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as FolderFolderIdRouteImport } from './routes/folder.$folderId'
+import { Route as SubscriptionSuccessRouteImport } from './routes/subscription/success'
+import { Route as ApiWebhooksMayarRouteImport } from './routes/api/webhooks/mayar'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -22,31 +24,56 @@ const FolderFolderIdRoute = FolderFolderIdRouteImport.update({
   path: '/folder/$folderId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SubscriptionSuccessRoute = SubscriptionSuccessRouteImport.update({
+  id: '/subscription/success',
+  path: '/subscription/success',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWebhooksMayarRoute = ApiWebhooksMayarRouteImport.update({
+  id: '/api/webhooks/mayar',
+  path: '/api/webhooks/mayar',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/folder/$folderId': typeof FolderFolderIdRoute
+  '/subscription/success': typeof SubscriptionSuccessRoute
+  '/api/webhooks/mayar': typeof ApiWebhooksMayarRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/folder/$folderId': typeof FolderFolderIdRoute
+  '/subscription/success': typeof SubscriptionSuccessRoute
+  '/api/webhooks/mayar': typeof ApiWebhooksMayarRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/folder/$folderId': typeof FolderFolderIdRoute
+  '/subscription/success': typeof SubscriptionSuccessRoute
+  '/api/webhooks/mayar': typeof ApiWebhooksMayarRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/folder/$folderId'
+  fullPaths:
+    '/' | '/folder/$folderId' | '/subscription/success' | '/api/webhooks/mayar'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/folder/$folderId'
-  id: '__root__' | '/' | '/folder/$folderId'
+  to:
+    '/' | '/folder/$folderId' | '/subscription/success' | '/api/webhooks/mayar'
+  id:
+    | '__root__'
+    | '/'
+    | '/folder/$folderId'
+    | '/subscription/success'
+    | '/api/webhooks/mayar'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   FolderFolderIdRoute: typeof FolderFolderIdRoute
+  SubscriptionSuccessRoute: typeof SubscriptionSuccessRoute
+  ApiWebhooksMayarRoute: typeof ApiWebhooksMayarRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +92,28 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof FolderFolderIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/subscription/success': {
+      id: '/subscription/success'
+      path: '/subscription/success'
+      fullPath: '/subscription/success'
+      preLoaderRoute: typeof SubscriptionSuccessRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/webhooks/mayar': {
+      id: '/api/webhooks/mayar'
+      path: '/api/webhooks/mayar'
+      fullPath: '/api/webhooks/mayar'
+      preLoaderRoute: typeof ApiWebhooksMayarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   FolderFolderIdRoute: FolderFolderIdRoute,
+  SubscriptionSuccessRoute: SubscriptionSuccessRoute,
+  ApiWebhooksMayarRoute: ApiWebhooksMayarRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

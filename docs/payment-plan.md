@@ -119,8 +119,15 @@ Implementasi: pada save, jika `plan !== 'pro'` dan count > 100, reject meskipun 
 
 ## Go-live checklist
 
+Checklist lengkap (secrets, webhook, deploy, bukti bayar, rollback):
+**[mayar-production-cutover.md](./mayar-production-cutover.md)**
+
+Ringkas:
+
 - [ ] Ganti `MAYAR_API_KEY` + `MAYAR_ENV=production`
 - [ ] Product/tier ID production di env
-- [ ] Register webhook URL production
+- [ ] `APP_URL=https://markx.app`
+- [ ] Register webhook URL production (`https://markx.app/api/webhooks/mayar`)
+- [ ] Tier redirect → `https://markx.app/subscription/success`
 - [ ] Satu transaksi kecil nyata
 - [ ] Pantau `mayar webhook history`

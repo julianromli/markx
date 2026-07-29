@@ -164,10 +164,28 @@ export async function activateProForUser(
   })
 }
 
+/** Downgrade after cancel/expire. Never deletes workspace data. */
+export async function deactivateProForUser(
+  userId: string,
+  status: string = "inactive"
+): Promise<void> {
+  await withDb(async ({ db }) => {
+    await db
+      .update(userSubscriptions)
+      .set({
+        plan: "free",
+        status,
+        updatedAt: new Date(),
+      })
+      .where(eq(userSubscriptions.userId, userId))
+  })
+}
+
 export async function findUserIdBySubscriptionEmail(
   email: string
 ): Promise<string | null> {
   const normalized = email.trim().toLowerCase()
+  if (!normalized) return null
   return withDb(async ({ db }) => {
     const rows = await db.select().from(userSubscriptions)
     for (const row of rows) {
@@ -176,6 +194,21 @@ export async function findUserIdBySubscriptionEmail(
       }
     }
     return null
+  })
+}
+
+export async function findUserIdByMayarMemberId(
+  memberId: string
+): Promise<string | null> {
+  const id = memberId.trim()
+  if (!id) return null
+  return withDb(async ({ db }) => {
+    const rows = await db
+      .select({ userId: userSubscriptions.userId })
+      .from(userSubscriptions)
+      .where(eq(userSubscriptions.mayarMemberId, id))
+      .limit(1)
+    return rows[0]?.userId ?? null
   })
 }
 
@@ -195,6 +228,14 @@ export async function claimProcessedTransaction(
   })
 }
 
+/**
+ * Re-sync membership metadata from Mayar.
+ *
+ * Important: Mayar marks members `active` at registration, before payment.
+ * This function therefore never upgrades free → pro. Pro is granted only via
+ * payment webhook after GET /transactions proves paid. It may downgrade pro
+ * when Mayar reports inactive/expired/stopped.
+ */
 export async function refreshSubscriptionFromMayar(
   userId: string
 ): Promise<UserEntitlements> {
@@ -219,16 +260,33 @@ export async function refreshSubscriptionFromMayar(
   )
 
   const periodEnd = detail.expiredAt ?? detail.nextPayment
-  const active = isActiveMembershipStatus(detail.status)
+  const memberActive = isActiveMembershipStatus(detail.status)
+  // plan=pro is only set by paid webhook — never infer from Mayar member status.
+  const alreadyPro = row.plan === "pro"
+
+  let nextPlan: "free" | "pro" = "free"
+  let nextStatus = row.status
+  let nextPeriodEnd = row.currentPeriodEnd
+
+  if (alreadyPro && memberActive) {
+    nextPlan = "pro"
+    nextStatus = "active"
+    nextPeriodEnd = periodEnd ? new Date(periodEnd) : row.currentPeriodEnd
+  } else if (alreadyPro && !memberActive) {
+    nextPlan = "free"
+    nextStatus = detail.status || "inactive"
+    nextPeriodEnd = periodEnd ? new Date(periodEnd) : row.currentPeriodEnd
+  }
+  // else: stay free; do not copy Mayar's pre-payment "active" into plan
 
   await withDb(async ({ db }) => {
     await db
       .update(userSubscriptions)
       .set({
-        plan: active ? "pro" : "free",
-        status: detail.status,
-        mayarCustomerId: detail.customerId,
-        currentPeriodEnd: periodEnd ? new Date(periodEnd) : null,
+        plan: nextPlan,
+        status: nextStatus,
+        mayarCustomerId: detail.customerId ?? row.mayarCustomerId,
+        currentPeriodEnd: nextPeriodEnd,
         updatedAt: new Date(),
       })
       .where(eq(userSubscriptions.userId, userId))

@@ -12,16 +12,54 @@ import { getMayarConfig } from "@/lib/mayar/env"
 import {
   activateProForUser,
   claimProcessedTransaction,
+  deactivateProForUser,
+  findUserIdByMayarMemberId,
   findUserIdBySubscriptionEmail,
 } from "@/lib/server/subscription.server"
 
 interface WebhookPayload {
   event?: string
   type?: string
-  data?: { id?: string }
+  data?: {
+    id?: string
+    customerEmail?: string
+    customer?: { email?: string; id?: string }
+    memberId?: string
+    membershipMemberId?: string
+  }
 }
 
 // TODO: ganti verify-by-fetch dengan signature verification saat Mayar merilis HMAC webhook.
+
+const EXPIRE_EVENTS = new Set([
+  "membership.memberExpired",
+  "membership.memberUnsubscribed",
+])
+
+function customerEmailFromPayload(payload: WebhookPayload): string | null {
+  const email =
+    payload.data?.customerEmail ?? payload.data?.customer?.email ?? null
+  return email?.trim() ? email.trim() : null
+}
+
+function memberIdFromPayload(payload: WebhookPayload): string | null {
+  const id = payload.data?.memberId ?? payload.data?.membershipMemberId ?? null
+  return id?.trim() ? id.trim() : null
+}
+
+async function resolveUserId(
+  payload: WebhookPayload,
+  fallbackEmail?: string | null
+): Promise<string | null> {
+  const memberId = memberIdFromPayload(payload)
+  if (memberId) {
+    const byMember = await findUserIdByMayarMemberId(memberId)
+    if (byMember) return byMember
+  }
+  const email = fallbackEmail ?? customerEmailFromPayload(payload)
+  if (email) return findUserIdBySubscriptionEmail(email)
+  return null
+}
 
 export const Route = createFileRoute("/api/webhooks/mayar")({
   server: {
@@ -35,8 +73,24 @@ export const Route = createFileRoute("/api/webhooks/mayar")({
         }
 
         const event = payload.event ?? payload.type
+
+        if (event && EXPIRE_EVENTS.has(event)) {
+          const userId = await resolveUserId(payload)
+          if (userId) {
+            await deactivateProForUser(
+              userId,
+              event === "membership.memberExpired" ? "expired" : "unsubscribed"
+            )
+          }
+          return Response.json({ ok: true })
+        }
+
+        if (event !== "payment.received") {
+          return Response.json({ ok: true })
+        }
+
         const txId = payload.data?.id
-        if (event !== "payment.received" || !txId) {
+        if (!txId) {
           return Response.json({ ok: true })
         }
 
@@ -51,7 +105,7 @@ export const Route = createFileRoute("/api/webhooks/mayar")({
           return Response.json({ ok: true })
         }
 
-        const userId = await findUserIdBySubscriptionEmail(detail.customer.email)
+        const userId = await resolveUserId(payload, detail.customer.email)
         if (!userId) {
           return Response.json({ ok: true })
         }
@@ -62,18 +116,21 @@ export const Route = createFileRoute("/api/webhooks/mayar")({
         }
 
         let periodEnd: Date | null = null
-        let memberId: string | undefined
+        let memberId: string | undefined =
+          memberIdFromPayload(payload) ?? undefined
         try {
           const config = await getMayarConfig()
-          const row = await withDb(async ({ db }) => {
-            const rows = await db
-              .select()
-              .from(userSubscriptions)
-              .where(eq(userSubscriptions.userId, userId))
-              .limit(1)
-            return rows[0]
-          })
-          memberId = row?.mayarMemberId ?? undefined
+          if (!memberId) {
+            const row = await withDb(async ({ db }) => {
+              const rows = await db
+                .select()
+                .from(userSubscriptions)
+                .where(eq(userSubscriptions.userId, userId))
+                .limit(1)
+              return rows[0]
+            })
+            memberId = row?.mayarMemberId ?? undefined
+          }
           if (memberId) {
             const member = await getMembershipMemberDetail(
               memberId,

@@ -150,9 +150,50 @@ Lalu jalankan lagi: node scripts/mayar-bootstrap.mjs
   contents = upsertDevVar(contents, "MAYAR_MEMBERSHIP_TIER_ID", tier.id)
   writeFileSync(devVarsPath, contents)
 
+  const appUrl = vars.APP_URL || "http://localhost:3000"
+  const redirectUrl = `${appUrl.replace(/\/$/, "")}/subscription/success`
+
+  // Best-effort: payment-link update accepts redirectUrl (tier field is dashboard-only).
+  try {
+    const res = await fetch(
+      `https://api.mayar.club/hl/v2/payment-links/${found.productId}/update`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: found.productId,
+          name: found.productName || "Markx Pro",
+          amount: 49000,
+          redirectUrl,
+        }),
+      }
+    )
+    const body = await res.json()
+    if (body.statusCode === 200 && body.messages === "success") {
+      console.log(`OK — product redirectUrl → ${redirectUrl}`)
+    } else {
+      console.log(
+        `Note: could not set product redirectUrl via API (${body.messages ?? res.status}).`
+      )
+    }
+  } catch (err) {
+    console.log(`Note: redirectUrl API update skipped: ${err.message ?? err}`)
+  }
+
   console.log("OK — .dev.vars updated")
   console.log(`  Product: ${found.productName} (${found.productId})`)
   console.log(`  Tier: ${tier.name} (${tier.id})`)
+  console.log(`  Tier redirectUrl (API): ${tier.redirectUrl || "(empty)"}`)
+  if (!tier.redirectUrl) {
+    console.log(`
+Set tier Redirect URL in dashboard (required for post-pay return):
+  https://web.mayar.club → Product → ${found.productName} → Tier → Redirect URL
+  Value: ${redirectUrl}
+`)
+  }
 }
 
 main().catch((err) => {

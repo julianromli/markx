@@ -72,10 +72,11 @@ export function SyncStatusBadge({
       tooltip: "The cloud version changed. Click to resolve.",
     },
     error: {
-      label: "Retry",
+      label: "Sync issue",
       icon: <CloudWarningIcon className="size-3.5" weight="regular" />,
       className: "text-red-700 bg-red-50",
-      tooltip: "Last sync failed. Will retry automatically.",
+      tooltip:
+        "Last sync failed — free plan limit or network error. Upgrade to Pro if you have more than 100 items.",
     },
   }
 

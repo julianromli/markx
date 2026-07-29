@@ -572,7 +572,17 @@ export class SyncEngine {
       } else if (result.reason === "entity_limit") {
         await this.dependencies.storage.setPendingSnapshot(this.userId, state)
         this.setStatus("error")
-        console.warn("[markx sync] entity limit:", result.message)
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("markx:entity-limit", {
+              detail: {
+                message: result.message,
+                limit: result.limit,
+                entityCount: result.entityCount,
+              },
+            })
+          )
+        }
       } else {
         // Generic error — keep the pending snapshot and mark as error
         // so the UI shows a retry indicator instead of "saved".

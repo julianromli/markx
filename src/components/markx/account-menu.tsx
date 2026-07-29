@@ -67,6 +67,32 @@ export function AccountMenu() {
     }
   }, [user])
 
+  useEffect(() => {
+    function onEntityLimit(event: Event) {
+      const detail = (event as CustomEvent<{
+        message?: string
+        limit?: number
+      }>).detail
+      const limit = detail?.limit ?? 100
+      toast.error(
+        detail?.message ??
+          `Free plan is limited to ${limit} items. Upgrade to Pro to continue.`,
+        {
+          action: {
+            label: "Upgrade",
+            onClick: () => setUpgradeOpen(true),
+          },
+        }
+      )
+      setUpgradeOpen(true)
+      setOpen(false)
+    }
+    window.addEventListener("markx:entity-limit", onEntityLimit)
+    return () => {
+      window.removeEventListener("markx:entity-limit", onEntityLimit)
+    }
+  }, [])
+
   if (isPending || !user) return null
 
   const isPro = entitlements?.plan === "pro"

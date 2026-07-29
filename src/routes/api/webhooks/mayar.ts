@@ -97,23 +97,31 @@ export const Route = createFileRoute("/api/webhooks/mayar")({
         let detail
         try {
           detail = await getTransaction(txId)
-        } catch {
+        } catch (err) {
+          console.error("[mayar webhook] getTransaction failed", txId, err)
           return Response.json({ ok: true })
         }
 
         if (!isPaidTransactionStatus(detail.status)) {
+          console.warn("[mayar webhook] not paid", txId, detail.status)
           return Response.json({ ok: true })
         }
 
         const userId = await resolveUserId(payload, detail.customer.email)
         if (!userId) {
+          console.warn(
+            "[mayar webhook] no user for", detail.customer.email, txId
+          )
           return Response.json({ ok: true })
         }
 
         const claimed = await claimProcessedTransaction(txId, userId)
         if (!claimed) {
+          console.info("[mayar webhook] already processed", txId)
           return Response.json({ ok: true })
         }
+
+        console.info("[mayar webhook] activating pro", userId, txId)
 
         let periodEnd: Date | null = null
         let memberId: string | undefined =

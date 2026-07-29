@@ -64,7 +64,7 @@ Markx (TanStack Start + Cloudflare Workers) menjual **langganan membership bulan
 |----------|------------|
 | `MAYAR_API_KEY` | Server only — sandbox atau production |
 | `MAYAR_ENV` | `sandbox` \| `production` |
-| `APP_URL` | Base URL untuk `redirectUrl` |
+| `APP_URL` | Base URL untuk `redirectUrl` (prod: `https://markx.app`) |
 | `MAYAR_MEMBERSHIP_PRODUCT_ID` | UUID produk membership Markx Pro |
 | `MAYAR_MEMBERSHIP_TIER_ID` | UUID tier bulanan Rp 49.000 |
 

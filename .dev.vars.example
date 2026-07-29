@@ -24,6 +24,7 @@ NEON_AUTH_COOKIE_SECRET="dev-only-secret-replace-in-production-32chars"
 # Create product/tier with: bun run mayar:bootstrap
 MAYAR_API_KEY=
 MAYAR_ENV=sandbox
+# Local dev. Production Worker secret should be https://markx.app
 APP_URL=http://localhost:3000
 MAYAR_MEMBERSHIP_PRODUCT_ID=
 MAYAR_MEMBERSHIP_TIER_ID=

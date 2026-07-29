@@ -26,9 +26,26 @@ function SubscriptionSuccessPage() {
   useEffect(() => {
     let cancelled = false
     let attempts = 0
-    let timer: ReturnType<typeof setTimeout> | undefined
+    // Timer id is always owned by this effect; reassigned only after prior clear.
+    let timerId: ReturnType<typeof setTimeout> | null = null
 
-    async function tick() {
+    const clearTimer = () => {
+      if (timerId !== null) {
+        clearTimeout(timerId)
+        timerId = null
+      }
+    }
+
+    const scheduleNext = () => {
+      clearTimer()
+      if (cancelled) return
+      timerId = setTimeout(() => {
+        void runTick()
+      }, POLL_MS)
+    }
+
+    async function runTick() {
+      if (cancelled) return
       try {
         // DB-only read — Pro is granted by paid webhook, not member "active".
         // refreshEntitlements may only downgrade / refresh period metadata.
@@ -39,6 +56,7 @@ function SubscriptionSuccessPage() {
             // ignore — polling getEntitlements is the source of truth for Pro
           }
         }
+        if (cancelled) return
         const next = await getEntitlements()
         if (cancelled) return
         setEntitlements(next)
@@ -53,20 +71,23 @@ function SubscriptionSuccessPage() {
         }
       }
 
+      if (cancelled) return
       attempts += 1
       if (attempts >= MAX_ATTEMPTS) {
-        if (!cancelled) setWaiting(false)
+        setWaiting(false)
         return
       }
-      timer = setTimeout(() => {
-        void tick()
-      }, POLL_MS)
+      scheduleNext()
     }
 
-    void tick()
+    // Synchronous mount tick so cleanup always has a live timer id to clear.
+    timerId = setTimeout(() => {
+      void runTick()
+    }, 0)
+
     return () => {
       cancelled = true
-      if (timer) clearTimeout(timer)
+      clearTimer()
     }
   }, [])
 

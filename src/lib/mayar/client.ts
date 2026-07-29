@@ -21,11 +21,24 @@ async function mayarFetch<T>(
       ...init?.headers,
     },
   })
+
+  if (!res.ok) {
+    let detail = String(res.status)
+    try {
+      const errBody = (await res.json()) as MayarEnvelope<unknown>
+      detail = errBody.messages ?? errBody.message ?? detail
+    } catch {
+      // non-JSON error body
+    }
+    throw new Error(`Mayar ${path} failed: ${detail}`)
+  }
+
+  // Mayar write endpoints may still use HTTP 200 with statusCode >= 400 in body.
   const body = (await res.json()) as MayarEnvelope<T>
   const msg = body.messages ?? body.message
   const statusCode = body.statusCode ?? res.status
-  if (!res.ok || statusCode >= 400) {
-    throw new Error(`Mayar ${path} failed: ${msg ?? res.status}`)
+  if (statusCode >= 400) {
+    throw new Error(`Mayar ${path} failed: ${msg ?? statusCode}`)
   }
   return body.data as T
 }

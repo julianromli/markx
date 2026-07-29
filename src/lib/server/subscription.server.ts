@@ -246,16 +246,17 @@ export async function claimProcessedTransaction(
 export async function refreshSubscriptionFromMayar(
   userId: string
 ): Promise<UserEntitlements> {
-  const config = await getMayarConfig()
-
-  const row = await withDb(async ({ db }) => {
-    const rows = await db
-      .select()
-      .from(userSubscriptions)
-      .where(eq(userSubscriptions.userId, userId))
-      .limit(1)
-    return rows[0] ?? null
-  })
+  const [config, row] = await Promise.all([
+    getMayarConfig(),
+    withDb(async ({ db }) => {
+      const rows = await db
+        .select()
+        .from(userSubscriptions)
+        .where(eq(userSubscriptions.userId, userId))
+        .limit(1)
+      return rows[0] ?? null
+    }),
+  ])
 
   if (!row?.mayarMemberId) {
     return getEntitlementsForUser(userId)

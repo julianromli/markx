@@ -569,6 +569,10 @@ export class SyncEngine {
         this.cloudVersion = result.cloudVersion
         await this.dependencies.storage.setPendingSnapshot(this.userId, state)
         this.setStatus("conflict")
+      } else if (result.reason === "entity_limit") {
+        await this.dependencies.storage.setPendingSnapshot(this.userId, state)
+        this.setStatus("error")
+        console.warn("[markx sync] entity limit:", result.message)
       } else {
         // Generic error — keep the pending snapshot and mark as error
         // so the UI shows a retry indicator instead of "saved".

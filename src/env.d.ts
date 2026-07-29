@@ -9,5 +9,10 @@ interface ImportMetaEnv {
 declare namespace Cloudflare {
   interface Env {
     DATABASE_URL?: string
+    MAYAR_API_KEY?: string
+    MAYAR_ENV?: string
+    APP_URL?: string
+    MAYAR_MEMBERSHIP_PRODUCT_ID?: string
+    MAYAR_MEMBERSHIP_TIER_ID?: string
   }
 }

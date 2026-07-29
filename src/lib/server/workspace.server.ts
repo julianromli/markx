@@ -6,6 +6,10 @@ import { createEmptyState } from "@/lib/markx/seed"
 import type { MarkxState } from "@/lib/markx/types"
 import { softDeleteAssetRows } from "@/lib/server/assets.server"
 import {
+  assertWorkspaceEntityLimit,
+  getEntitlementsForUser,
+} from "@/lib/server/subscription.server"
+import {
   hasWorkspaceItems,
   parseWorkspaceState,
   toConflictResult,
@@ -36,8 +40,27 @@ export async function loadWorkspaceForUser(
       .where(eq(workspaces.userId, userId))
       .limit(1)
 
-    return rows.length > 0 ? toWorkspaceSnapshot(rows[0]) : null
+    if (rows.length === 0) return null
+    const snapshot = toWorkspaceSnapshot(rows[0])
+    const entitlements = await getEntitlementsForUser(userId, snapshot.state)
+    return { ...snapshot, entitlements }
   })
+}
+
+async function enforceEntityLimitForUser(
+  userId: string,
+  state: MarkxState
+): Promise<Extract<SaveResult, { reason: "entity_limit" }> | null> {
+  const entitlements = await getEntitlementsForUser(userId, state)
+  const check = assertWorkspaceEntityLimit(entitlements, state)
+  if (check.ok) return null
+  return {
+    ok: false,
+    reason: "entity_limit",
+    entityCount: check.count,
+    limit: check.limit,
+    message: `Free plan is limited to ${check.limit} items. Upgrade to Pro or remove items.`,
+  }
 }
 
 export async function saveWorkspaceForUser(
@@ -48,6 +71,9 @@ export async function saveWorkspaceForUser(
     deletedImageIds?: string[]
   }
 ): Promise<SaveResult> {
+  const limitError = await enforceEntityLimitForUser(userId, input.state)
+  if (limitError) return limitError
+
   return withDb(async ({ db }) => {
     const updated = await db.transaction(async (tx) => {
       const rows = await tx
@@ -97,6 +123,9 @@ export async function importGuestWorkspaceForUser(
   userId: string,
   state: MarkxState
 ): Promise<SaveResult> {
+  const limitError = await enforceEntityLimitForUser(userId, state)
+  if (limitError) return limitError
+
   return withDb(async ({ db }) => {
     const outcome = await db.transaction(async (tx) => {
       const insertedRows = await tx
@@ -173,6 +202,9 @@ export async function overwriteWorkspaceForUser(
   userId: string,
   input: { state: MarkxState; deletedImageIds?: string[] }
 ): Promise<SaveResult> {
+  const limitError = await enforceEntityLimitForUser(userId, input.state)
+  if (limitError) return limitError
+
   return withDb(async ({ db }) => {
     const updated = await db.transaction(async (tx) => {
       const rows = await tx

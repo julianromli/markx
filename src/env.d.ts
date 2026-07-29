@@ -9,6 +9,8 @@ interface ImportMetaEnv {
 declare namespace Cloudflare {
   interface Env {
     DATABASE_URL?: string
+    /** "true" | "false" — Pro limits + Mayar checkout. Default false in wrangler vars. */
+    MAYAR_BILLING_ENABLED?: string
     MAYAR_API_KEY?: string
     MAYAR_ENV?: string
     APP_URL?: string

@@ -74,28 +74,37 @@ export function AccountMenu() {
         limit?: number
       }>).detail
       const limit = detail?.limit ?? 100
+      const canUpgrade = entitlements?.billingEnabled === true
       toast.error(
         detail?.message ??
-          `Free plan is limited to ${limit} items. Upgrade to Pro to continue.`,
-        {
-          action: {
-            label: "Upgrade",
-            onClick: () => setUpgradeOpen(true),
-          },
-        }
+          (canUpgrade
+            ? `Free plan is limited to ${limit} items. Upgrade to Pro to continue.`
+            : `Workspace limit reached (${limit} items).`),
+        canUpgrade
+          ? {
+              action: {
+                label: "Upgrade",
+                onClick: () => setUpgradeOpen(true),
+              },
+            }
+          : undefined
       )
-      setUpgradeOpen(true)
-      setOpen(false)
+      if (canUpgrade) {
+        setUpgradeOpen(true)
+        setOpen(false)
+      }
     }
     window.addEventListener("markx:entity-limit", onEntityLimit)
     return () => {
       window.removeEventListener("markx:entity-limit", onEntityLimit)
     }
-  }, [])
+  }, [entitlements?.billingEnabled])
 
   if (isPending || !user) return null
 
+  const billingEnabled = entitlements?.billingEnabled === true
   const isPro = entitlements?.plan === "pro"
+  const showUpgrade = billingEnabled && !isPro
 
   async function handleSignOut() {
     signingOutRef.current = true
@@ -147,7 +156,7 @@ export function AccountMenu() {
           <div className="px-3 py-2.5">
             <div className="text-xs text-muted-foreground">Signed in as</div>
             <div className="truncate text-sm font-medium">{user.email}</div>
-            {entitlements != null && (
+            {entitlements != null && billingEnabled && (
               <div className="mt-1 text-xs text-muted-foreground">
                 {isPro
                   ? "Markx Pro"
@@ -156,7 +165,7 @@ export function AccountMenu() {
             )}
           </div>
           <DropdownMenuSeparator />
-          {!isPro && (
+          {showUpgrade && (
             <DropdownMenuItem
               onClick={() => {
                 setUpgradeOpen(true)
@@ -167,7 +176,7 @@ export function AccountMenu() {
               Upgrade to Pro — Rp 49.000/bulan
             </DropdownMenuItem>
           )}
-          {!isPro && <DropdownMenuSeparator />}
+          {showUpgrade && <DropdownMenuSeparator />}
           <DropdownMenuItem
             disabled={signingOut}
             onClick={() => void handleSignOut()}
@@ -182,7 +191,10 @@ export function AccountMenu() {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Dialog open={upgradeOpen} onOpenChange={setUpgradeOpen}>
+      <Dialog
+        open={billingEnabled && upgradeOpen}
+        onOpenChange={setUpgradeOpen}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Markx Pro</DialogTitle>

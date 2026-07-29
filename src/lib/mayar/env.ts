@@ -7,11 +7,29 @@ export type MayarConfig = {
 }
 
 type MayarEnvBindings = {
+  MAYAR_BILLING_ENABLED?: string
   MAYAR_API_KEY?: string
   MAYAR_ENV?: string
   APP_URL?: string
   MAYAR_MEMBERSHIP_PRODUCT_ID?: string
   MAYAR_MEMBERSHIP_TIER_ID?: string
+}
+
+/** Cloudflare vars are strings — treat 1/true/yes/on as enabled. */
+export function parseTruthyFlag(value: string | undefined | null): boolean {
+  if (value == null) return false
+  const normalized = value.trim().toLowerCase()
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on"
+}
+
+/**
+ * Feature flag for Pro entity limits + Mayar checkout UI.
+ * Set Worker var `MAYAR_BILLING_ENABLED=true` to turn on (dashboard or wrangler.jsonc).
+ * Webhooks still process when off so paid state is ready when you enable.
+ */
+export async function isMayarBillingEnabled(): Promise<boolean> {
+  const { env } = await import("cloudflare:workers")
+  return parseTruthyFlag((env as MayarEnvBindings).MAYAR_BILLING_ENABLED)
 }
 
 export async function getMayarConfig(): Promise<MayarConfig> {

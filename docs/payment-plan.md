@@ -62,6 +62,7 @@ Markx (TanStack Start + Cloudflare Workers) menjual **langganan membership bulan
 
 | Variable | Keterangan |
 |----------|------------|
+| `MAYAR_BILLING_ENABLED` | Worker **var** feature flag (`true`/`false`). Default `false` — no limits/checkout until flipped |
 | `MAYAR_API_KEY` | Server only — sandbox atau production |
 | `MAYAR_ENV` | `sandbox` \| `production` |
 | `APP_URL` | Base URL untuk `redirectUrl` (prod: `https://markx.app`) |

@@ -17,9 +17,11 @@ import {
   isActiveMembershipStatus,
   registerMembershipMember,
 } from "@/lib/mayar/client"
-import { getMayarConfig } from "@/lib/mayar/env"
+import { getMayarConfig, isMayarBillingEnabled } from "@/lib/mayar/env"
 
 export type UserEntitlements = {
+  /** False when `MAYAR_BILLING_ENABLED` is off — no limits / upgrade UI. */
+  billingEnabled: boolean
   plan: "free" | "pro"
   status: string
   entityLimit: number | null
@@ -33,6 +35,7 @@ export async function getEntitlementsForUser(
 ): Promise<UserEntitlements> {
   const entityCount =
     state != null ? countMarkxEntities(state) : null
+  const billingEnabled = await isMayarBillingEnabled()
 
   return withDb(async ({ db }) => {
     const rows = await db
@@ -43,9 +46,11 @@ export async function getEntitlementsForUser(
 
     if (rows.length === 0) {
       return {
+        billingEnabled,
         plan: "free",
         status: "inactive",
-        entityLimit: FREE_TIER_ENTITY_LIMIT,
+        // No free-tier cap while billing is feature-flagged off.
+        entityLimit: billingEnabled ? FREE_TIER_ENTITY_LIMIT : null,
         entityCount,
         currentPeriodEnd: null,
       }
@@ -54,9 +59,11 @@ export async function getEntitlementsForUser(
     const row = rows[0]
     const proActive = row.plan === "pro" && row.status === "active"
     return {
+      billingEnabled,
       plan: proActive ? "pro" : "free",
       status: row.status,
-      entityLimit: proActive ? null : FREE_TIER_ENTITY_LIMIT,
+      entityLimit:
+        !billingEnabled || proActive ? null : FREE_TIER_ENTITY_LIMIT,
       entityCount,
       currentPeriodEnd: row.currentPeriodEnd?.toISOString() ?? null,
     }
@@ -67,7 +74,7 @@ export function assertWorkspaceEntityLimit(
   entitlements: UserEntitlements,
   state: MarkxState
 ): { ok: true } | { ok: false; count: number; limit: number } {
-  if (entitlements.plan === "pro") {
+  if (!entitlements.billingEnabled || entitlements.plan === "pro") {
     return { ok: true }
   }
   const count = countMarkxEntities(state)
@@ -307,6 +314,10 @@ export async function startMembershipCheckout(input: {
   name: string
   mobile: string
 }): Promise<{ checkoutUrl: string }> {
+  if (!(await isMayarBillingEnabled())) {
+    throw new Error("Billing belum diaktifkan.")
+  }
+
   const config = await getMayarConfig()
   const mobile = normalizeMobile(input.mobile)
   const customerName =

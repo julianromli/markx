@@ -12,9 +12,28 @@ Do **not** put real API keys in this file or in git.
 
 ---
 
+## Feature flag
+
+Billing is gated by Worker **var** (not a secret):
+
+| Var | Values | Default |
+|-----|--------|---------|
+| `MAYAR_BILLING_ENABLED` | `true` / `false` (also `1`/`yes`/`on`) | `false` in `wrangler.jsonc` |
+
+When **off**: no free-tier entity limit, no Upgrade CTA, checkout rejects. Webhooks still run so Pro rows can be ready before flip.
+
+**Turn on (production):** Cloudflare dashboard → Workers → `markx` → Settings → Variables → set `MAYAR_BILLING_ENABLED` = `true` (and redeploy if required), **or** set in `wrangler.jsonc` `vars` and `bun run deploy`.
+
+**Local:** `MAYAR_BILLING_ENABLED=true` in `.dev.vars` overrides the wrangler default.
+
+- [ ] Confirm flag is `false` until cutover is ready
+- [ ] After secrets + webhook + first sandbox/prod proof: set `MAYAR_BILLING_ENABLED=true`
+
+---
+
 ## Pre-flight (sandbox must already be green)
 
-- [ ] Sandbox E2E: sign in → Upgrade → pay test → `/subscription/success` → account menu shows **Pro**
+- [ ] With flag **on** in sandbox/local: sign in → Upgrade → pay test → `/subscription/success` → account menu shows **Pro**
 - [ ] Free user with **>100** entities cannot save; Pro can
 - [ ] Webhook test delivery **SUCCESS** to `https://markx.app/api/webhooks/mayar`
 - [ ] Paid webhook activates `user_subscriptions.plan = pro` (idempotent on retry)
@@ -141,7 +160,10 @@ curl -sS -X POST https://markx.app/api/webhooks/mayar \
 
 ---
 
-## 5. Production payment proof (small real charge)
+## 5. Enable billing flag + production payment proof
+
+- [ ] Set `MAYAR_BILLING_ENABLED=true` on the production Worker and deploy if needed
+- [ ] Confirm Upgrade CTA visible for a free signed-in user
 
 Use a real card/QRIS with a test account you control.
 
@@ -199,6 +221,7 @@ bun run deploy
 | Sandbox API | `https://api.mayar.club/hl/v2` |
 | Production API | `https://api.mayar.id/hl/v2` |
 | Env switch | `MAYAR_ENV=production` \| `sandbox` |
+| Feature flag | `MAYAR_BILLING_ENABLED=true` \| `false` |
 | Price | Rp 49.000 / month |
 | Free limit | 100 entities in workspace state |
 

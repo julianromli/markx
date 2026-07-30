@@ -220,7 +220,7 @@ export function AuthDialog({
               </DialogTitle>
               <DialogDescription>
                 Enter your email and we'll send you a one-time code. No password
-                needed — use the same email to sign in everywhere.
+                needed. Use the same email to sign in everywhere.
               </DialogDescription>
             </DialogHeader>
 

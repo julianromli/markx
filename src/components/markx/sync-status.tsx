@@ -51,7 +51,7 @@ const SYNC_STATUS_CONFIG: Record<SyncStatus, SyncStatusVisual> = {
     tooltip: "Saving your changes to the cloud",
   },
   offline: {
-    label: "Offline — queued",
+    label: "Offline (queued)",
     icon: <CloudSlashIcon className="size-3.5" weight="regular" />,
     className: "text-amber-700 bg-amber-50",
     tooltip:
@@ -61,14 +61,14 @@ const SYNC_STATUS_CONFIG: Record<SyncStatus, SyncStatusVisual> = {
     label: "Conflict",
     icon: <CloudWarningIcon className="size-3.5" weight="regular" />,
     className: "text-red-700 bg-red-50",
-    tooltip: "The cloud version changed. Click to resolve.",
+    tooltip: "The cloud version changed. Select to resolve.",
   },
   error: {
     label: "Sync issue",
     icon: <CloudWarningIcon className="size-3.5" weight="regular" />,
     className: "text-red-700 bg-red-50",
     tooltip:
-      "Last sync failed — free plan limit or network error. Upgrade to Pro if you have more than 100 items.",
+      "Last sync failed. Free plan limit or network error. Upgrade to Pro if you have more than 100 items.",
   },
 }
 

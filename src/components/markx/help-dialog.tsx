@@ -170,15 +170,15 @@ function SyncSection() {
   const items = [
     {
       icon: <CloudIcon className="size-4" weight="regular" />,
-      text: "Saved — your workspace is synced to the cloud.",
+      text: "Saved. Your workspace is synced to the cloud.",
     },
     {
       icon: <CloudSlashIcon className="size-4" weight="regular" />,
-      text: "Offline — queued — changes will sync when you reconnect.",
+      text: "Offline. Changes are queued and sync when you reconnect.",
     },
     {
       icon: <CloudWarningIcon className="size-4" weight="regular" />,
-      text: "Conflict — pick which version to keep.",
+      text: "Conflict. Pick which version to keep.",
     },
   ]
   return (

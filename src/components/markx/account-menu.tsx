@@ -267,7 +267,7 @@ export function AccountMenu() {
               }}
             >
               <CrownIcon weight="regular" />
-              Upgrade to Pro — Rp 49,000/month
+              Upgrade to Pro · Rp 49,000/month
             </DropdownMenuItem>
           )}
           {showUpgrade && <DropdownMenuSeparator />}
@@ -342,7 +342,7 @@ export function AccountMenu() {
                         session.listPriceIdr
                       )}
                     </span>{" "}
-                    — coupon {session.appliedCoupon} applied
+                    · Coupon {session.appliedCoupon} applied
                   </p>
                 ) : null}
               </div>
@@ -390,26 +390,25 @@ export function AccountMenu() {
               <div className="space-y-1.5">
                 <Label htmlFor="upgrade-coupon">Discount code (optional)</Label>
                 {appliedCoupon ? (
-                  <div className="flex items-center justify-between rounded-3xl border bg-accent/50 px-3 py-2 text-sm">
-                    <span>
-                      <span className="font-medium">{appliedCoupon.code}</span>{" "}
-                      <span className="text-muted-foreground">
-                        — Rp{" "}
+                  <div className="flex items-center justify-between gap-3 rounded-3xl border bg-accent/50 px-3 py-2 text-sm">
+                    <span className="font-medium">{appliedCoupon.code}</span>
+                    <span className="flex items-baseline gap-1.5">
+                      <span className="text-muted-foreground tabular-nums line-through">
+                        Rp{" "}
+                        {new Intl.NumberFormat("id-ID").format(
+                          appliedCoupon.listPriceIdr
+                        )}
+                      </span>
+                      <span className="font-medium tabular-nums">
+                        Rp{" "}
                         {new Intl.NumberFormat("id-ID").format(
                           appliedCoupon.finalPriceIdr
                         )}
-                        <span className="line-through">
-                          {" "}
-                          Rp{" "}
-                          {new Intl.NumberFormat("id-ID").format(
-                            appliedCoupon.listPriceIdr
-                          )}
-                        </span>
                       </span>
                     </span>
                     <button
                       type="button"
-                      className="text-muted-foreground transition-colors hover:text-foreground"
+                      className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
                       onClick={() => {
                         setAppliedCoupon(null)
                         setCouponError(null)

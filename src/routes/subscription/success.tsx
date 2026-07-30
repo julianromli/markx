@@ -119,7 +119,7 @@ function SubscriptionSuccessPage() {
             (isPro
               ? "You can add more than 100 items to your workspace. Changes may take a few seconds."
               : waiting
-                ? "Waiting for confirmation from Mayar. Don't close this page."
+                ? "Waiting for confirmation from Mayar. Keep this page open."
                 : "If your plan isn't Pro yet, the payment may still be processing. Check this page again in a minute, or look for the Mayar email.")}
         </p>
       </div>

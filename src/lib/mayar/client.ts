@@ -101,12 +101,12 @@ export async function createQrisInvoice(input: {
       name: input.name,
       email: input.email,
       mobile: input.mobile,
-      description: "Markx Pro — 1 month",
+      description: "Markx Pro (1 month)",
       items: [
         {
           quantity: 1,
           rate: input.priceIdr,
-          description: "Markx Pro — 1 month",
+          description: "Markx Pro (1 month)",
         },
       ],
       paymentMethod: "qris",

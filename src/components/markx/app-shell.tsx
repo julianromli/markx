@@ -166,7 +166,7 @@ export function AppShell({
     })
 
   return (
-    <div className="markx-shell grid h-svh grid-cols-1 grid-rows-[auto_minmax(0,1fr)] bg-[#ebedee] antialiased md:grid-cols-[63px_minmax(0,1fr)]">
+    <div className="markx-shell grid h-svh grid-cols-1 grid-rows-[auto_minmax(0,1fr)] bg-canvas antialiased md:grid-cols-[63px_minmax(0,1fr)]">
       <header className="relative z-30 col-span-full bg-white shadow-[0_1px_1px_rgba(51,61,78,0.2)]">
         <div className="relative flex h-12 w-full items-center justify-between gap-1">
           <div className="relative z-10 flex h-12 min-w-0 flex-1 items-center pl-[max(0.25rem,env(safe-area-inset-left))] md:pl-0">
@@ -175,7 +175,7 @@ export function AppShell({
               aria-label="Tools"
               aria-expanded={toolsOpen}
               onClick={() => setToolsOpen(true)}
-              className="flex size-11 shrink-0 items-center justify-center text-[rgba(32,32,32,0.8)] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.03] active:scale-[0.96] md:hidden"
+              className="flex size-11 shrink-0 items-center justify-center text-ink/80 transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.03] active:scale-[0.96] md:hidden"
             >
               <ListIcon className="size-5" weight="regular" />
             </button>
@@ -183,7 +183,7 @@ export function AppShell({
               <Link
                 to={backTo}
                 aria-label="Back"
-                className="flex size-11 shrink-0 items-center justify-center text-[rgba(32,32,32,0.8)] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.03] active:scale-[0.96] md:hidden"
+                className="flex size-11 shrink-0 items-center justify-center text-ink/80 transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.03] active:scale-[0.96] md:hidden"
               >
                 <ArrowLeftIcon className="size-5" weight="regular" />
               </Link>
@@ -217,7 +217,7 @@ export function AppShell({
                         />
                       </span>
                     )}
-                    <span className="min-w-0 truncate text-sm leading-none font-semibold text-[rgba(32,32,32,0.8)] md:max-w-[270px]">
+                    <span className="min-w-0 truncate text-sm leading-none font-semibold text-ink/80 md:max-w-[270px]">
                       {crumb.label}
                     </span>
                   </>
@@ -281,7 +281,7 @@ export function AppShell({
           </div>
 
           <div className="pointer-events-none absolute inset-0 hidden items-center justify-center px-4 md:flex">
-            <h1 className="max-w-[45vw] truncate text-center text-[19.8px] font-bold tracking-[-0.18px] text-balance text-[rgba(32,32,32,0.8)]">
+            <h1 className="max-w-[45vw] truncate text-center text-[19.8px] font-bold tracking-[-0.18px] text-balance text-ink/80">
               {centerTitle}
             </h1>
           </div>
@@ -290,7 +290,7 @@ export function AppShell({
             {typeof zoomPercent === "number" && onZoomPreset && onZoomFit ? (
               <DropdownMenu>
                 <DropdownMenuTrigger
-                  className="mr-1 hidden h-8 items-center gap-0.5 rounded-md px-2 text-[12px] leading-none text-[rgba(32,32,32,0.8)] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] outline-none hover:bg-black/[0.04] active:scale-[0.96] focus-visible:ring-2 focus-visible:ring-black/10 md:flex"
+                  className="mr-1 hidden h-8 items-center gap-0.5 rounded-md px-2 text-[12px] leading-none text-ink/80 transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] outline-none hover:bg-black/[0.04] focus-visible:ring-2 focus-visible:ring-black/10 active:scale-[0.96] md:flex"
                   aria-label="Zoom"
                 >
                   <span className="min-w-[2rem] text-right tabular-nums">
@@ -329,7 +329,7 @@ export function AppShell({
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : typeof zoomPercent === "number" ? (
-              <div className="mr-1 hidden h-8 items-center px-2 text-[12px] leading-none text-[rgba(32,32,32,0.8)] md:flex">
+              <div className="mr-1 hidden h-8 items-center px-2 text-[12px] leading-none text-ink/80 md:flex">
                 <span className="min-w-[2rem] text-right tabular-nums">
                   {zoomPercent}%
                 </span>
@@ -389,7 +389,7 @@ export function AppShell({
               aria-label="More"
               aria-expanded={moreOpen}
               onClick={() => setMoreOpen(true)}
-              className="flex size-11 shrink-0 items-center justify-center text-[rgba(32,32,32,0.8)] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.03] active:scale-[0.96] md:hidden"
+              className="flex size-11 shrink-0 items-center justify-center text-ink/80 transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.03] active:scale-[0.96] md:hidden"
             >
               <DotsThreeOutlineIcon className="size-5" weight="regular" />
             </button>
@@ -401,7 +401,7 @@ export function AppShell({
         </div>
       </header>
 
-      <aside className="relative z-10 col-start-1 row-start-2 hidden flex-col items-center bg-[#ebedee] pt-2.5 pb-3 shadow-[1px_0_0_rgba(0,10,20,0.06)] md:flex">
+      <aside className="relative z-10 col-start-1 row-start-2 hidden flex-col items-center bg-canvas pt-2.5 pb-3 shadow-[1px_0_0_rgba(0,10,20,0.06)] md:flex">
         {renderTools(() => setToolsOpen(false))}
 
         <div className="flex-1" />
@@ -419,9 +419,9 @@ export function AppShell({
               "text-black/55 hover:bg-black/5 active:scale-[0.96]",
             itemMoveDragging &&
               !trashArmed &&
-              "scale-105 bg-[rgba(32,32,32,0.88)] text-white shadow-[0_8px_28px_rgba(0,0,0,0.18),0_1px_0_rgba(255,255,255,0.12)_inset]",
+              "scale-105 bg-ink/88 text-white shadow-[0_8px_28px_rgba(0,0,0,0.18),0_1px_0_rgba(255,255,255,0.12)_inset]",
             trashArmed &&
-              "scale-110 bg-[#e11d48] text-white shadow-[0_10px_32px_rgba(225,29,72,0.35)]"
+              "scale-110 bg-destructive text-white shadow-[0_10px_32px_color-mix(in_oklch,var(--destructive)_35%,transparent)]"
           )}
         >
           <TrashIcon
@@ -510,7 +510,7 @@ function HeaderIconButton({
       aria-label={label}
       onClick={onClick}
       className={cn(
-        "flex h-12 items-center justify-center text-[rgba(32,32,32,0.8)] transition-[transform,opacity,background-color] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96] disabled:pointer-events-none disabled:opacity-20 disabled:active:scale-100",
+        "flex h-12 items-center justify-center text-ink/80 transition-[transform,opacity,background-color] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96] disabled:pointer-events-none disabled:opacity-20 disabled:active:scale-100",
         frame ? (last ? "w-11 md:w-8" : "w-11 md:w-10") : "w-11 md:w-[34px]",
         !disabled && "hover:bg-black/[0.03]"
       )}
@@ -592,7 +592,7 @@ function MoreMenuItem({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-3 rounded-xl px-4 py-3.5 text-left text-[15px] font-medium text-[rgba(32,32,32,0.8)] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.04] active:scale-[0.99]"
+      className="flex w-full items-center gap-3 rounded-xl px-4 py-3.5 text-left text-[15px] font-medium text-ink/80 transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.04] active:scale-[0.99]"
     >
       <span className="text-black/55">{icon}</span>
       {label}

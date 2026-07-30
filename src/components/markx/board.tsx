@@ -970,7 +970,7 @@ export function Board({
 
         {marquee ? (
           <div
-            className="pointer-events-none absolute border border-blue-500/70 bg-blue-500/10"
+            className="pointer-events-none absolute border border-selection/70 bg-selection/10"
             style={{
               transform: `translate(${marquee.x}px, ${marquee.y}px)`,
               width: marquee.width,

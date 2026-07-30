@@ -239,7 +239,7 @@ export function AuthDialog({
                 disabled={sending}
                 aria-invalid={!!error}
               />
-              {error && <p className="text-sm text-red-600">{error}</p>}
+              {error && <p className="text-sm text-destructive">{error}</p>}
               <Button
                 type="submit"
                 className="w-full"
@@ -287,7 +287,7 @@ export function AuthDialog({
               </div>
 
               {error && (
-                <p className="text-center text-sm text-red-600">{error}</p>
+                <p className="text-center text-sm text-destructive">{error}</p>
               )}
 
               <Button

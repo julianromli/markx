@@ -189,7 +189,7 @@ export const BookmarkCard = memo(function BookmarkCard({
                 "group relative overflow-hidden rounded-[25px] border-[3px] border-white/50",
                 "shadow-[3px_3px_8px_rgba(0,0,0,0.1),11px_10px_15px_rgba(0,0,0,0.09),24px_24px_20px_rgba(0,0,0,0.05)]",
                 selected && "border-black",
-                brandFallback ? "bg-[#202020]" : "bg-white",
+                brandFallback ? "bg-ink" : "bg-white",
                 triggerClassName,
                 className
               )}
@@ -209,7 +209,7 @@ export const BookmarkCard = memo(function BookmarkCard({
                 <img
                   src={bookmark.imageUrl}
                   alt=""
-                  className="size-full object-cover outline outline-1 outline-black/10 transition-opacity duration-300 ease-[var(--ease-out-strong)] animate-in fade-in"
+                  className="size-full animate-in object-cover outline outline-1 outline-black/10 transition-opacity duration-300 ease-[var(--ease-out-strong)] fade-in"
                   draggable={false}
                   loading="lazy"
                   referrerPolicy="no-referrer"
@@ -219,13 +219,13 @@ export const BookmarkCard = memo(function BookmarkCard({
                 <div
                   aria-busy="true"
                   aria-label="Loading preview"
-                  className="relative size-full overflow-hidden bg-[#202020]"
+                  className="relative size-full overflow-hidden bg-ink"
                 >
                   <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-[#2a2a2a] via-[#3d3d3d] to-[#242424]" />
                   <div className="absolute inset-0 -translate-x-full animate-[bookmark-shimmer_1.4s_ease-in-out_infinite] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
                 </div>
               ) : (
-                <div className="flex size-full flex-col items-center justify-center gap-3 px-8 text-center text-white transition-opacity duration-300 ease-[var(--ease-out-strong)] animate-in fade-in">
+                <div className="flex size-full animate-in flex-col items-center justify-center gap-3 px-8 text-center text-white transition-opacity duration-300 ease-[var(--ease-out-strong)] fade-in">
                   {hasFavicon ? (
                     <img
                       src={bookmark.faviconUrl}
@@ -270,7 +270,7 @@ export const BookmarkCard = memo(function BookmarkCard({
           URL drives the tooltip width; the copy control sits in reserved
           end padding so geometric center stays on the text (and the card).
         */}
-        <span className="block max-w-full select-text whitespace-normal break-all pr-7 text-left">
+        <span className="block max-w-full pr-7 text-left break-all whitespace-normal select-text">
           {bookmark.url}
         </span>
         <button
@@ -301,7 +301,7 @@ export const BookmarkCard = memo(function BookmarkCard({
                 "absolute inset-0 size-3.5 transition-[opacity,filter,transform] duration-200 ease-[cubic-bezier(0.2,0,0,1)]",
                 copied
                   ? "scale-[0.25] opacity-0 blur-[4px]"
-                  : "scale-100 opacity-100 blur-0"
+                  : "blur-0 scale-100 opacity-100"
               )}
             />
             <CheckIcon
@@ -309,7 +309,7 @@ export const BookmarkCard = memo(function BookmarkCard({
               className={cn(
                 "absolute inset-0 size-3.5 transition-[opacity,filter,transform] duration-200 ease-[cubic-bezier(0.2,0,0,1)]",
                 copied
-                  ? "scale-100 opacity-100 blur-0"
+                  ? "blur-0 scale-100 opacity-100"
                   : "scale-[0.25] opacity-0 blur-[4px]"
               )}
             />

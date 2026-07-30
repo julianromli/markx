@@ -494,7 +494,7 @@ export function Workspace(props: WorkspaceProps) {
           role="status"
         >
           <div className="max-w-sm rounded-2xl bg-white/90 px-6 py-5 text-center shadow-sm outline outline-1 outline-black/5">
-            <p className="text-[15px] font-medium text-[#202020]">
+            <p className="text-[15px] font-medium text-ink">
               {initialSyncStatus === "loading"
                 ? "Loading your workspace…"
                 : "Workspace could not be loaded"}
@@ -514,7 +514,7 @@ export function Workspace(props: WorkspaceProps) {
       ) : items.length === 0 ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="pointer-events-auto rounded-2xl bg-white/80 px-6 py-5 text-center shadow-sm outline outline-1 outline-black/5 backdrop-blur">
-            <p className="text-[15px] font-medium text-balance text-[#202020]">
+            <p className="text-[15px] font-medium text-balance text-ink">
               {props.mode === "home"
                 ? "Create a folder or note"
                 : "Add a link or note"}

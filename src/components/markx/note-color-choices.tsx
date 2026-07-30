@@ -33,7 +33,7 @@ export function NoteColorChoices({
               ? "size-9 border border-black/10"
               : "size-7 border-2",
             size === "small" &&
-              (selected === color ? "border-[#202020]" : "border-black/15")
+              (selected === color ? "border-ink" : "border-black/15")
           )}
           style={{ backgroundColor: NOTE_COLORS[color] }}
         />

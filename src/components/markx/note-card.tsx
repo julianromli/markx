@@ -184,7 +184,7 @@ export function NoteCard({
                       close()
                     }}
                     className={cn(
-                      "flex h-8 w-full items-center rounded-md px-3 text-[13px] text-[#202020] transition-colors hover:bg-black/5",
+                      "flex h-8 w-full items-center rounded-md px-3 text-[13px] text-ink transition-colors hover:bg-black/5",
                       note.font === option.value && "bg-black/5"
                     )}
                     style={{ fontFamily: NOTE_FONTS[option.value] }}
@@ -221,7 +221,7 @@ export function NoteCard({
                       close()
                     }}
                     className={cn(
-                      "flex h-8 w-full items-center rounded-md px-3 text-[13px] text-[#202020] transition-colors hover:bg-black/5",
+                      "flex h-8 w-full items-center rounded-md px-3 text-[13px] text-ink transition-colors hover:bg-black/5",
                       note.fontSize === option.value && "bg-black/5"
                     )}
                   >
@@ -267,7 +267,7 @@ export function NoteCard({
         style={{ backgroundColor: NOTE_COLORS[note.color] }}
       >
         <div
-          className="min-h-0 flex-1 overflow-y-auto leading-snug text-[#202020]"
+          className="min-h-0 flex-1 overflow-y-auto leading-snug text-ink"
           style={{ fontFamily, fontSize }}
         >
           {editing ? (
@@ -306,7 +306,7 @@ function ToolbarButton({
       onPointerDown={(e) => e.preventDefault()}
       onClick={onClick}
       className={cn(
-        "flex size-8 items-center justify-center rounded-lg text-[13px] font-semibold text-[#202020] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96]",
+        "flex size-8 items-center justify-center rounded-lg text-[13px] font-semibold text-ink transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96]",
         active ? "bg-black/10" : "hover:bg-black/5"
       )}
     >
@@ -351,7 +351,7 @@ function ToolbarDropdown({
           onOpenMenuChange(open ? null : id)
         }}
         className={cn(
-          "flex h-8 items-center gap-1 rounded-lg px-2 text-[#202020] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96]",
+          "flex h-8 items-center gap-1 rounded-lg px-2 text-ink transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96]",
           open ? "bg-black/5" : "hover:bg-black/5"
         )}
       >

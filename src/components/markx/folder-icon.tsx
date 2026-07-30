@@ -37,7 +37,7 @@ export function FolderIcon({
         />
       </div>
       <div className="mt-2 w-full px-1 text-center">
-        <p className="truncate text-[20px] leading-7 font-semibold tracking-[-0.02em] text-balance text-[rgba(32,32,32,0.8)]">
+        <p className="truncate text-[20px] leading-7 font-semibold tracking-[-0.02em] text-balance text-ink/80">
           {name}
         </p>
         <p className="mt-0.5 text-[16px] leading-[1.05] text-[rgba(45,55,72,0.5)] tabular-nums">

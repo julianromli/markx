@@ -17,18 +17,58 @@ function ContextMenuPortal({ ...props }: ContextMenuPrimitive.Portal.Props) {
   )
 }
 
-function ContextMenuTrigger({
-  className,
-  ...props
-}: ContextMenuPrimitive.Trigger.Props) {
+type ContextMenuTriggerProps = ContextMenuPrimitive.Trigger.Props & {
+  /** Disable Base UI's long-press trigger while retaining mouse right-click. */
+  disableTouchLongPress?: boolean
+}
+
+const TOUCH_CONTEXT_MENU_GUARD_MS = 1_000
+
+const ContextMenuTrigger = React.forwardRef<
+  HTMLDivElement,
+  ContextMenuTriggerProps
+>(function ContextMenuTrigger(
+  {
+    className,
+    disableTouchLongPress = false,
+    onContextMenu,
+    onTouchStart,
+    ...props
+  },
+  ref
+) {
+  const lastTouchStartRef = React.useRef<number | null>(null)
+
   return (
     <ContextMenuPrimitive.Trigger
+      ref={ref}
       data-slot="context-menu-trigger"
       className={cn("select-none", className)}
+      onTouchStart={(event) => {
+        if (disableTouchLongPress) {
+          lastTouchStartRef.current = Date.now()
+          event.preventBaseUIHandler()
+        }
+        onTouchStart?.(event)
+      }}
+      onContextMenu={(event) => {
+        const touchStartedAt = lastTouchStartRef.current
+        if (
+          disableTouchLongPress &&
+          touchStartedAt != null &&
+          Date.now() - touchStartedAt < TOUCH_CONTEXT_MENU_GUARD_MS
+        ) {
+          // Some browsers emit a native `contextmenu` after a touch hold.
+          // Keep it from reaching Base UI's right-click handler as well.
+          event.preventDefault()
+          event.preventBaseUIHandler()
+        }
+        onContextMenu?.(event)
+      }}
       {...props}
     />
   )
-}
+})
 
 function ContextMenuContent({
   className,

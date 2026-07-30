@@ -53,6 +53,7 @@ export function Workspace(props: WorkspaceProps) {
   const navigate = useNavigate()
   const trashRef = useRef<HTMLButtonElement>(null)
   const boardApiRef = useRef<BoardApi | null>(null)
+  const contextMenuTriggerRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -120,6 +121,17 @@ export function Workspace(props: WorkspaceProps) {
     },
     [actions, navigate, props.mode, state.bookmarks, state.notes]
   )
+
+  const openContextMenuAt = useCallback((point: { x: number; y: number }) => {
+    contextMenuTriggerRef.current?.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: point.x,
+        clientY: point.y,
+      })
+    )
+  }, [])
 
   const deleteSelection = useCallback(
     (ids: string[]) => {
@@ -440,7 +452,11 @@ export function Workspace(props: WorkspaceProps) {
       onZoomFit={() => boardApiRef.current?.fitToContent()}
     >
       <ContextMenu>
-        <ContextMenuTrigger className="block h-full">
+        <ContextMenuTrigger
+          ref={contextMenuTriggerRef}
+          className="block h-full"
+          disableTouchLongPress
+        >
           <TooltipProvider delay={500} closeDelay={150}>
             <Board
               items={items}
@@ -456,6 +472,7 @@ export function Workspace(props: WorkspaceProps) {
               onItemMoveDragChange={setItemMoveDragging}
               onZoomChange={setZoomPercent}
               onContextPoint={setContextPoint}
+              onBlankDoubleTap={openContextMenuAt}
               onRenameItem={(id) => {
                 setContextTargetId(id)
                 setRenameOpen(true)

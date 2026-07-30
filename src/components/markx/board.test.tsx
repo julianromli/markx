@@ -1,8 +1,21 @@
 import { fireEvent, render } from "@testing-library/react"
-import { describe, expect, it, vi } from "vitest"
+import { beforeAll, describe, expect, it, vi } from "vitest"
 
 import { Board } from "./board"
 import type { BoardItemModel } from "@/lib/markx/geometry"
+
+beforeAll(() => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }))
+})
 
 const bookmark: BoardItemModel = {
   id: "bookmark-1",

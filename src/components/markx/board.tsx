@@ -53,8 +53,6 @@ export type { BoardItemModel } from "@/lib/markx/geometry"
 /** Keyboard nudge distance in board units (Shift for the coarse step). */
 const KEYBOARD_MOVE_STEP = 10
 const KEYBOARD_MOVE_STEP_SHIFT = 50
-const DOUBLE_TAP_DELAY_MS = 350
-const DOUBLE_TAP_MAX_DISTANCE = 32
 
 const ARROW_DIRECTIONS: Partial<Record<string, Direction>> = {
   ArrowLeft: "left",
@@ -97,8 +95,6 @@ type BoardProps = {
   onItemMoveDragChange?: (active: boolean) => void
   onZoomChange?: (zoomPercent: number) => void
   onContextPoint?: (point: { x: number; y: number }) => void
-  /** Request the host context menu after a stationary two-tap on empty mobile board space. */
-  onBlankDoubleTap?: (point: { x: number; y: number }) => void
   /** Rename via keyboard (F2). Pointer rename stays on the context menu. */
   onRenameItem?: (id: string) => void
   /** Accessible name for each item, announced when it receives focus. */
@@ -147,7 +143,6 @@ export function Board({
   onItemMoveDragChange,
   onZoomChange,
   onContextPoint,
-  onBlankDoubleTap,
   onRenameItem,
   getItemLabel,
   editingId,
@@ -191,11 +186,6 @@ export function Board({
   const itemsRef = useRef(items)
   const anchorIdRef = useRef<string | null>(null)
   const lastClickRef = useRef<{ id: string; time: number } | null>(null)
-  const lastBlankTouchTapRef = useRef<{
-    x: number
-    y: number
-    time: number
-  } | null>(null)
   const resizeRectRef = useRef<LiveResize | null>(null)
   /** Roving-tabindex stop for keyboard users reaching the canvas via Tab. */
   const [tabStopId, setTabStopId] = useState<string | null>(null)
@@ -482,7 +472,6 @@ export function Board({
 
   const beginTouchPan = (target: HTMLDivElement, pointerId: number) => {
     abortSingleFingerGesture()
-    lastBlankTouchTapRef.current = null
     for (const id of pointersRef.current.keys()) {
       try {
         capturePointer(target, id)
@@ -554,8 +543,6 @@ export function Board({
       return
     }
 
-    lastBlankTouchTapRef.current = null
-
     if (hit.id === editingId) {
       return
     }
@@ -609,7 +596,7 @@ export function Board({
 
     const now = Date.now()
     const last = lastClickRef.current
-    if (last && last.id === hit.id && now - last.time < DOUBLE_TAP_DELAY_MS) {
+    if (last && last.id === hit.id && now - last.time < 350) {
       onOpenItem(hit.id)
       lastClickRef.current = null
       return
@@ -748,15 +735,6 @@ export function Board({
       pendingRef.current.marquee = rect
       scheduleFlush()
       applySelectionFromMarquee(rect, e.metaKey || e.ctrlKey)
-      if (
-        e.pointerType === "touch" &&
-        Math.hypot(
-          e.clientX - drag.startScreen.x,
-          e.clientY - drag.startScreen.y
-        ) >= DRAG_THRESHOLD
-      ) {
-        lastBlankTouchTapRef.current = null
-      }
       return
     }
 
@@ -814,7 +792,6 @@ export function Board({
       if (pointersRef.current.size === 0) {
         flushNow()
         dragRef.current = null
-        lastBlankTouchTapRef.current = null
       } else if (pointersRef.current.size >= 2) {
         const centroid = pointerCentroid(pointersRef.current.values())
         const distance = pointerDistance(pointersRef.current.values())
@@ -832,36 +809,6 @@ export function Board({
 
     if (drag.mode === "marquee") {
       setMarquee(null)
-      const isStationarySingleTouch =
-        e.type === "pointerup" &&
-        e.pointerType === "touch" &&
-        pointersRef.current.size === 0 &&
-        Math.hypot(
-          e.clientX - drag.startScreen.x,
-          e.clientY - drag.startScreen.y
-        ) < DRAG_THRESHOLD
-
-      if (isStationarySingleTouch) {
-        const now = Date.now()
-        const lastTap = lastBlankTouchTapRef.current
-        if (
-          lastTap &&
-          now - lastTap.time < DOUBLE_TAP_DELAY_MS &&
-          Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) <=
-            DOUBLE_TAP_MAX_DISTANCE
-        ) {
-          onBlankDoubleTap?.({ x: e.clientX, y: e.clientY })
-          lastBlankTouchTapRef.current = null
-        } else {
-          lastBlankTouchTapRef.current = {
-            x: e.clientX,
-            y: e.clientY,
-            time: now,
-          }
-        }
-      } else {
-        lastBlankTouchTapRef.current = null
-      }
     }
 
     if (drag.mode === "resize" && drag.itemId) {

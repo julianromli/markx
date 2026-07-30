@@ -14,6 +14,13 @@ import type { MarkxState } from "./types"
 
 const SESSION_TIMEOUT_MS = 3000
 const CLOUD_FIRST_LOAD_TIMEOUT_MS = 8000
+/**
+ * The whole app renders behind this bootstrap, so a step that never settles
+ * (IndexedDB blocked by another tab mid-upgrade, storage disabled by the
+ * browser) would otherwise leave the loading shell up forever with no way
+ * out. Generous enough that a slow-but-working cold start still wins.
+ */
+const BOOTSTRAP_TIMEOUT_MS = 15000
 
 export type InitialSyncStatus = "idle" | "loading" | "error"
 
@@ -50,10 +57,12 @@ export async function getSessionUserWithTimeout(
 
 export function useMarkxBootstrap(store: MarkxStore): {
   ready: boolean
+  failed: boolean
   initialSyncStatus: InitialSyncStatus
   retryInitialSync: () => void
 } {
   const [ready, setReady] = useState(false)
+  const [failed, setFailed] = useState(false)
   const [initialSyncStatus, setInitialSyncStatus] =
     useState<InitialSyncStatus>("idle")
   const retryInitialSyncRef = useRef<() => void>(() => {})
@@ -75,6 +84,7 @@ export function useMarkxBootstrap(store: MarkxStore): {
   useEffect(() => {
     const cancelled = { current: false }
     const isCancelled = () => cancelled.current
+    let shellReady = false
 
     async function init() {
       const initStartedAt = performance.now()
@@ -85,6 +95,8 @@ export function useMarkxBootstrap(store: MarkxStore): {
         })
       }
       const markShellReady = (branch: string) => {
+        shellReady = true
+        clearTimeout(watchdog)
         setReady(true)
         requestAnimationFrame(() => logTiming("first-shell-paint"))
         console.info("[markx init] ready", { branch })
@@ -293,9 +305,23 @@ export function useMarkxBootstrap(store: MarkxStore): {
       }
     }
 
-    void init()
+    const watchdog = setTimeout(() => {
+      if (isCancelled() || shellReady) return
+      console.error(
+        `[markx init] bootstrap stalled for ${BOOTSTRAP_TIMEOUT_MS}ms`
+      )
+      setFailed(true)
+    }, BOOTSTRAP_TIMEOUT_MS)
+
+    void init().catch((err: unknown) => {
+      console.error("[markx init] bootstrap threw", err)
+      if (isCancelled() || shellReady) return
+      setFailed(true)
+    })
+
     return () => {
       cancelled.current = true
+      clearTimeout(watchdog)
       initialSyncEngineRef.current = null
       retryInitialSyncRef.current = () => {}
     }
@@ -303,6 +329,7 @@ export function useMarkxBootstrap(store: MarkxStore): {
 
   return {
     ready,
+    failed,
     initialSyncStatus,
     retryInitialSync: () => retryInitialSyncRef.current(),
   }

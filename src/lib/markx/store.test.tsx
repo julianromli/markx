@@ -21,10 +21,12 @@ const populatedState: MarkxState = {
 
 function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((next) => {
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((next, fail) => {
     resolve = next
+    reject = fail
   })
-  return { promise, resolve }
+  return { promise, resolve, reject }
 }
 
 type EngineStub = {
@@ -308,5 +310,47 @@ describe("MarkxProvider authenticated bootstrap", () => {
     expect(await screen.findByText("idle")).toBeTruthy()
 
     cloudState.resolve(null)
+  })
+})
+
+describe("MarkxProvider bootstrap failure", () => {
+  it("offers a reload when local storage rejects instead of hanging", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const lastUserId = deferred<string | null>()
+    const { MarkxProvider } = await setupProvider({
+      session: Promise.resolve({
+        user: null,
+        token: null,
+        isPending: false,
+        checkedAt: Date.now(),
+      }),
+      lastUserId: lastUserId.promise,
+    })
+
+    render(<MarkxProvider>workspace</MarkxProvider>)
+    await act(async () => {
+      lastUserId.reject(new Error("IndexedDB is blocked"))
+    })
+
+    expect(await screen.findByRole("alert")).toBeTruthy()
+    expect(screen.queryByText("workspace")).toBeNull()
+  })
+
+  it("offers a reload when the bootstrap never settles", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    vi.useFakeTimers()
+    const { MarkxProvider } = await setupProvider({
+      session: deferred<never>().promise,
+      lastUserId: deferred<string | null>().promise,
+    })
+
+    render(<MarkxProvider>workspace</MarkxProvider>)
+    await act(async () => {})
+    expect(screen.queryByRole("alert")).toBeNull()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15000)
+    })
+    expect(screen.getByRole("alert")).toBeTruthy()
   })
 })

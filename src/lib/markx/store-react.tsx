@@ -44,13 +44,45 @@ export function MarkxProvider({ children }: { children: ReactNode }) {
   )
 
   if (!bootstrap.ready) {
-    return <div className="markx-dot-bg h-svh" aria-busy="true" />
+    return bootstrap.failed ? (
+      <BootstrapFailure />
+    ) : (
+      <div className="markx-dot-bg h-svh" aria-busy="true" />
+    )
   }
 
   return (
     <MarkxStoreContext.Provider value={api}>
       {children}
     </MarkxStoreContext.Provider>
+  )
+}
+
+function BootstrapFailure() {
+  return (
+    <div
+      className="markx-dot-bg flex h-svh items-center justify-center"
+      role="alert"
+    >
+      <div className="max-w-sm rounded-2xl bg-white/90 px-6 py-5 text-center shadow-sm outline outline-1 outline-black/5">
+        <p className="text-[15px] font-medium text-ink">
+          markx could not start
+        </p>
+        <p className="mt-1 text-[13px] text-ink-muted">
+          Reloading usually fixes it. Nothing you saved has been lost.
+        </p>
+        {/* Bare button on purpose: this shell is in the entry chunk, and the
+            design-system Button would drag Base UI into it for an error path
+            most sessions never render. */}
+        <button
+          type="button"
+          className="mt-4 inline-flex h-9 items-center justify-center rounded-4xl bg-ink px-4 text-sm font-medium text-white shadow-[0_1px_2px_rgba(0,0,0,0.22)] outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
+          onClick={() => window.location.reload()}
+        >
+          Reload
+        </button>
+      </div>
+    </div>
   )
 }
 

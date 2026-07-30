@@ -33,6 +33,7 @@ import {
   findEmptySlot,
   getBoardItemRect,
 } from "@/lib/markx/geometry"
+import { countBookmarksInFolder } from "@/lib/markx/state"
 import {
   classifyItemIds,
   countItemsInFolders,
@@ -307,6 +308,31 @@ export function Workspace(props: WorkspaceProps) {
   )
 
   const selectedNotes = selectedItems.filter((item) => item.kind === "note")
+
+  const getItemLabel = useCallback(
+    (item: BoardItemModel): string => {
+      switch (item.kind) {
+        case "folder": {
+          const count = countBookmarksInFolder(state.bookmarks, item.data.id)
+          return `${item.data.name}, folder, ${count} ${count === 1 ? "page" : "pages"}`
+        }
+        case "bookmark":
+          return `${item.data.title}, bookmark`
+        case "note": {
+          const excerpt = item.data.content
+            .replace(/<[^>]*>/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 80)
+          return excerpt ? `Note: ${excerpt}` : "Empty note"
+        }
+        case "image":
+          return "Image"
+      }
+    },
+    [state.bookmarks]
+  )
+
   const selectedItem = selectedItems.at(0)
   const selectedRenamable =
     selectedIds.size === 1 &&
@@ -415,6 +441,11 @@ export function Workspace(props: WorkspaceProps) {
               onItemMoveDragChange={setItemMoveDragging}
               onZoomChange={setZoomPercent}
               onContextPoint={setContextPoint}
+              onRenameItem={(id) => {
+                setContextTargetId(id)
+                setRenameOpen(true)
+              }}
+              getItemLabel={getItemLabel}
               editingId={editingNoteId ?? undefined}
               boardApiRef={boardApiRef}
               renderItem={(item, selected, dragging) => (
@@ -483,12 +514,12 @@ export function Workspace(props: WorkspaceProps) {
       ) : items.length === 0 ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="pointer-events-auto rounded-2xl bg-white/80 px-6 py-5 text-center shadow-sm outline outline-1 outline-black/5 backdrop-blur">
-            <p className="text-balance text-[15px] font-medium text-[#202020]">
+            <p className="text-[15px] font-medium text-balance text-[#202020]">
               {props.mode === "home"
                 ? "Create a folder or note"
                 : "Add a link or note"}
             </p>
-            <p className="mt-1 text-pretty text-[13px] text-black/50">
+            <p className="mt-1 text-[13px] text-pretty text-black/50">
               {props.mode === "home"
                 ? "Or add a note from the sidebar (⌘N)"
                 : "Or add a note, or paste a URL (⌘V)"}

@@ -7,6 +7,7 @@ import {
   cameraZoomAroundViewportCenter,
   clampBottomRightResize,
   findEmptySlot,
+  findNearestInDirection,
   getBoardItemRect,
   hitTestBoardItems,
   isInBottomRightResizeZone,
@@ -322,5 +323,44 @@ describe("cameraFitContent", () => {
       y: 40,
       zoom: 0.85,
     })
+  })
+})
+
+describe("findNearestInDirection", () => {
+  const rect = (x: number, y: number, width = 100, height = 100) => ({
+    x,
+    y,
+    width,
+    height,
+  })
+  const grid = [
+    { id: "center", rect: rect(200, 200) },
+    { id: "right", rect: rect(400, 200) },
+    { id: "right-far", rect: rect(700, 200) },
+    { id: "left", rect: rect(0, 200) },
+    { id: "above", rect: rect(200, 0) },
+    { id: "below", rect: rect(200, 400) },
+    { id: "diagonal", rect: rect(450, 450) },
+  ]
+
+  it("picks the nearest item strictly ahead on the direction axis", () => {
+    expect(findNearestInDirection(grid, "center", "right")).toBe("right")
+    expect(findNearestInDirection(grid, "center", "left")).toBe("left")
+    expect(findNearestInDirection(grid, "center", "up")).toBe("above")
+    expect(findNearestInDirection(grid, "center", "down")).toBe("below")
+  })
+
+  it("penalizes perpendicular drift over pure distance", () => {
+    // "diagonal" is closer to center than "below", but far off the down axis.
+    expect(findNearestInDirection(grid, "center", "down")).toBe("below")
+  })
+
+  it("returns null when nothing lies in that direction", () => {
+    expect(findNearestInDirection(grid, "left", "left")).toBeNull()
+    expect(findNearestInDirection(grid, "above", "up")).toBeNull()
+  })
+
+  it("returns null for an unknown origin", () => {
+    expect(findNearestInDirection(grid, "missing", "right")).toBeNull()
   })
 })

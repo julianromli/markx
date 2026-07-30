@@ -5,16 +5,18 @@ import {
   useRef,
   useState,
 } from "react"
-import type { PointerEvent as ReactPointerEvent, ReactNode } from "react"
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+} from "react"
 
 import { DeleteDock } from "@/components/markx/delete-dock"
 import { useIsMobile } from "@/hooks/use-mobile"
-import {
-  pointInElement,
-  vibrateDeleteFeedback,
-} from "@/lib/markx/delete-dock"
+import { pointInElement, vibrateDeleteFeedback } from "@/lib/markx/delete-dock"
 import { cn } from "@/lib/utils"
 import {
+  DIRECTION_VECTORS,
   DRAG_THRESHOLD,
   MAX_ZOOM,
   MIN_BOOKMARK_SIZE,
@@ -26,6 +28,7 @@ import {
   cameraFromTouchPinchPan,
   cameraZoomAroundViewportCenter,
   clampBottomRightResize,
+  findNearestInDirection,
   getBoardItemRect,
   hitTestBoardItems,
   intersects,
@@ -39,11 +42,23 @@ import {
 import type {
   BoardItemModel,
   Camera,
+  Direction,
   LiveResize,
   Rect,
 } from "@/lib/markx/geometry"
 
 export type { BoardItemModel } from "@/lib/markx/geometry"
+
+/** Keyboard nudge distance in board units (Shift for the coarse step). */
+const KEYBOARD_MOVE_STEP = 10
+const KEYBOARD_MOVE_STEP_SHIFT = 50
+
+const ARROW_DIRECTIONS: Partial<Record<string, Direction>> = {
+  ArrowLeft: "left",
+  ArrowRight: "right",
+  ArrowUp: "up",
+  ArrowDown: "down",
+}
 
 export type BoardApi = {
   getViewCenter: () => { x: number; y: number }
@@ -79,6 +94,10 @@ type BoardProps = {
   onItemMoveDragChange?: (active: boolean) => void
   onZoomChange?: (zoomPercent: number) => void
   onContextPoint?: (point: { x: number; y: number }) => void
+  /** Rename via keyboard (F2). Pointer rename stays on the context menu. */
+  onRenameItem?: (id: string) => void
+  /** Accessible name for each item, announced when it receives focus. */
+  getItemLabel?: (item: BoardItemModel) => string
   editingId?: string
   boardApiRef?: React.RefObject<BoardApi | null>
   className?: string
@@ -123,6 +142,8 @@ export function Board({
   onItemMoveDragChange,
   onZoomChange,
   onContextPoint,
+  onRenameItem,
+  getItemLabel,
   editingId,
   boardApiRef,
   className,
@@ -165,6 +186,15 @@ export function Board({
   const anchorIdRef = useRef<string | null>(null)
   const lastClickRef = useRef<{ id: string; time: number } | null>(null)
   const resizeRectRef = useRef<LiveResize | null>(null)
+  /** Roving-tabindex stop for keyboard users reaching the canvas via Tab. */
+  const [tabStopId, setTabStopId] = useState<string | null>(null)
+  /**
+   * Whether the last input came from keyboard or pointer. Focus events can't
+   * tell them apart, but only keyboard focus should change the selection —
+   * otherwise Cmd+click multi-select would collapse on every click.
+   */
+  const modalityRef = useRef<"pointer" | "keyboard">("pointer")
+  const prevEditingIdRef = useRef<string | null>(null)
 
   // Coalesce gesture previews to one React commit per frame (single write path).
   const rafIdRef = useRef<number | null>(null)
@@ -289,6 +319,91 @@ export function Board({
     []
   )
 
+  // Any keypress implies keyboard modality until the next pointer press.
+  useEffect(() => {
+    const onKey = () => {
+      modalityRef.current = "keyboard"
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [])
+
+  const focusItem = (id: string) => {
+    viewportRef.current
+      ?.querySelector<HTMLElement>(`[data-board-item="${id}"]`)
+      ?.focus()
+  }
+
+  // Return focus to the note card when keyboard-driven editing ends, so the
+  // user lands back where they were instead of on <body>.
+  useEffect(() => {
+    const prev = prevEditingIdRef.current
+    prevEditingIdRef.current = editingId ?? null
+    if (prev && !editingId && modalityRef.current === "keyboard") {
+      focusItem(prev)
+    }
+  }, [editingId])
+
+  const selectAndFocus = (id: string) => {
+    onSelectedIdsChange(new Set([id]))
+    anchorIdRef.current = id
+    setTabStopId(id)
+    // tabIndex=-1 elements accept programmatic focus, so this works before
+    // the roving-tabindex rerender lands.
+    focusItem(id)
+  }
+
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (editingId) return
+    const target = e.target as HTMLElement
+    // Only act when the item wrapper itself has focus; inner controls (note
+    // editor, buttons) keep their native key behavior.
+    if (!target.hasAttribute("data-board-item")) return
+    const id = target.getAttribute("data-board-item")
+    if (!id) return
+
+    if (e.key === "Enter") {
+      e.preventDefault()
+      onOpenItem(id)
+      return
+    }
+    if (e.key === "F2") {
+      e.preventDefault()
+      onRenameItem?.(id)
+      return
+    }
+
+    const direction = ARROW_DIRECTIONS[e.key]
+    if (!direction) return
+    e.preventDefault()
+
+    if (e.altKey) {
+      if (selectedRef.current.size === 0) return
+      const step = e.shiftKey ? KEYBOARD_MOVE_STEP_SHIFT : KEYBOARD_MOVE_STEP
+      const vector = DIRECTION_VECTORS[direction]
+      const updates: Array<{ id: string; x: number; y: number }> = []
+      for (const selectedId of selectedRef.current) {
+        const item = itemsRef.current.find((i) => i.id === selectedId)
+        if (!item) continue
+        updates.push({
+          id: selectedId,
+          x: item.data.x + vector.x * step,
+          y: item.data.y + vector.y * step,
+        })
+      }
+      if (updates.length > 0) onMoveItems(updates)
+      return
+    }
+    if (e.metaKey || e.ctrlKey || e.shiftKey) return
+
+    const rects = itemsRef.current.map((item) => ({
+      id: item.id,
+      rect: getBoardItemRect(item),
+    }))
+    const next = findNearestInDirection(rects, id, direction)
+    if (next) selectAndFocus(next)
+  }
+
   const getViewportRect = () => viewportRef.current!.getBoundingClientRect()
 
   const applySelectionFromMarquee = (rect: Rect, additive: boolean) => {
@@ -299,14 +414,19 @@ export function Board({
     onSelectedIdsChange(next)
   }
 
-  const releasePointer = (
-    target: HTMLDivElement,
-    pointerId: number
-  ) => {
+  const releasePointer = (target: HTMLDivElement, pointerId: number) => {
     try {
       target.releasePointerCapture(pointerId)
     } catch {
       // already released
+    }
+  }
+
+  const capturePointer = (target: HTMLDivElement, pointerId: number) => {
+    try {
+      target.setPointerCapture(pointerId)
+    } catch {
+      // synthetic pointer events (test/automation) have no active pointer
     }
   }
 
@@ -338,7 +458,7 @@ export function Board({
     abortSingleFingerGesture()
     for (const id of pointersRef.current.keys()) {
       try {
-        target.setPointerCapture(id)
+        capturePointer(target, id)
       } catch {
         // pointer may already be gone
       }
@@ -361,6 +481,7 @@ export function Board({
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (!viewportRef.current) return
 
+    modalityRef.current = "pointer"
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
 
     // Second (or later) finger: switch to two-finger pan + pinch.
@@ -374,7 +495,7 @@ export function Board({
 
     const cam = cameraRef.current
     if (e.button === 1 || (e.button === 0 && e.altKey)) {
-      e.currentTarget.setPointerCapture(e.pointerId)
+      capturePointer(e.currentTarget, e.pointerId)
       dragRef.current = {
         mode: "pan",
         pointerId: e.pointerId,
@@ -394,7 +515,7 @@ export function Board({
       if (!e.metaKey && !e.ctrlKey && !e.shiftKey) {
         onSelectedIdsChange(new Set())
       }
-      e.currentTarget.setPointerCapture(e.pointerId)
+      capturePointer(e.currentTarget, e.pointerId)
       dragRef.current = {
         mode: "marquee",
         pointerId: e.pointerId,
@@ -441,7 +562,7 @@ export function Board({
           anchorIdRef.current = hit.id
         }
         onRaiseZ([hit.id])
-        e.currentTarget.setPointerCapture(e.pointerId)
+        capturePointer(e.currentTarget, e.pointerId)
         dragRef.current = {
           mode: "resize",
           pointerId: e.pointerId,
@@ -524,7 +645,7 @@ export function Board({
       }
     }
 
-    e.currentTarget.setPointerCapture(e.pointerId)
+    capturePointer(e.currentTarget, e.pointerId)
     dragRef.current = {
       mode: "pending",
       pointerId: e.pointerId,
@@ -753,16 +874,27 @@ export function Board({
     return () => el.removeEventListener("wheel", onWheel)
   }, [])
 
+  const itemIds = new Set(items.map((item) => item.id))
+  const tabStop =
+    tabStopId && itemIds.has(tabStopId)
+      ? tabStopId
+      : anchorIdRef.current && itemIds.has(anchorIdRef.current)
+        ? anchorIdRef.current
+        : (items[0]?.id ?? null)
+
   // Keep DOM order stable. Stacking uses `style.zIndex` (item.data.z); hit-testing
   // sorts by z independently. Sorting the list here would move nodes on raiseZ and
   // re-fire `.board-item-in` @starting-style (visible blink on first select).
   return (
     <div
       ref={viewportRef}
+      role="group"
+      aria-label="Board"
       className={cn(
         "markx-dot-bg relative h-full w-full cursor-default touch-none overflow-hidden select-none",
         className
       )}
+      onKeyDown={onKeyDown}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -804,7 +936,21 @@ export function Board({
             <div
               key={item.id}
               data-board-item={item.id}
-              className="board-item-in absolute origin-top-left"
+              role="button"
+              tabIndex={item.id === tabStop ? 0 : -1}
+              aria-label={getItemLabel?.(item)}
+              aria-pressed={selected}
+              onFocus={() => {
+                setTabStopId(item.id)
+                if (
+                  modalityRef.current === "keyboard" &&
+                  !selectedRef.current.has(item.id)
+                ) {
+                  onSelectedIdsChange(new Set([item.id]))
+                  anchorIdRef.current = item.id
+                }
+              }}
+              className="board-item-in absolute origin-top-left rounded-md outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-black/70"
               style={{
                 transform: `translate(${x}px, ${y}px)`,
                 zIndex: item.data.z,

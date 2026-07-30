@@ -56,7 +56,9 @@ export function useWorkspaceGlobalEvents(
       }
       if (mod && key === "v") return
 
-      if (event.key === "Enter" && current.selectedRenamable) {
+      // F2 renames; Enter is reserved for opening the focused board item
+      // (handled by the Board's own key handler).
+      if (event.key === "F2" && current.selectedRenamable) {
         const id = [...current.selectedIds][0]
         if (!id) return
         event.preventDefault()

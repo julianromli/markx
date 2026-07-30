@@ -129,7 +129,16 @@ function ShortcutsSection({ mod }: { mod: string }) {
     { keys: [mod, "N"], text: "New folder on Home" },
     { keys: [mod, "Z"], text: "Undo" },
     { keys: [mod, "Shift", "Z"], text: "Redo" },
-    { keys: ["Enter"], text: "Rename selected folder or bookmark" },
+    {
+      keys: ["←", "↑", "↓", "→"],
+      text: "Select the next item in that direction",
+    },
+    {
+      keys: ["Alt", "←", "→"],
+      text: "Nudge selected items (add Shift for bigger steps)",
+    },
+    { keys: ["Enter"], text: "Open the selected item" },
+    { keys: ["F2"], text: "Rename selected folder or bookmark" },
     { keys: ["Delete"], text: "Delete selected" },
     { keys: ["Esc"], text: "Clear selection or leave note editing" },
   ]

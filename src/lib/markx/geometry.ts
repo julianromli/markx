@@ -129,6 +129,50 @@ export function getBoardItemRect(item: BoardItemModel): Rect {
   return { x: item.data.x, y: item.data.y, ...size }
 }
 
+export type Direction = "up" | "down" | "left" | "right"
+
+export const DIRECTION_VECTORS: Record<Direction, { x: number; y: number }> = {
+  right: { x: 1, y: 0 },
+  left: { x: -1, y: 0 },
+  down: { x: 0, y: 1 },
+  up: { x: 0, y: -1 },
+}
+
+/**
+ * Spatial keyboard navigation: the best candidate when moving focus from one
+ * item in a direction. Candidates must sit strictly ahead on the direction
+ * axis; scoring penalizes perpendicular drift 3× so an arrow picks the item
+ * the eye would call "the next one over", not the geometrically closest.
+ */
+export function findNearestInDirection(
+  items: readonly { id: string; rect: Rect }[],
+  fromId: string,
+  direction: Direction
+): string | null {
+  const from = items.find((item) => item.id === fromId)
+  if (!from) return null
+  const fromCx = from.rect.x + from.rect.width / 2
+  const fromCy = from.rect.y + from.rect.height / 2
+  const vector = DIRECTION_VECTORS[direction]
+
+  let bestId: string | null = null
+  let bestScore = Infinity
+  for (const item of items) {
+    if (item.id === fromId) continue
+    const cx = item.rect.x + item.rect.width / 2
+    const cy = item.rect.y + item.rect.height / 2
+    const ahead = (cx - fromCx) * vector.x + (cy - fromCy) * vector.y
+    if (ahead <= 0) continue
+    const drift = Math.abs((cx - fromCx) * vector.y - (cy - fromCy) * vector.x)
+    const score = ahead + drift * 3
+    if (score < bestScore) {
+      bestScore = score
+      bestId = item.id
+    }
+  }
+  return bestId
+}
+
 export function hitTestBoardItems(
   items: readonly BoardItemModel[],
   boardX: number,

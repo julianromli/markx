@@ -129,4 +129,74 @@ describe("createMarkxStore", () => {
     )
     expect(enrich).toHaveBeenCalled()
   })
+
+  it("batches background enrich results into one commit per wave", async () => {
+    vi.useFakeTimers()
+    try {
+      const resolvers: Array<
+        (value: { title: string; imageUrl: string; faviconUrl: string }) => void
+      > = []
+      const enrich = vi.fn(
+        () =>
+          new Promise<{
+            title: string
+            imageUrl: string
+            faviconUrl: string
+          }>((resolve) => {
+            resolvers.push(resolve)
+          })
+      )
+      const bookmark = (id: string) => ({
+        id,
+        folderId: "folder-1",
+        url: `https://example.com/${id}`,
+        title: "example.com",
+        x: 0,
+        y: 0,
+        z: 1,
+      })
+      const initial = {
+        ...createEmptyState(),
+        folders: [{ id: "folder-1", name: "Root", x: 0, y: 0, z: 1 }],
+        bookmarks: [bookmark("bm-1"), bookmark("bm-2"), bookmark("bm-3")],
+        zCounter: 1,
+      }
+      const created = createMarkxStore({
+        storage: {
+          load: vi.fn(async () => initial),
+          save: vi.fn(async () => {}),
+        },
+        enrich,
+        sweepOrphanImages: vi.fn(async () => {}),
+      })
+
+      let emissions = 0
+      created.subscribe(() => {
+        emissions += 1
+      })
+
+      await created.hydrate()
+      expect(enrich).toHaveBeenCalledTimes(3)
+      expect(emissions).toBe(1)
+
+      // All three responses land in the same wave → a single store commit.
+      for (const resolve of resolvers) {
+        resolve({
+          title: "Enriched",
+          imageUrl: "https://img.example.com/x.png",
+          faviconUrl: "",
+        })
+      }
+      await vi.advanceTimersByTimeAsync(200)
+
+      expect(emissions).toBe(2)
+      expect(
+        created
+          .getState()
+          .bookmarks.every((b) => b.imageUrl === "https://img.example.com/x.png")
+      ).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

@@ -2,13 +2,11 @@ import { useEffect, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { toast } from "sonner"
 import QRCode from "qrcode"
-import {
-  CheckCircleIcon,
-  CrownIcon,
-  SignOutIcon,
-  SpinnerIcon,
-  UserCircleIcon,
-} from "@phosphor-icons/react"
+import { CheckCircleIcon } from "@phosphor-icons/react/dist/csr/CheckCircle"
+import { CrownIcon } from "@phosphor-icons/react/dist/csr/Crown"
+import { SignOutIcon } from "@phosphor-icons/react/dist/csr/SignOut"
+import { SpinnerIcon } from "@phosphor-icons/react/dist/csr/Spinner"
+import { UserCircleIcon } from "@phosphor-icons/react/dist/csr/UserCircle"
 
 import {
   DropdownMenu,

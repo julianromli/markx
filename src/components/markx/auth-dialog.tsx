@@ -18,12 +18,10 @@ import {
   InputOTPSlot,
   InputOTPSeparator,
 } from "@/components/ui/input-otp"
-import {
-  ArrowLeftIcon,
-  CheckCircleIcon,
-  EnvelopeSimpleIcon,
-  PaperPlaneTiltIcon,
-} from "@phosphor-icons/react"
+import { ArrowLeftIcon } from "@phosphor-icons/react/dist/csr/ArrowLeft"
+import { CheckCircleIcon } from "@phosphor-icons/react/dist/csr/CheckCircle"
+import { EnvelopeSimpleIcon } from "@phosphor-icons/react/dist/csr/EnvelopeSimple"
+import { PaperPlaneTiltIcon } from "@phosphor-icons/react/dist/csr/PaperPlaneTilt"
 
 import { sendOtp, verifyOtp, onLoginSuccess } from "@/lib/markx/auth-actions"
 import {

@@ -3,7 +3,8 @@ import { mergeProps } from "@base-ui/react/merge-props"
 import { useRender } from "@base-ui/react/use-render"
 
 import { cn } from "@/lib/utils"
-import { CaretRightIcon, DotsThreeIcon } from "@phosphor-icons/react"
+import { CaretRightIcon } from "@phosphor-icons/react/dist/csr/CaretRight"
+import { DotsThreeIcon } from "@phosphor-icons/react/dist/csr/DotsThree"
 
 function Breadcrumb({ className, ...props }: React.ComponentProps<"nav">) {
   return (

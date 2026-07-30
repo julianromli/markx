@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
-import { CheckCircleIcon, SpinnerIcon } from "@phosphor-icons/react"
+import { CheckCircleIcon } from "@phosphor-icons/react/dist/csr/CheckCircle"
+import { SpinnerIcon } from "@phosphor-icons/react/dist/csr/Spinner"
 
 import { Button } from "@/components/ui/button"
 import {

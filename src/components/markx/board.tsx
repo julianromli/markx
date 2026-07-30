@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react"
@@ -889,7 +890,7 @@ export function Board({
     return () => el.removeEventListener("wheel", onWheel)
   }, [])
 
-  const itemIds = new Set(items.map((item) => item.id))
+  const itemIds = useMemo(() => new Set(items.map((item) => item.id)), [items])
   const tabStop =
     tabStopId && itemIds.has(tabStopId)
       ? tabStopId

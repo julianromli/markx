@@ -51,7 +51,21 @@ type EnrichCacheEntry = {
   value: LinkMetadata
 }
 
+/**
+ * Isolate-local memo. Bounded (LRU) because the module scope lives as long as
+ * the Workers isolate: without a cap, every unique URL ever enriched would
+ * accumulate for the isolate's lifetime — expired entries are only dropped on
+ * a cache read of that exact URL, so untouched URLs never get swept.
+ */
+const ENRICH_CACHE_MAX_ENTRIES = 500
+
 const enrichCache = new Map<string, EnrichCacheEntry>()
+
+/**
+ * Concurrent enrich calls for the same URL share one scrape. Keyed by the
+ * raw input URL; YouTube URL variants converge via the cache's dual writes.
+ */
+const enrichInFlight = new Map<string, Promise<LinkMetadata>>()
 
 function hostnameTitle(url: string): string {
   try {
@@ -113,14 +127,23 @@ function readEnrichCache(url: string): LinkMetadata | null {
     enrichCache.delete(url)
     return null
   }
+  // LRU touch: Map preserves insertion order, so re-insert on hit.
+  enrichCache.delete(url)
+  enrichCache.set(url, entry)
   return entry.value
 }
 
 function writeEnrichCache(url: string, value: LinkMetadata): void {
+  enrichCache.delete(url)
   enrichCache.set(url, {
     expiresAt: Date.now() + ENRICH_CACHE_TTL_MS,
     value,
   })
+  while (enrichCache.size > ENRICH_CACHE_MAX_ENTRIES) {
+    const oldest = enrichCache.keys().next().value
+    if (oldest === undefined) break
+    enrichCache.delete(oldest)
+  }
 }
 
 /** Test seam — clears the isolate-local enrich memo. */
@@ -345,12 +368,9 @@ async function enrichYoutube(
   return meta
 }
 
-async function enrichAndMirror(url: string): Promise<LinkMetadata> {
+async function scrapeAndMirror(url: string): Promise<LinkMetadata> {
   const videoId = parseYoutubeVideoId(url)
   if (videoId) return enrichYoutube(url, videoId)
-
-  const cached = readEnrichCache(url)
-  if (cached) return cached
 
   const [fromOgs, fromMicrolink] = await Promise.all([
     withTimeout(enrichFromOgs(url), ENRICH_PROVIDER_BUDGET_MS),
@@ -365,6 +385,27 @@ async function enrichAndMirror(url: string): Promise<LinkMetadata> {
 
   writeEnrichCache(url, merged)
   return merged
+}
+
+/** Exported for tests; production callers go through `enrichLink`. */
+export async function enrichAndMirror(url: string): Promise<LinkMetadata> {
+  const videoId = parseYoutubeVideoId(url)
+  const cached =
+    readEnrichCache(url) ??
+    (videoId ? readEnrichCache(youtubeWatchUrl(videoId)) : null)
+  if (cached) return cached
+
+  // Coalesce concurrent calls for the same URL into one scrape; otherwise
+  // N bookmarks sharing a URL (or a retry burst) each burn a full provider
+  // budget before the first result lands in the cache.
+  const inFlight = enrichInFlight.get(url)
+  if (inFlight) return inFlight
+
+  const promise = scrapeAndMirror(url).finally(() => {
+    enrichInFlight.delete(url)
+  })
+  enrichInFlight.set(url, promise)
+  return promise
 }
 
 export const enrichLink = createServerFn({ method: "POST" })

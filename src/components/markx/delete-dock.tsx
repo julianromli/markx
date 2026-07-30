@@ -1,5 +1,5 @@
 import type { RefObject } from "react"
-import { TrashIcon } from "@phosphor-icons/react"
+import { TrashIcon } from "@phosphor-icons/react/dist/csr/Trash"
 
 import { deleteDockLabel } from "@/lib/markx/delete-dock"
 import { cn } from "@/lib/utils"

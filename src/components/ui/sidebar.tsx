@@ -22,7 +22,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { SidebarIcon } from "@phosphor-icons/react"
+import { SidebarIcon } from "@phosphor-icons/react/dist/csr/Sidebar"
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state"
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7

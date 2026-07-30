@@ -10,7 +10,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { InputGroup, InputGroupAddon } from "@/components/ui/input-group"
-import { MagnifyingGlassIcon, CheckIcon } from "@phosphor-icons/react"
+import { MagnifyingGlassIcon } from "@phosphor-icons/react/dist/csr/MagnifyingGlass"
+import { CheckIcon } from "@phosphor-icons/react/dist/csr/Check"
 
 function Command({
   className,

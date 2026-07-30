@@ -5,7 +5,10 @@ import { cloneState, createEmptyState, nextZ } from "./state"
 import { localMarkxStorage, sweepOrphanImageBlobs } from "./storage"
 import type { MarkxStorage } from "./storage"
 import type { SyncEngine } from "./sync"
-import { STORE_PERSIST_DEBOUNCE_MS } from "./sync-timings"
+import {
+  STORE_ENRICH_BATCH_WINDOW_MS,
+  STORE_PERSIST_DEBOUNCE_MS,
+} from "./sync-timings"
 import type {
   BoardImage,
   Bookmark,
@@ -571,28 +574,50 @@ export function createMarkxStore(
         }))
       }
 
+      // Fetches run in parallel, but results land in separate tasks — React
+      // can't batch across them, so one patch per response would mean one
+      // full workspace re-render per bookmark. Collect results and commit
+      // them in waves instead. `null` marks a failed enrich (clear shimmer).
+      const pendingMeta = new Map<string, LinkMetadata | null>()
+      let flushTimer: ReturnType<typeof setTimeout> | null = null
+
+      const flush = () => {
+        flushTimer = null
+        if (pendingMeta.size === 0) return
+        const batch = new Map(pendingMeta)
+        pendingMeta.clear()
+        patch((prev) => ({
+          ...prev,
+          bookmarks: prev.bookmarks.map((b) => {
+            if (!batch.has(b.id)) return b
+            const meta = batch.get(b.id)
+            return meta
+              ? applyBookmarkMetadata(b, meta)
+              : { ...b, enrichStatus: "done" as const }
+          }),
+        }))
+      }
+
       await Promise.all(
         missing.map(async (bookmark) => {
           try {
             const meta = await dependencies.enrich({
               data: { url: bookmark.url },
             })
-            patch((prev) => ({
-              ...prev,
-              bookmarks: prev.bookmarks.map((b) =>
-                b.id === bookmark.id ? applyBookmarkMetadata(b, meta) : b
-              ),
-            }))
+            pendingMeta.set(bookmark.id, meta)
           } catch {
-            patch((prev) => ({
-              ...prev,
-              bookmarks: prev.bookmarks.map((b) =>
-                b.id === bookmark.id ? { ...b, enrichStatus: "done" } : b
-              ),
-            }))
+            pendingMeta.set(bookmark.id, null)
           }
+          flushTimer ??= setTimeout(flush, STORE_ENRICH_BATCH_WINDOW_MS)
         })
       )
+
+      const cancelPendingFlush = () => {
+        if (flushTimer) clearTimeout(flushTimer)
+        flushTimer = null
+      }
+      cancelPendingFlush()
+      flush()
     },
   }
 

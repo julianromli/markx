@@ -4,11 +4,9 @@ import type { DayButton, Locale } from "react-day-picker"
 
 import { cn } from "@/lib/utils"
 import { Button, buttonVariants } from "@/components/ui/button"
-import {
-  CaretLeftIcon,
-  CaretRightIcon,
-  CaretDownIcon,
-} from "@phosphor-icons/react"
+import { CaretLeftIcon } from "@phosphor-icons/react/dist/csr/CaretLeft"
+import { CaretRightIcon } from "@phosphor-icons/react/dist/csr/CaretRight"
+import { CaretDownIcon } from "@phosphor-icons/react/dist/csr/CaretDown"
 
 function Calendar({
   className,

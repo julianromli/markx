@@ -3,21 +3,19 @@ import type { ReactNode, RefObject } from "react"
 import { useState } from "react"
 import { toast } from "sonner"
 
-import {
-  ArrowClockwiseIcon,
-  ArrowCounterClockwiseIcon,
-  ArrowLeftIcon,
-  CaretDownIcon,
-  DotsThreeOutlineIcon,
-  FolderSimpleIcon,
-  ImageIcon,
-  LinkIcon,
-  ListIcon,
-  MagnifyingGlassIcon,
-  NoteBlankIcon,
-  QuestionIcon,
-  TrashIcon,
-} from "@phosphor-icons/react"
+import { ArrowClockwiseIcon } from "@phosphor-icons/react/dist/csr/ArrowClockwise"
+import { ArrowCounterClockwiseIcon } from "@phosphor-icons/react/dist/csr/ArrowCounterClockwise"
+import { ArrowLeftIcon } from "@phosphor-icons/react/dist/csr/ArrowLeft"
+import { CaretDownIcon } from "@phosphor-icons/react/dist/csr/CaretDown"
+import { DotsThreeOutlineIcon } from "@phosphor-icons/react/dist/csr/DotsThreeOutline"
+import { FolderSimpleIcon } from "@phosphor-icons/react/dist/csr/FolderSimple"
+import { ImageIcon } from "@phosphor-icons/react/dist/csr/Image"
+import { LinkIcon } from "@phosphor-icons/react/dist/csr/Link"
+import { ListIcon } from "@phosphor-icons/react/dist/csr/List"
+import { MagnifyingGlassIcon } from "@phosphor-icons/react/dist/csr/MagnifyingGlass"
+import { NoteBlankIcon } from "@phosphor-icons/react/dist/csr/NoteBlank"
+import { QuestionIcon } from "@phosphor-icons/react/dist/csr/Question"
+import { TrashIcon } from "@phosphor-icons/react/dist/csr/Trash"
 
 import homeIcon from "@/assets/markx/header/home.svg"
 import pixelFolder from "@/assets/markx/pixel-folder.svg"

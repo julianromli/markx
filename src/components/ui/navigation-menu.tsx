@@ -2,7 +2,7 @@ import { NavigationMenu as NavigationMenuPrimitive } from "@base-ui/react/naviga
 import { cva } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
-import { CaretDownIcon } from "@phosphor-icons/react"
+import { CaretDownIcon } from "@phosphor-icons/react/dist/csr/CaretDown"
 
 function NavigationMenu({
   align = "start",

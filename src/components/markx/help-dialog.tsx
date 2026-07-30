@@ -6,18 +6,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  FolderSimpleIcon,
-  LinkIcon,
-  NoteBlankIcon,
-  ImageIcon,
-  HandIcon,
-  KeyboardIcon,
-  CloudIcon,
-  CloudSlashIcon,
-  CloudWarningIcon,
-  CursorIcon,
-} from "@phosphor-icons/react"
+import { FolderSimpleIcon } from "@phosphor-icons/react/dist/csr/FolderSimple"
+import { LinkIcon } from "@phosphor-icons/react/dist/csr/Link"
+import { NoteBlankIcon } from "@phosphor-icons/react/dist/csr/NoteBlank"
+import { ImageIcon } from "@phosphor-icons/react/dist/csr/Image"
+import { HandIcon } from "@phosphor-icons/react/dist/csr/Hand"
+import { KeyboardIcon } from "@phosphor-icons/react/dist/csr/Keyboard"
+import { CloudIcon } from "@phosphor-icons/react/dist/csr/Cloud"
+import { CloudSlashIcon } from "@phosphor-icons/react/dist/csr/CloudSlash"
+import { CloudWarningIcon } from "@phosphor-icons/react/dist/csr/CloudWarning"
+import { CursorIcon } from "@phosphor-icons/react/dist/csr/Cursor"
 
 function usePlatformMod() {
   const [mod, setMod] = useState("Ctrl")

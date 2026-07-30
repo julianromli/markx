@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router"
-import { FolderSimpleIcon, LinkIcon } from "@phosphor-icons/react"
+import { FolderSimpleIcon } from "@phosphor-icons/react/dist/csr/FolderSimple"
+import { LinkIcon } from "@phosphor-icons/react/dist/csr/Link"
 import { useCallback, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 
@@ -83,6 +84,20 @@ export function Workspace(props: WorkspaceProps) {
     () => selectWorkspaceItems(state, props),
     [props, state]
   )
+
+  // Folder tiles show a bookmark count; computed once per bookmarks change so
+  // memoized board items get a primitive prop instead of the whole array.
+  const folderBookmarkCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    if (props.mode === "home") {
+      for (const bookmark of state.bookmarks) {
+        counts.set(bookmark.folderId, (counts.get(bookmark.folderId) ?? 0) + 1)
+      }
+    }
+    return counts
+  }, [state.bookmarks, props.mode])
+
+  const exitNoteEdit = useCallback(() => setEditingNoteId(null), [])
 
   const selectedItems = items.filter((i) => selectedIds.has(i.id))
 
@@ -453,10 +468,14 @@ export function Workspace(props: WorkspaceProps) {
                   item={item}
                   selected={selected}
                   interacting={dragging}
-                  editingNoteId={editingNoteId}
-                  bookmarks={state.bookmarks}
+                  editing={editingNoteId === item.id}
+                  folderBookmarkCount={
+                    item.kind === "folder"
+                      ? (folderBookmarkCounts.get(item.id) ?? 0)
+                      : undefined
+                  }
                   onCommitNote={actions.updateNoteContent}
-                  onExitNoteEdit={() => setEditingNoteId(null)}
+                  onExitNoteEdit={exitNoteEdit}
                   onNoteStyleChange={actions.setNoteStyle}
                 />
               )}

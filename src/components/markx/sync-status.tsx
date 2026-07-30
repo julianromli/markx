@@ -1,10 +1,8 @@
 import { useState } from "react"
-import {
-  CloudSlashIcon,
-  CloudWarningIcon,
-  SpinnerIcon,
-  CheckCircleIcon,
-} from "@phosphor-icons/react"
+import { CloudSlashIcon } from "@phosphor-icons/react/dist/csr/CloudSlash"
+import { CloudWarningIcon } from "@phosphor-icons/react/dist/csr/CloudWarning"
+import { SpinnerIcon } from "@phosphor-icons/react/dist/csr/Spinner"
+import { CheckCircleIcon } from "@phosphor-icons/react/dist/csr/CheckCircle"
 
 import {
   AlertDialog,

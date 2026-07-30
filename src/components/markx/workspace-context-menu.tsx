@@ -1,15 +1,13 @@
 import { NoteColorChoices } from "./note-color-choices"
 
-import {
-  ArrowBendUpRightIcon,
-  ArrowSquareOutIcon,
-  CornersInIcon,
-  FolderSimpleIcon,
-  LinkIcon,
-  NoteBlankIcon,
-  PencilSimpleIcon,
-  TrashIcon,
-} from "@phosphor-icons/react"
+import { ArrowBendUpRightIcon } from "@phosphor-icons/react/dist/csr/ArrowBendUpRight"
+import { ArrowSquareOutIcon } from "@phosphor-icons/react/dist/csr/ArrowSquareOut"
+import { CornersInIcon } from "@phosphor-icons/react/dist/csr/CornersIn"
+import { FolderSimpleIcon } from "@phosphor-icons/react/dist/csr/FolderSimple"
+import { LinkIcon } from "@phosphor-icons/react/dist/csr/Link"
+import { NoteBlankIcon } from "@phosphor-icons/react/dist/csr/NoteBlank"
+import { PencilSimpleIcon } from "@phosphor-icons/react/dist/csr/PencilSimple"
+import { TrashIcon } from "@phosphor-icons/react/dist/csr/Trash"
 
 import {
   ContextMenuContent,

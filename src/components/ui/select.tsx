@@ -4,7 +4,9 @@ import * as React from "react"
 import { Select as SelectPrimitive } from "@base-ui/react/select"
 
 import { cn } from "@/lib/utils"
-import { CaretDownIcon, CheckIcon, CaretUpIcon } from "@phosphor-icons/react"
+import { CaretDownIcon } from "@phosphor-icons/react/dist/csr/CaretDown"
+import { CheckIcon } from "@phosphor-icons/react/dist/csr/Check"
+import { CaretUpIcon } from "@phosphor-icons/react/dist/csr/CaretUp"
 
 const Select = SelectPrimitive.Root
 

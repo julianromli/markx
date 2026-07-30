@@ -45,15 +45,13 @@ When **off**: no free-tier entity limit, no Upgrade CTA, checkout rejects, and e
 ## 1. Mayar production account
 
 Checkout is **custom QRIS in-app** (generic `/invoices/create` with
-`paymentMethod: "qrcode"`); the app no longer uses a Mayar membership
-product, hosted bill page, or tier redirect. What the production account
-needs:
+`paymentMethod: "qris"` — lowercase, case-sensitive); the app no longer
+uses a Mayar membership product, hosted bill page, or tier redirect.
+What the production account needs:
 
-- [ ] **Direct-channel invoice creation enabled** — `paymentMethod` on
-  `/invoices/create` must return `paymentDetail.qr_code.qr_string`. Not all
-  accounts have this; if it 400s with "not available or disabled", ask Mayar
-  support to enable direct/dynamic QRIS for the account.
-- [ ] QRIS channel active (Integration → Payment Channels).
+- [ ] QRIS channel active (Integration → Payment Channels) — direct-channel
+  invoice creation works on this account (verified: returns
+  `paymentDetail.qr_code.qr_string`).
 - [ ] Create production API key: Integration → API Key  
   Scope: read + write as needed for invoices + transactions
 

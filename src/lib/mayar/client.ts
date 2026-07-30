@@ -93,7 +93,7 @@ export async function createQrisInvoice(input: {
           description: "Markx Pro — 1 month",
         },
       ],
-      paymentMethod: "qrcode",
+      paymentMethod: "qris",
       extraData: { userId: input.userId },
     }),
   })

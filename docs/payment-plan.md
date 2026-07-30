@@ -22,10 +22,10 @@ Markx (TanStack Start + Cloudflare Workers) menjual **langganan membership bulan
 
 | Endpoint | Dipakai untuk |
 |----------|----------------|
-| `POST /invoices/create` | `name`, `email`, `mobile`, `items`, `paymentMethod: "qrcode"`, `extraData: { userId }` → `transactionId` + `paymentDetail.qr_code.channel_properties.qr_string` |
+| `POST /invoices/create` | `name`, `email`, `mobile`, `items`, `paymentMethod: "qris"` (lowercase!), `extraData: { userId }` → `transactionId` + `paymentDetail.qr_code.channel_properties.qr_string` |
 | `GET /transactions/{id}` | **Verify-on-read** — bukti `paid` untuk aktivasi Pro (tanpa webhook) |
 
-**Catatan:** checkout adalah **custom QRIS in-app** — app merender `qr_string` sendiri, user tidak pernah melihat hosted page Mayar. Direct-channel (`paymentMethod` pada invoice) harus aktif di akun Mayar; tidak semua akun di-enable secara default.
+**Catatan:** checkout adalah **custom QRIS in-app** — app merender `qr_string` sendiri, user tidak pernah melihat hosted page Mayar. Value `paymentMethod` bersifat case-sensitive: `"qris"` lowercase; varian lain (`"qrcode"`, `"QRIS"`) ditolak 400.
 **Setup sekali di dashboard Mayar (sandbox):** buat produk membership SaaS **Rp 49.000/bulan** → simpan ID di env.
 
 ## Arsitektur di repo
@@ -98,7 +98,7 @@ Implementasi: pada save, jika `plan !== 'pro'` dan count > 100, reject meskipun 
 ## Checkout flow (custom QRIS)
 
 1. User klik **Upgrade** di account menu → isi nomor HP (Mayar mewajibkan `mobile` 10–15 digit).
-2. Server: `POST /invoices/create` (`paymentMethod: "qrcode"`, `extraData: { userId }`) → kembalikan `qrString`, `amount`, `expiredAt`; `transactionId` disimpan di row.
+2. Server: `POST /invoices/create` (`paymentMethod: "qris"`, `extraData: { userId }`) → kembalikan `qrString`, `amount`, `expiredAt`; `transactionId` disimpan di row.
 3. Dialog menampilkan QR (canvas dari `qr_string`), nominal, countdown expiry, dan polling `refreshEntitlements` tiap 4 detik.
 4. Paid → aktivasi otomatis → dialog menampilkan "Markx Pro is active". QR expired → tombol generate ulang.
 

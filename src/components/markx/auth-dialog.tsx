@@ -10,6 +10,8 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { cn } from "@/lib/utils"
 import {
   InputOTP,
   InputOTPGroup,
@@ -229,17 +231,30 @@ export function AuthDialog({
               }}
               className="space-y-4"
             >
-              <Input
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoFocus
-                autoComplete="email"
-                disabled={sending}
-                aria-invalid={!!error}
-              />
-              {error && <p className="text-sm text-destructive">{error}</p>}
+              <div className="space-y-2">
+                <Label htmlFor="auth-email">Email</Label>
+                <Input
+                  id="auth-email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoFocus
+                  autoComplete="email"
+                  disabled={sending}
+                  aria-invalid={!!error}
+                  aria-describedby="auth-email-error"
+                />
+              </div>
+              {/* Stable live region: stays mounted so repeated errors are
+               * announced reliably; sr-only while empty. */}
+              <p
+                id="auth-email-error"
+                aria-live="polite"
+                className={cn("text-sm text-destructive", !error && "sr-only")}
+              >
+                {error}
+              </p>
               <Button
                 type="submit"
                 className="w-full"
@@ -264,31 +279,48 @@ export function AuthDialog({
             </DialogHeader>
 
             <div className="space-y-4">
-              <div ref={otpInputRef} className="flex justify-center">
-                <InputOTP
-                  maxLength={OTP_LENGTH}
-                  value={otp}
-                  onChange={(v) => setOtp(v)}
-                  disabled={verifying}
-                  aria-invalid={!!error}
-                >
-                  <InputOTPGroup>
-                    <InputOTPSlot index={0} />
-                    <InputOTPSlot index={1} />
-                    <InputOTPSlot index={2} />
-                  </InputOTPGroup>
-                  <InputOTPSeparator />
-                  <InputOTPGroup>
-                    <InputOTPSlot index={3} />
-                    <InputOTPSlot index={4} />
-                    <InputOTPSlot index={5} />
-                  </InputOTPGroup>
-                </InputOTP>
+              <div className="space-y-2">
+                <Label htmlFor="auth-otp" className="block text-center">
+                  One-time code
+                </Label>
+                <div ref={otpInputRef} className="flex justify-center">
+                  <InputOTP
+                    id="auth-otp"
+                    maxLength={OTP_LENGTH}
+                    value={otp}
+                    onChange={(v) => setOtp(v)}
+                    disabled={verifying}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    aria-invalid={!!error}
+                    aria-describedby="auth-otp-error"
+                  >
+                    <InputOTPGroup>
+                      <InputOTPSlot index={0} />
+                      <InputOTPSlot index={1} />
+                      <InputOTPSlot index={2} />
+                    </InputOTPGroup>
+                    <InputOTPSeparator />
+                    <InputOTPGroup>
+                      <InputOTPSlot index={3} />
+                      <InputOTPSlot index={4} />
+                      <InputOTPSlot index={5} />
+                    </InputOTPGroup>
+                  </InputOTP>
+                </div>
               </div>
 
-              {error && (
-                <p className="text-center text-sm text-destructive">{error}</p>
-              )}
+              {/* Stable live region, mirrors the email step. */}
+              <p
+                id="auth-otp-error"
+                aria-live="polite"
+                className={cn(
+                  "text-center text-sm text-destructive",
+                  !error && "sr-only"
+                )}
+              >
+                {error}
+              </p>
 
               <Button
                 className="w-full"

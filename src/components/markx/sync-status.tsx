@@ -14,6 +14,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { useSyncStatus } from "@/lib/markx/hooks"
 import { useMarkxStore } from "@/lib/markx/store"
@@ -91,21 +96,42 @@ export function SyncStatusBadge({
   if (status === "idle") return null
 
   const c = SYNC_STATUS_CONFIG[status]
-
-  return (
-    <button
-      type="button"
-      onClick={status === "conflict" ? onConflictClick : undefined}
-      title={c.tooltip}
-      className={cn(
-        "flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors",
-        c.className,
-        status === "conflict" && "cursor-pointer hover:opacity-80"
-      )}
-    >
+  const className = cn(
+    "flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors",
+    c.className
+  )
+  const content = (
+    <>
       {c.icon}
       <span className="tabular-nums">{c.label}</span>
-    </button>
+    </>
+  )
+
+  // Passive states are read-only: a <button> would promise an action that
+  // doesn't exist. role="status" also announces state changes politely.
+  if (status !== "conflict") {
+    return (
+      <span role="status" title={c.tooltip} className={className}>
+        {content}
+      </span>
+    )
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            onClick={onConflictClick}
+            className={cn(className, "cursor-pointer hover:opacity-80")}
+          >
+            {content}
+          </button>
+        }
+      />
+      <TooltipContent>{c.tooltip}</TooltipContent>
+    </Tooltip>
   )
 }
 

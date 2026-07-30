@@ -41,7 +41,7 @@ export function FolderIcon({
           {name}
         </p>
         <p className="mt-0.5 text-[16px] leading-[1.05] text-ink-muted tabular-nums">
-          {count} {count === 1 ? "page" : "pages"}
+          {count} {count === 1 ? "bookmark" : "bookmarks"}
         </p>
       </div>
     </div>

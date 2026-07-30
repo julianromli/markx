@@ -64,7 +64,7 @@ export function WorkspaceContextMenu({
       {mode === "home" ? (
         <ContextMenuItem onClick={() => onCreateFolder(contextPoint)}>
           <FolderSimpleIcon weight="regular" />
-          New Board
+          New Folder
         </ContextMenuItem>
       ) : (
         <ContextMenuItem onClick={() => onCreateBookmark(contextPoint)}>

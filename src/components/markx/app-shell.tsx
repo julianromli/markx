@@ -83,7 +83,7 @@ const TOOLS: Array<{
 }> = [
   { action: "note", label: "Note", icon: NoteBlankIcon },
   { action: "link", label: "Link", icon: LinkIcon },
-  { action: "board", label: "Board", icon: FolderSimpleIcon },
+  { action: "board", label: "Folder", icon: FolderSimpleIcon },
   { action: "image", label: "Image", icon: ImageIcon },
 ]
 
@@ -556,7 +556,7 @@ function ToolButton({
       // to a toast carrying the same reason.
       onClick={unavailable ? () => toast(reason) : onClick}
       className={cn(
-        "mb-0.5 flex w-full flex-col items-center gap-1 rounded-xl px-1 py-3 text-[10px] text-black/55 transition-[transform,background-color,box-shadow] duration-150 ease-[var(--ease-out-strong)] md:mb-0.5 md:w-[56px] md:gap-0.5 md:py-1.5 md:text-[9px]",
+        "mb-0.5 flex w-full flex-col items-center gap-1 rounded-xl px-1 py-3 text-[11px] text-ink-muted transition-[transform,background-color,box-shadow] duration-150 ease-[var(--ease-out-strong)] md:mb-0.5 md:w-[56px] md:gap-0.5 md:py-1.5 md:text-[10px]",
         unavailable
           ? "cursor-not-allowed opacity-45"
           : "hover:bg-black/5 active:scale-[0.96]"

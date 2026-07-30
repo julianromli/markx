@@ -109,6 +109,12 @@ export function NoteCard({
       if (e.key !== "Escape") return
       e.preventDefault()
       e.stopPropagation()
+      // An open toolbar dropdown consumes the first Escape; the next one
+      // exits editing.
+      if (openMenu != null) {
+        setOpenMenu(null)
+        return
+      }
       if (committedRef.current) return
       committedRef.current = true
       onCommit?.(editor.getHTML())
@@ -118,7 +124,7 @@ export function NoteCard({
 
     window.addEventListener("keydown", onKeyDown, true)
     return () => window.removeEventListener("keydown", onKeyDown, true)
-  }, [editing, editor, onCommit, onExitEdit])
+  }, [editing, editor, openMenu, onCommit, onExitEdit])
 
   const fontFamily = NOTE_FONTS[note.font]
   const fontSize = NOTE_FONT_SIZES[note.fontSize]
@@ -143,6 +149,7 @@ export function NoteCard({
             id="color"
             openMenu={openMenu}
             onOpenMenuChange={setOpenMenu}
+            hasPopup="true"
             triggerLabel={
               <span
                 className="size-4 rounded-full border border-black/15"
@@ -173,11 +180,13 @@ export function NoteCard({
             triggerLabel={<span className="text-[13px] font-medium">Aa</span>}
           >
             {(close) => (
-              <div className="min-w-[120px] p-0.5">
+              <div className="min-w-[120px] p-0.5" role="menu">
                 {FONT_OPTIONS.map((option) => (
                   <button
                     key={option.value}
                     type="button"
+                    role="menuitemradio"
+                    aria-checked={note.font === option.value}
                     onClick={() => {
                       onStyleChange?.({ font: option.value })
                       editor.commands.focus()
@@ -210,11 +219,13 @@ export function NoteCard({
             }
           >
             {(close) => (
-              <div className="min-w-[120px] p-0.5">
+              <div className="min-w-[120px] p-0.5" role="menu">
                 {SIZE_OPTIONS.map((option) => (
                   <button
                     key={option.value}
                     type="button"
+                    role="menuitemradio"
+                    aria-checked={note.fontSize === option.value}
                     onClick={() => {
                       onStyleChange?.({ fontSize: option.value })
                       editor.commands.focus()
@@ -278,7 +289,9 @@ export function NoteCard({
               dangerouslySetInnerHTML={{ __html: note.content }}
             />
           ) : (
-            <p className="text-ink/70">Double-click to edit</p>
+            <p className="text-ink/70">
+              {isMobile ? "Double-tap to edit" : "Double-click to edit"}
+            </p>
           )}
         </div>
 
@@ -303,6 +316,7 @@ function ToolbarButton({
     <button
       type="button"
       aria-label={label}
+      aria-pressed={active}
       onPointerDown={(e) => e.preventDefault()}
       onClick={onClick}
       className={cn(
@@ -324,12 +338,15 @@ function ToolbarDropdown({
   openMenu,
   onOpenMenuChange,
   triggerLabel,
+  hasPopup = "menu",
   children,
 }: {
   id: string
   openMenu: string | null
   onOpenMenuChange: (id: string | null) => void
   triggerLabel: ReactNode
+  /** "menu" when the popup has menu semantics; "true" for a generic panel. */
+  hasPopup?: "menu" | "true"
   children: (close: () => void) => ReactNode
 }) {
   const open = openMenu === id
@@ -345,6 +362,8 @@ function ToolbarDropdown({
     <div className="relative">
       <button
         type="button"
+        aria-expanded={open}
+        aria-haspopup={hasPopup}
         onPointerDown={(e) => {
           e.preventDefault()
           e.stopPropagation()

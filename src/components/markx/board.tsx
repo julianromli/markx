@@ -195,6 +195,13 @@ export function Board({
    */
   const modalityRef = useRef<"pointer" | "keyboard">("pointer")
   const prevEditingIdRef = useRef<string | null>(null)
+  /**
+   * Ids present since this board mounted. The `.board-item-in` entrance
+   * animation is for newly created items only — without this gate it fires
+   * for every item on initial load, navigation, and sync remounts.
+   * `null` until the first layout effect seeds it (SSR-safe).
+   */
+  const seenIdsRef = useRef<Set<string> | null>(null)
 
   // Coalesce gesture previews to one React commit per frame (single write path).
   const rafIdRef = useRef<number | null>(null)
@@ -327,6 +334,14 @@ export function Board({
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
   }, [])
+
+  // Record ids after each commit; during render, an id not yet in the set is
+  // a genuinely new item and gets the entrance animation for that one commit.
+  useLayoutEffect(() => {
+    const seen = seenIdsRef.current ?? new Set<string>()
+    for (const item of items) seen.add(item.id)
+    seenIdsRef.current = seen
+  }, [items])
 
   const focusItem = (id: string) => {
     viewportRef.current
@@ -932,6 +947,8 @@ export function Board({
           const y = live?.y ?? item.data.y
           const selected = selectedIds.has(item.id)
           const dragging = liveOffsets.has(item.id) || liveResize.has(item.id)
+          const animateIn =
+            seenIdsRef.current != null && !seenIdsRef.current.has(item.id)
           return (
             <div
               key={item.id}
@@ -950,7 +967,10 @@ export function Board({
                   anchorIdRef.current = item.id
                 }
               }}
-              className="board-item-in absolute origin-top-left rounded-md outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-black/70"
+              className={cn(
+                "absolute origin-top-left rounded-md outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-black/70",
+                animateIn && "board-item-in"
+              )}
               style={{
                 transform: `translate(${x}px, ${y}px)`,
                 zIndex: item.data.z,

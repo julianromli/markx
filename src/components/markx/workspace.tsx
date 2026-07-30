@@ -314,7 +314,7 @@ export function Workspace(props: WorkspaceProps) {
       switch (item.kind) {
         case "folder": {
           const count = countBookmarksInFolder(state.bookmarks, item.data.id)
-          return `${item.data.name}, folder, ${count} ${count === 1 ? "page" : "pages"}`
+          return `${item.data.name}, folder, ${count} ${count === 1 ? "bookmark" : "bookmarks"}`
         }
         case "bookmark":
           return `${item.data.title}, bookmark`
@@ -501,7 +501,7 @@ export function Workspace(props: WorkspaceProps) {
             </p>
             <p className="mt-1 text-[13px] text-ink-muted">
               {initialSyncStatus === "loading"
-                ? "Your boards will appear as soon as cloud sync finishes."
+                ? "Your workspace will appear as soon as cloud sync finishes."
                 : "Check your connection and try again. Editing stays disabled to protect your cloud data."}
             </p>
             {initialSyncStatus === "error" ? (
@@ -521,8 +521,8 @@ export function Workspace(props: WorkspaceProps) {
             </p>
             <p className="mt-1 text-[13px] text-pretty text-ink-muted">
               {props.mode === "home"
-                ? "Or add a note from the sidebar (⌘N)"
-                : "Or add a note, or paste a URL (⌘V)"}
+                ? "Press ⌘N for a new folder, or add a note from the sidebar"
+                : "Add a note from the sidebar, or paste a URL (⌘V)"}
             </p>
             <Button
               className="mt-4"
@@ -534,7 +534,7 @@ export function Workspace(props: WorkspaceProps) {
               {props.mode === "home" ? (
                 <>
                   <FolderSimpleIcon className="size-4" weight="regular" />
-                  New board
+                  New folder
                 </>
               ) : (
                 <>

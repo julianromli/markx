@@ -4,6 +4,7 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite"
 import viteReact from "@vitejs/plugin-react"
 import tailwindcss from "@tailwindcss/vite"
 import { cloudflare } from "@cloudflare/vite-plugin"
+import { clientNodeGuard } from "./scripts/vite-plugin-client-node-guard"
 
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
@@ -13,6 +14,7 @@ const config = defineConfig({
     tailwindcss(),
     tanstackStart(),
     viteReact(),
+    clientNodeGuard(),
   ],
   build: {
     rolldownOptions: {

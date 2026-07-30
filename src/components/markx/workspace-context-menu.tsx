@@ -64,7 +64,7 @@ export function WorkspaceContextMenu({
       {mode === "home" ? (
         <ContextMenuItem onClick={() => onCreateFolder(contextPoint)}>
           <FolderSimpleIcon weight="regular" />
-          New Folder
+          New folder
         </ContextMenuItem>
       ) : (
         <ContextMenuItem onClick={() => onCreateBookmark(contextPoint)}>
@@ -74,7 +74,7 @@ export function WorkspaceContextMenu({
       )}
       <ContextMenuItem onClick={() => onCreateNote(contextPoint)}>
         <NoteBlankIcon weight="regular" />
-        New Note
+        New note
       </ContextMenuItem>
       <ContextMenuSeparator />
       {selectedNotes.length > 0 ? (
@@ -127,7 +127,7 @@ export function WorkspaceContextMenu({
         onClick={() => onResetSizes(ids)}
       >
         <CornersInIcon weight="regular" />
-        Reset Size
+        Reset size
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem

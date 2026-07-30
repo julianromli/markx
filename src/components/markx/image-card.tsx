@@ -42,7 +42,7 @@ export function ImageCard({ image, selected, className }: ImageCardProps) {
           <img
             src={url}
             alt=""
-            className="size-full object-contain"
+            className="size-full object-contain outline outline-1 outline-black/10"
             draggable={false}
             loading="lazy"
           />

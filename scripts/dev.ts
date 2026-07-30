@@ -47,11 +47,18 @@ if (!databaseUrl) {
 
 process.env[HYPERDRIVE_ENV] ??= devVars[HYPERDRIVE_ENV] ?? databaseUrl
 
-const vite = Bun.spawn(["vite", "dev", "--port", "3000"], {
-  stdin: "inherit",
-  stdout: "inherit",
-  stderr: "inherit",
-  env: process.env,
-})
+// Ship Studio (and similar launchers) assign the port via PORT; keep 3000
+// for manual runs. Extra CLI args are forwarded so launchers can pass flags.
+const port = process.env.PORT ?? "3000"
+
+const vite = Bun.spawn(
+  ["vite", "dev", "--port", port, "--strictPort", ...process.argv.slice(2)],
+  {
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+    env: process.env,
+  }
+)
 
 process.exit(await vite.exited)

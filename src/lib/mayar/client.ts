@@ -25,7 +25,7 @@ async function mayarFetch<T>(
   if (!res.ok) {
     let detail = String(res.status)
     try {
-      const errBody = (await res.json()) as MayarEnvelope<unknown>
+      const errBody: MayarEnvelope<unknown> = await res.json()
       detail = errBody.messages ?? errBody.message ?? detail
     } catch {
       // non-JSON error body
@@ -34,7 +34,7 @@ async function mayarFetch<T>(
   }
 
   // Mayar write endpoints may still use HTTP 200 with statusCode >= 400 in body.
-  const body = (await res.json()) as MayarEnvelope<T>
+  const body: MayarEnvelope<T> = await res.json()
   const msg = body.messages ?? body.message
   const statusCode = body.statusCode ?? res.status
   if (statusCode >= 400) {
@@ -43,36 +43,19 @@ async function mayarFetch<T>(
   return body.data as T
 }
 
-export type MembershipMemberRecord = {
+export type QrisInvoiceResult = {
   id: string
-  memberId: string
-  customerId: string
+  transactionId: string
+  amount: number
   status: string
-  nextPayment?: string | null
-  expiredAt?: string | null
-  customer?: { email: string; name: string; mobile: string }
-}
-
-export type RegisterMemberResult = {
-  memberId: string
-  customerId: string
-  status: string
-  nextPayment?: string | null
-}
-
-type RegisterMemberApiData = {
-  memberId: string
-  customerId: string
-  status: string
-  nextPayment?: string | null
-  membershipCustomer?: RegisterMemberResult
-}
-
-export type MembershipInvoiceResult = {
-  id: string
-  transactionId?: string
-  membershipBillUrl: string
-  status: string
+  invoiceCode?: string
+  /** ISO 8601; the QR string dies with the invoice. */
+  expiredAt?: string
+  paymentDetail?: {
+    qr_code?: {
+      channel_properties?: { qr_string?: string; expires_at?: string }
+    }
+  }
 }
 
 export type TransactionDetail = {
@@ -83,48 +66,37 @@ export type TransactionDetail = {
   paymentLink?: { id: string; type: string }
 }
 
-export async function registerMembershipMember(input: {
-  productId: string
-  membershipTierId: string
-  customerInfo: { name: string; email: string; mobile: string }
-  membershipMonthlyPeriod?: number
-}): Promise<RegisterMemberResult> {
+/**
+ * Creates a QRIS-only invoice and returns the raw QR string so the app can
+ * render its own checkout UI (no Mayar hosted page). `extraData.userId` ties
+ * the payment back to the workspace owner for reconciliation.
+ */
+export async function createQrisInvoice(input: {
+  name: string
+  email: string
+  mobile: string
+  userId: string
+  priceIdr: number
+}): Promise<QrisInvoiceResult> {
   const config = await getMayarConfig()
-  const raw = await mayarFetch<RegisterMemberApiData>(
-    config,
-    "/memberships/members/create",
-    {
-      method: "POST",
-      body: JSON.stringify({
-        ...input,
-        membershipMonthlyPeriod: input.membershipMonthlyPeriod ?? 1,
-      }),
-    }
-  )
-  if (raw.membershipCustomer) {
-    return raw.membershipCustomer
-  }
-  return {
-    memberId: raw.memberId,
-    customerId: raw.customerId,
-    status: raw.status,
-    nextPayment: raw.nextPayment,
-  }
-}
-
-export async function createMembershipInvoice(
-  memberId: string,
-  productId: string
-): Promise<MembershipInvoiceResult> {
-  const config = await getMayarConfig()
-  return mayarFetch<MembershipInvoiceResult>(
-    config,
-    `/memberships/members/${encodeURIComponent(memberId)}/invoice/create`,
-    {
-      method: "POST",
-      body: JSON.stringify({ productId }),
-    }
-  )
+  return mayarFetch<QrisInvoiceResult>(config, "/invoices/create", {
+    method: "POST",
+    body: JSON.stringify({
+      name: input.name,
+      email: input.email,
+      mobile: input.mobile,
+      description: "Markx Pro — 1 month",
+      items: [
+        {
+          quantity: 1,
+          rate: input.priceIdr,
+          description: "Markx Pro — 1 month",
+        },
+      ],
+      paymentMethod: "qrcode",
+      extraData: { userId: input.userId },
+    }),
+  })
 }
 
 export async function getTransaction(id: string): Promise<TransactionDetail> {
@@ -135,51 +107,6 @@ export async function getTransaction(id: string): Promise<TransactionDetail> {
   )
 }
 
-export async function getMembershipMemberDetail(
-  memberId: string,
-  productId: string
-): Promise<MembershipMemberRecord> {
-  const config = await getMayarConfig()
-  return mayarFetch<MembershipMemberRecord>(
-    config,
-    `/memberships/members/${encodeURIComponent(memberId)}?productId=${encodeURIComponent(productId)}`
-  )
-}
-
-type MemberListRow = {
-  memberId: string
-  "customer.email"?: string
-  status?: string
-}
-
-export async function findMemberIdByEmail(
-  productId: string,
-  email: string
-): Promise<string | null> {
-  const config = await getMayarConfig()
-  const params = new URLSearchParams({
-    productId,
-    limit: "10",
-    search: email,
-  })
-  const rows = await mayarFetch<MemberListRow[]>(
-    config,
-    `/memberships/members?${params.toString()}`
-  )
-  const normalized = email.trim().toLowerCase()
-  for (const row of rows) {
-    const rowEmail = row["customer.email"]?.trim().toLowerCase()
-    if (rowEmail === normalized && row.memberId) {
-      return row.memberId
-    }
-  }
-  return null
-}
-
 export function isPaidTransactionStatus(status: string): boolean {
   return ["paid", "success", "settled"].includes(status.toLowerCase())
-}
-
-export function isActiveMembershipStatus(status: string): boolean {
-  return status.toLowerCase() === "active"
 }

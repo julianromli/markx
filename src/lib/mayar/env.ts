@@ -1,31 +1,35 @@
 export type MayarConfig = {
   apiKey: string
   baseUrl: string
-  appUrl: string
-  productId: string
-  tierId: string
+  /** Markx Pro price in IDR, billed via QRIS invoice. */
+  proPriceIdr: number
 }
 
 type MayarEnvBindings = {
   MAYAR_BILLING_ENABLED?: string
   MAYAR_API_KEY?: string
   MAYAR_ENV?: string
-  APP_URL?: string
-  MAYAR_MEMBERSHIP_PRODUCT_ID?: string
-  MAYAR_MEMBERSHIP_TIER_ID?: string
+  MAYAR_PRO_PRICE_IDR?: string
 }
+
+const DEFAULT_PRO_PRICE_IDR = 49_000
 
 /** Cloudflare vars are strings — treat 1/true/yes/on as enabled. */
 export function parseTruthyFlag(value: string | undefined | null): boolean {
   if (value == null) return false
   const normalized = value.trim().toLowerCase()
-  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on"
+  return (
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "yes" ||
+    normalized === "on"
+  )
 }
 
 /**
  * Feature flag for Pro entity limits + Mayar checkout UI.
  * Set Worker var `MAYAR_BILLING_ENABLED=true` to turn on (dashboard or wrangler.jsonc).
- * Webhooks still process when off so paid state is ready when you enable.
+ * Pro activation is verify-on-read; no webhook is involved either way.
  */
 export async function isMayarBillingEnabled(): Promise<boolean> {
   const { env } = await import("cloudflare:workers")
@@ -37,20 +41,8 @@ export async function getMayarConfig(): Promise<MayarConfig> {
   const bindings = env as MayarEnvBindings
 
   const apiKey = bindings.MAYAR_API_KEY?.trim()
-  const productId = bindings.MAYAR_MEMBERSHIP_PRODUCT_ID?.trim()
-  const tierId = bindings.MAYAR_MEMBERSHIP_TIER_ID?.trim()
-  const appUrl = bindings.APP_URL?.trim().replace(/\/$/, "")
-
   if (!apiKey) {
     throw new Error("MAYAR_API_KEY is not configured")
-  }
-  if (!productId || !tierId) {
-    throw new Error(
-      "MAYAR_MEMBERSHIP_PRODUCT_ID and MAYAR_MEMBERSHIP_TIER_ID are required"
-    )
-  }
-  if (!appUrl) {
-    throw new Error("APP_URL is not configured")
   }
 
   const baseUrl =
@@ -58,5 +50,14 @@ export async function getMayarConfig(): Promise<MayarConfig> {
       ? "https://api.mayar.id/hl/v2"
       : "https://api.mayar.club/hl/v2"
 
-  return { apiKey, baseUrl, appUrl, productId, tierId }
+  const parsedPrice = Number.parseInt(
+    bindings.MAYAR_PRO_PRICE_IDR?.trim() ?? "",
+    10
+  )
+  const proPriceIdr =
+    Number.isFinite(parsedPrice) && parsedPrice > 0
+      ? parsedPrice
+      : DEFAULT_PRO_PRICE_IDR
+
+  return { apiKey, baseUrl, proPriceIdr }
 }

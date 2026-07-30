@@ -8,13 +8,9 @@ import {
 } from "@/lib/markx/entity-count"
 import type { MarkxState } from "@/lib/markx/types"
 import {
-  createMembershipInvoice,
-  findMemberIdByEmail,
-  getMembershipMemberDetail,
+  createQrisInvoice,
   getTransaction,
-  isActiveMembershipStatus,
   isPaidTransactionStatus,
-  registerMembershipMember,
 } from "@/lib/mayar/client"
 import { getMayarConfig, isMayarBillingEnabled } from "@/lib/mayar/env"
 
@@ -24,6 +20,9 @@ import { getMayarConfig, isMayarBillingEnabled } from "@/lib/mayar/env"
  */
 const MAYAR_RECHECK_INTERVAL_MS = 60_000
 
+/** Pro period granted per paid invoice. Renewal is manual, once per period. */
+const PRO_PERIOD_MS = 30 * 24 * 60 * 60 * 1000
+
 export type UserEntitlements = {
   /** False when `MAYAR_BILLING_ENABLED` is off — no limits / upgrade UI. */
   billingEnabled: boolean
@@ -32,6 +31,34 @@ export type UserEntitlements = {
   entityLimit: number | null
   entityCount: number | null
   currentPeriodEnd: string | null
+}
+
+export type ProCheckoutSession = {
+  transactionId: string
+  /** Raw QRIS payload — rendered as a QR image by the client. */
+  qrString: string
+  amount: number
+  invoiceCode: string | null
+  /** ISO 8601; the QR dies at this time and must be regenerated. */
+  expiredAt: string | null
+}
+
+function isExpiredPro(row: {
+  plan: string
+  currentPeriodEnd: Date | null
+}): boolean {
+  return (
+    row.plan === "pro" &&
+    row.currentPeriodEnd != null &&
+    row.currentPeriodEnd.getTime() < Date.now()
+  )
+}
+
+function isRecheckDue(mayarCheckedAt: Date | null): boolean {
+  return (
+    mayarCheckedAt == null ||
+    Date.now() - mayarCheckedAt.getTime() > MAYAR_RECHECK_INTERVAL_MS
+  )
 }
 
 export async function getEntitlementsForUser(
@@ -57,13 +84,9 @@ export async function getEntitlementsForUser(
       if (row.plan !== "pro" && row.mayarTransactionId) {
         const activated = await activateIfTransactionPaid(userId, row)
         if (activated) return getEntitlementsForUser(userId, state)
-      } else if (
-        row.plan === "pro" &&
-        row.currentPeriodEnd != null &&
-        row.currentPeriodEnd.getTime() < Date.now()
-      ) {
-        // Past period end: confirm the member is still active (or downgrade).
-        return refreshSubscriptionFromMayar(userId)
+      } else if (isExpiredPro(row)) {
+        await downgradeExpiredPro(userId)
+        return getEntitlementsForUser(userId, state)
       }
     } catch {
       // Mayar unreachable — serve the current row as-is.
@@ -93,67 +116,6 @@ export async function getEntitlementsForUser(
   }
 }
 
-function isRecheckDue(mayarCheckedAt: Date | null): boolean {
-  return (
-    mayarCheckedAt == null ||
-    Date.now() - mayarCheckedAt.getTime() > MAYAR_RECHECK_INTERVAL_MS
-  )
-}
-
-/**
- * API-only Pro activation: re-fetch the checkout transaction and activate
- * when Mayar confirms it paid. Idempotent — the activation upsert and the
- * processed-transaction claim make repeats safe. Always stamps
- * `mayar_checked_at` so failures don't hammer the API.
- */
-async function activateIfTransactionPaid(
-  userId: string,
-  row: {
-    mayarMemberId: string | null
-    mayarTransactionId: string | null
-  }
-): Promise<boolean> {
-  const txId = row.mayarTransactionId
-  if (!txId) return false
-
-  try {
-    const detail = await getTransaction(txId)
-    if (!isPaidTransactionStatus(detail.status)) return false
-
-    await claimProcessedTransaction(txId, userId)
-
-    const config = await getMayarConfig()
-    let periodEnd: Date | null = null
-    if (row.mayarMemberId) {
-      try {
-        const member = await getMembershipMemberDetail(
-          row.mayarMemberId,
-          config.productId
-        )
-        const end = member.expiredAt ?? member.nextPayment
-        periodEnd = end ? new Date(end) : null
-      } catch {
-        // Provisioning still proceeds without period metadata.
-      }
-    }
-
-    await activateProForUser(userId, {
-      email: detail.customer.email,
-      mayarMemberId: row.mayarMemberId ?? undefined,
-      mayarCustomerId: detail.customer.id,
-      currentPeriodEnd: periodEnd,
-    })
-    return true
-  } finally {
-    await withDb(async ({ db }) => {
-      await db
-        .update(userSubscriptions)
-        .set({ mayarCheckedAt: new Date() })
-        .where(eq(userSubscriptions.userId, userId))
-    })
-  }
-}
-
 export function assertWorkspaceEntityLimit(
   entitlements: UserEntitlements,
   state: MarkxState
@@ -168,26 +130,81 @@ export function assertWorkspaceEntityLimit(
   return { ok: true }
 }
 
+/**
+ * API-only Pro activation: re-fetch the checkout transaction and activate
+ * when Mayar confirms it paid. Idempotent — the activation upsert and the
+ * processed-transaction claim make repeats safe. Always stamps
+ * `mayar_checked_at` so failures don't hammer the API.
+ */
+async function activateIfTransactionPaid(
+  userId: string,
+  row: { mayarTransactionId: string | null }
+): Promise<boolean> {
+  const txId = row.mayarTransactionId
+  if (!txId) return false
+
+  try {
+    const detail = await getTransaction(txId)
+    if (!isPaidTransactionStatus(detail.status)) return false
+
+    await claimProcessedTransaction(txId, userId)
+
+    await activateProForUser(userId, {
+      email: detail.customer.email,
+      currentPeriodEnd: new Date(Date.now() + PRO_PERIOD_MS),
+    })
+    return true
+  } finally {
+    await withDb(async ({ db }) => {
+      await db
+        .update(userSubscriptions)
+        .set({ mayarCheckedAt: new Date() })
+        .where(eq(userSubscriptions.userId, userId))
+    })
+  }
+}
+
+/** Lazy expiry: period over and no newer paid invoice → back to free. */
+async function downgradeExpiredPro(userId: string): Promise<void> {
+  await withDb(async ({ db }) => {
+    await db
+      .update(userSubscriptions)
+      .set({
+        plan: "free",
+        status: "expired",
+        mayarCheckedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(userSubscriptions.userId, userId))
+  })
+}
+
 export async function upsertSubscriptionCheckout(
   userId: string,
   email: string,
   data: {
-    mayarMemberId: string
-    mayarCustomerId: string
     mayarTransactionId: string | null
     status: string
   }
 ): Promise<void> {
   await withDb(async ({ db }) => {
+    const existing = (
+      await db
+        .select()
+        .from(userSubscriptions)
+        .where(eq(userSubscriptions.userId, userId))
+        .limit(1)
+    ).at(0)
+    // A pro renewing keeps their active status until the new term is paid;
+    // only the insert path and free users take the invoice's status.
+    const status = existing?.plan === "pro" ? existing.status : data.status
     await db
       .insert(userSubscriptions)
       .values({
         userId,
         email,
         plan: "free",
-        status: data.status,
-        mayarMemberId: data.mayarMemberId,
-        mayarCustomerId: data.mayarCustomerId,
+        status,
         mayarTransactionId: data.mayarTransactionId,
         updatedAt: new Date(),
       })
@@ -195,10 +212,10 @@ export async function upsertSubscriptionCheckout(
         target: userSubscriptions.userId,
         set: {
           email,
-          mayarMemberId: data.mayarMemberId,
-          mayarCustomerId: data.mayarCustomerId,
+          status,
           mayarTransactionId: data.mayarTransactionId,
-          status: data.status,
+          // New transaction — allow an immediate paid re-check on next read.
+          mayarCheckedAt: null,
           updatedAt: new Date(),
         },
       })
@@ -209,8 +226,6 @@ export async function activateProForUser(
   userId: string,
   input: {
     email?: string
-    mayarMemberId?: string
-    mayarCustomerId?: string
     currentPeriodEnd?: Date | null
   }
 ): Promise<void> {
@@ -224,8 +239,6 @@ export async function activateProForUser(
           email,
           plan: "pro",
           status: "active",
-          mayarMemberId: input.mayarMemberId,
-          mayarCustomerId: input.mayarCustomerId,
           currentPeriodEnd: input.currentPeriodEnd ?? null,
           updatedAt: new Date(),
         })
@@ -235,8 +248,6 @@ export async function activateProForUser(
             plan: "pro",
             status: "active",
             email,
-            mayarMemberId: input.mayarMemberId,
-            mayarCustomerId: input.mayarCustomerId,
             currentPeriodEnd: input.currentPeriodEnd ?? null,
             updatedAt: new Date(),
           },
@@ -249,43 +260,10 @@ export async function activateProForUser(
       .set({
         plan: "pro",
         status: "active",
-        mayarMemberId: input.mayarMemberId,
-        mayarCustomerId: input.mayarCustomerId,
         currentPeriodEnd: input.currentPeriodEnd ?? null,
         updatedAt: new Date(),
       })
       .where(eq(userSubscriptions.userId, userId))
-  })
-}
-
-export async function findUserIdBySubscriptionEmail(
-  email: string
-): Promise<string | null> {
-  const normalized = email.trim().toLowerCase()
-  if (!normalized) return null
-  return withDb(async ({ db }) => {
-    const rows = await db.select().from(userSubscriptions)
-    for (const row of rows) {
-      if (row.email.trim().toLowerCase() === normalized) {
-        return row.userId
-      }
-    }
-    return null
-  })
-}
-
-export async function findUserIdByMayarMemberId(
-  memberId: string
-): Promise<string | null> {
-  const id = memberId.trim()
-  if (!id) return null
-  return withDb(async ({ db }) => {
-    const rows = await db
-      .select({ userId: userSubscriptions.userId })
-      .from(userSubscriptions)
-      .where(eq(userSubscriptions.mayarMemberId, id))
-      .limit(1)
-    return rows[0]?.userId ?? null
   })
 }
 
@@ -306,34 +284,26 @@ export async function claimProcessedTransaction(
 }
 
 /**
- * Re-sync membership metadata from Mayar.
- *
- * Important: Mayar marks members `active` at registration, before payment.
- * This function therefore never upgrades free → pro. Pro is granted only via
- * payment webhook after GET /transactions proves paid. It may downgrade pro
- * when Mayar reports inactive/expired/stopped.
+ * Forced (unthrottled) entitlement refresh — the success page polls this
+ * right after checkout, so Pro activates as soon as Mayar confirms payment.
+ * Also resolves lazy expiry for pro users past their period end.
  */
 export async function refreshSubscriptionFromMayar(
   userId: string
 ): Promise<UserEntitlements> {
-  const [config, row] = await Promise.all([
-    getMayarConfig(),
-    withDb(async ({ db }) => {
-      const rows = await db
-        .select()
-        .from(userSubscriptions)
-        .where(eq(userSubscriptions.userId, userId))
-        .limit(1)
-      return rows.at(0) ?? null
-    }),
-  ])
+  const row = await withDb(async ({ db }) => {
+    const rows = await db
+      .select()
+      .from(userSubscriptions)
+      .where(eq(userSubscriptions.userId, userId))
+      .limit(1)
+    return rows.at(0) ?? null
+  })
 
   if (!row) {
     return getEntitlementsForUser(userId)
   }
 
-  // Forced (unthrottled) paid check — the success page polls this right after
-  // checkout, so activate as soon as Mayar confirms payment.
   if (row.plan !== "pro" && row.mayarTransactionId) {
     try {
       const activated = await activateIfTransactionPaid(userId, row)
@@ -341,52 +311,13 @@ export async function refreshSubscriptionFromMayar(
         return getEntitlementsForUser(userId)
       }
     } catch {
-      // Fall through to the member-status refresh below.
+      // Fall through — serve the current state.
     }
   }
 
-  if (!row.mayarMemberId) {
-    return getEntitlementsForUser(userId)
+  if (isExpiredPro(row)) {
+    await downgradeExpiredPro(userId)
   }
-
-  const detail = await getMembershipMemberDetail(
-    row.mayarMemberId,
-    config.productId
-  )
-
-  const periodEnd = detail.expiredAt ?? detail.nextPayment
-  const memberActive = isActiveMembershipStatus(detail.status)
-  // plan=pro is only set by paid webhook — never infer from Mayar member status.
-  const alreadyPro = row.plan === "pro"
-
-  let nextPlan: "free" | "pro" = "free"
-  let nextStatus = row.status
-  let nextPeriodEnd = row.currentPeriodEnd
-
-  if (alreadyPro && memberActive) {
-    nextPlan = "pro"
-    nextStatus = "active"
-    nextPeriodEnd = periodEnd ? new Date(periodEnd) : row.currentPeriodEnd
-  } else if (alreadyPro && !memberActive) {
-    nextPlan = "free"
-    nextStatus = detail.status || "inactive"
-    nextPeriodEnd = periodEnd ? new Date(periodEnd) : row.currentPeriodEnd
-  }
-  // else: stay free; do not copy Mayar's pre-payment "active" into plan
-
-  await withDb(async ({ db }) => {
-    await db
-      .update(userSubscriptions)
-      .set({
-        plan: nextPlan,
-        status: nextStatus,
-        mayarCustomerId: detail.customerId,
-        currentPeriodEnd: nextPeriodEnd,
-        mayarCheckedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(userSubscriptions.userId, userId))
-  })
 
   return getEntitlementsForUser(userId)
 }
@@ -397,12 +328,17 @@ function normalizeMobile(mobile: string): string {
   throw new Error("Mobile number must be 10–15 digits.")
 }
 
-export async function startMembershipCheckout(input: {
+/**
+ * Starts a Pro checkout: creates a QRIS-only invoice at Mayar and stores the
+ * transaction as the paid-proof for verify-on-read. The app renders the QR
+ * itself — the user never sees a Mayar hosted page.
+ */
+export async function startProCheckout(input: {
   userId: string
   email: string
   name: string
   mobile: string
-}): Promise<{ checkoutUrl: string }> {
+}): Promise<ProCheckoutSession> {
   if (!(await isMayarBillingEnabled())) {
     throw new Error("Billing is not enabled yet.")
   }
@@ -412,54 +348,29 @@ export async function startMembershipCheckout(input: {
   const customerName =
     input.name.trim() || input.email.split("@")[0] || "Markx User"
 
-  let memberId: string
-  let customerId: string
-  let memberStatus: string
-
-  try {
-    const registered = await registerMembershipMember({
-      productId: config.productId,
-      membershipTierId: config.tierId,
-      customerInfo: {
-        name: customerName,
-        email: input.email,
-        mobile,
-      },
-    })
-    memberId = registered.memberId
-    customerId = registered.customerId
-    memberStatus = registered.status
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    // Mayar's own duplicate-email error message is Indonesian — match it as-is.
-    if (!message.includes("Email sudah terdaftar")) {
-      throw err
-    }
-    const existing = await findMemberIdByEmail(config.productId, input.email)
-    if (!existing) {
-      throw new Error(
-        "Email is already registered with Mayar, but the member was not found. Contact support."
-      )
-    }
-    memberId = existing
-    const detail = await getMembershipMemberDetail(memberId, config.productId)
-    customerId = detail.customerId
-    memberStatus = detail.status
-  }
-
-  const invoice = await createMembershipInvoice(memberId, config.productId)
-  if (!invoice.membershipBillUrl) {
-    throw new Error("Mayar did not return a checkout URL.")
-  }
-
-  // Store the current-term transaction: verify-on-read uses it as the paid
-  // proof (no webhook involved).
-  await upsertSubscriptionCheckout(input.userId, input.email, {
-    mayarMemberId: memberId,
-    mayarCustomerId: customerId,
-    mayarTransactionId: invoice.transactionId ?? null,
-    status: memberStatus,
+  const invoice = await createQrisInvoice({
+    name: customerName,
+    email: input.email,
+    mobile,
+    userId: input.userId,
+    priceIdr: config.proPriceIdr,
   })
 
-  return { checkoutUrl: invoice.membershipBillUrl }
+  const qrString = invoice.paymentDetail?.qr_code?.channel_properties?.qr_string
+  if (!qrString || !invoice.transactionId) {
+    throw new Error("Mayar did not return a QRIS code.")
+  }
+
+  await upsertSubscriptionCheckout(input.userId, input.email, {
+    mayarTransactionId: invoice.transactionId,
+    status: invoice.status,
+  })
+
+  return {
+    transactionId: invoice.transactionId,
+    qrString,
+    amount: invoice.amount,
+    invoiceCode: invoice.invoiceCode ?? null,
+    expiredAt: invoice.expiredAt ?? null,
+  }
 }

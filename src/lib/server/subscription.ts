@@ -5,11 +5,14 @@ import { authMiddleware, requireUser } from "@/lib/auth/middleware"
 import {
   getEntitlementsForUser,
   refreshSubscriptionFromMayar,
-  startMembershipCheckout,
-  type UserEntitlements,
+  startProCheckout as startProCheckoutSession,
+} from "@/lib/server/subscription.server"
+import type {
+  ProCheckoutSession,
+  UserEntitlements,
 } from "@/lib/server/subscription.server"
 
-export type { UserEntitlements }
+export type { ProCheckoutSession, UserEntitlements }
 
 const checkoutSchema = z.object({
   mobile: z.string().trim().min(10).max(20),
@@ -33,9 +36,9 @@ export const refreshEntitlements = createServerFn({ method: "POST" })
 export const startProCheckout = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator(checkoutSchema)
-  .handler(async ({ data, context }): Promise<{ checkoutUrl: string }> => {
+  .handler(async ({ data, context }): Promise<ProCheckoutSession> => {
     const user = requireUser(context)
-    return startMembershipCheckout({
+    return startProCheckoutSession({
       userId: user.id,
       email: user.email,
       name: data.name ?? user.email,

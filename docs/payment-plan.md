@@ -22,17 +22,17 @@ Markx (TanStack Start + Cloudflare Workers) menjual **langganan membership bulan
 
 | Endpoint | Dipakai untuk |
 |----------|----------------|
-| `POST /memberships/members/create` | `productId`, `membershipTierId`, `customerInfo` (name, email, mobile), `membershipMonthlyPeriod: 1` → `memberId` |
-| `POST /memberships/members/{memberId}/invoice/create` | `productId` → `membershipBillUrl`, `transactionId` |
+| `POST /invoices/create` | `name`, `email`, `mobile`, `items`, `paymentMethod: "qrcode"`, `extraData: { userId }` → `transactionId` + `paymentDetail.qr_code.channel_properties.qr_string` |
 | `GET /transactions/{id}` | **Verify-on-read** — bukti `paid` untuk aktivasi Pro (tanpa webhook) |
-| `GET /memberships/members/{memberId}?productId=` | Re-sync status (`active` / `inactive`, `expiredAt`) di success page atau maintenance |
 
+**Catatan:** checkout adalah **custom QRIS in-app** — app merender `qr_string` sendiri, user tidak pernah melihat hosted page Mayar. Direct-channel (`paymentMethod` pada invoice) harus aktif di akun Mayar; tidak semua akun di-enable secara default.
 **Setup sekali di dashboard Mayar (sandbox):** buat produk membership SaaS **Rp 49.000/bulan** → simpan ID di env.
 
 ## Arsitektur di repo
 
-- **Checkout:** `createServerFn` + `authMiddleware` (user sudah login; email dari session).
+- **Checkout:** `createServerFn` + `authMiddleware` (user sudah login; email dari session) → `createQrisInvoice` → dialog in-app merender QR + countdown + polling.
 - **Aktivasi (API-only, tanpa webhook):** `getEntitlements` / `refreshEntitlements` me-refetch `GET /transactions/{id}` dan mengaktifkan Pro saat paid. Di-throttle 60 detik per user via `mayar_checked_at`; `refreshEntitlements` (dipoll success page) selalu force-check.
+- **Period:** 30 hari per invoice lunas, dihitung app (`currentPeriodEnd`); expiry lazy saat read. Tidak ada ketergantungan membership Mayar.
 - **Mayar helper:** `src/lib/mayar.ts` — baca env dari Cloudflare Workers (`getEnv()` / binding), bukan expose ke client.
 
 ## File yang dibuat
@@ -72,10 +72,10 @@ Markx (TanStack Start + Cloudflare Workers) menjual **langganan membership bulan
 
 Pro diaktifkan saat entitlements dibaca dan **`GET /transactions/{id}`** mengonfirmasi status paid / success / settled:
 
-1. Checkout menyimpan `mayar_transaction_id` (dari `invoice/create`) di row `user_subscriptions`.
-2. Saat baca entitlements (throttle 60 dtk per user, force-check dari success page): jika `plan != 'pro'` dan ada `mayar_transaction_id` → refetch transaksi → paid → upsert `plan = 'pro'`, `status = 'active'`, `currentPeriodEnd` (dari member detail jika ada).
+1. Checkout menyimpan `mayar_transaction_id` (dari `/invoices/create`) di row `user_subscriptions`.
+2. Saat baca entitlements (throttle 60 dtk per user, force-check dari success page): jika `plan != 'pro'` dan ada `mayar_transaction_id` → refetch transaksi → paid → upsert `plan = 'pro'`, `status = 'active'`, `currentPeriodEnd = aktivasi + 30 hari`.
 3. **Idempotent:** insert `transactionId` ke `mayar_processed_transactions` dengan `onConflictDoNothing`; aktivasi berulang aman.
-4. **Renewal/expiry lazy:** jika `currentPeriodEnd` terlewat saat read → refetch member detail → inactive/expired → downgrade ke `free` (data workspace tidak dihapus).
+4. **Renewal/expiry lazy:** jika `currentPeriodEnd` terlewat saat read → downgrade ke `free` (data workspace tidak dihapus). Renewal = user bayar lagi via dialog yang sama.
 
 Konsekuensi desain: aktivasi terjadi saat user berada di app (success page / load berikutnya). Tidak ada jalur aktivasi di luar app karena webhook sengaja tidak dipakai.
 
@@ -95,14 +95,12 @@ Konsekuensi desain: aktivasi terjadi saat user berada di app (success page / loa
 
 Implementasi: pada save, jika `plan !== 'pro'` dan count > 100, reject meskipun count tidak naik (user sudah di atas limit).
 
-## Checkout flow
+## Checkout flow (custom QRIS)
 
-1. User klik **Upgrade** di account menu.
-2. Server: register member (atau pakai member existing) → `invoice/create` → kembalikan `membershipBillUrl`.
-3. `redirectUrl`: `${APP_URL}/subscription/success`
-4. Success page: refresh entitlements (server fn), pesan singkat, kembali ke workspace.
-
-**Mobile:** Mayar membutuhkan `mobile` (10–15 digit). Saat implement: field opsional di dialog upgrade atau nomor placeholder yang bisa diganti user — pilih UX minimal yang tidak gagal validasi Mayar.
+1. User klik **Upgrade** di account menu → isi nomor HP (Mayar mewajibkan `mobile` 10–15 digit).
+2. Server: `POST /invoices/create` (`paymentMethod: "qrcode"`, `extraData: { userId }`) → kembalikan `qrString`, `amount`, `expiredAt`; `transactionId` disimpan di row.
+3. Dialog menampilkan QR (canvas dari `qr_string`), nominal, countdown expiry, dan polling `refreshEntitlements` tiap 4 detik.
+4. Paid → aktivasi otomatis → dialog menampilkan "Markx Pro is active". QR expired → tombol generate ulang.
 
 ## Urutan implementasi
 

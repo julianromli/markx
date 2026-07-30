@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { toast } from "sonner"
+import QRCode from "qrcode"
 import {
+  CheckCircleIcon,
   CrownIcon,
   SignOutIcon,
   SpinnerIcon,
@@ -29,8 +31,12 @@ import { useAuthSession } from "@/lib/markx/hooks"
 import { signOut } from "@/lib/markx/auth-actions"
 import {
   getEntitlements,
+  refreshEntitlements,
   startProCheckout,
-  type UserEntitlements,
+} from "@/lib/server/subscription"
+import type {
+  ProCheckoutSession,
+  UserEntitlements,
 } from "@/lib/server/subscription"
 
 /**
@@ -47,6 +53,11 @@ export function AccountMenu() {
   )
   const [mobile, setMobile] = useState("")
   const [checkoutLoading, setCheckoutLoading] = useState(false)
+  const [session, setSession] = useState<ProCheckoutSession | null>(null)
+  const [paid, setPaid] = useState(false)
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(null)
+  const qrCanvasRef = useRef<HTMLCanvasElement>(null)
+  const qrExpiredRef = useRef(false)
   const signingOutRef = useRef(false)
 
   useEffect(() => {
@@ -75,10 +86,10 @@ export function AccountMenu() {
           limit?: number
         }>
       ).detail
-      const limit = detail?.limit ?? 100
+      const limit = detail.limit ?? 100
       const canUpgrade = entitlements?.billingEnabled === true
       toast.error(
-        detail?.message ??
+        detail.message ??
           (canUpgrade
             ? `Free plan is limited to ${limit} items. Upgrade to Pro to continue.`
             : `Workspace limit reached (${limit} items).`),
@@ -127,8 +138,9 @@ export function AccountMenu() {
   async function handleCheckout() {
     setCheckoutLoading(true)
     try {
-      const { checkoutUrl } = await startProCheckout({ data: { mobile } })
-      window.location.href = checkoutUrl
+      const next = await startProCheckout({ data: { mobile } })
+      setSession(next)
+      setPaid(false)
     } catch (err) {
       const message =
         err instanceof Error
@@ -139,6 +151,56 @@ export function AccountMenu() {
       setCheckoutLoading(false)
     }
   }
+
+  // Draw the QRIS payload onto the canvas whenever a new session arrives.
+  useEffect(() => {
+    if (!session || !qrCanvasRef.current) return
+    void QRCode.toCanvas(qrCanvasRef.current, session.qrString, {
+      width: 232,
+      margin: 1,
+    })
+  }, [session])
+
+  // Countdown to invoice expiry; the QR string dies with it.
+  useEffect(() => {
+    if (!session?.expiredAt) {
+      setSecondsLeft(null)
+      return
+    }
+    const expiry = new Date(session.expiredAt).getTime()
+    const tick = () =>
+      setSecondsLeft(Math.max(0, Math.round((expiry - Date.now()) / 1000)))
+    tick()
+    const timer = setInterval(tick, 1000)
+    return () => clearInterval(timer)
+  }, [session])
+
+  useEffect(() => {
+    qrExpiredRef.current = secondsLeft === 0
+  }, [secondsLeft])
+
+  // Poll for payment while a session is active (verify-on-read on the server).
+  useEffect(() => {
+    if (!session || paid) return
+    let cancelled = false
+    const poll = async () => {
+      if (qrExpiredRef.current) return
+      try {
+        const next = await refreshEntitlements()
+        if (cancelled) return
+        setEntitlements(next)
+        if (next.plan === "pro") setPaid(true)
+      } catch {
+        // Transient failure — the next tick retries.
+      }
+    }
+    void poll()
+    const timer = setInterval(() => void poll(), 4000)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [session, paid])
 
   return (
     <>
@@ -197,40 +259,105 @@ export function AccountMenu() {
 
       <Dialog
         open={billingEnabled && upgradeOpen}
-        onOpenChange={setUpgradeOpen}
+        onOpenChange={(nextOpen) => {
+          setUpgradeOpen(nextOpen)
+          if (!nextOpen) {
+            // Reset after the close animation so a reopen starts fresh.
+            setTimeout(() => {
+              setSession(null)
+              setPaid(false)
+              setSecondsLeft(null)
+            }, 200)
+          }
+        }}
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Markx Pro</DialogTitle>
             <DialogDescription>
-              More than 100 items in your workspace. Monthly subscription Rp
-              49,000 via Mayar.
+              {paid
+                ? "Your payment is confirmed."
+                : session
+                  ? "Scan with any mobile banking or e-wallet app."
+                  : "More than 100 items in your workspace. Monthly subscription Rp 49,000 via Mayar."}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="upgrade-mobile">Mobile number (WhatsApp)</Label>
-              <Input
-                id="upgrade-mobile"
-                inputMode="tel"
-                placeholder="081234567890"
-                value={mobile}
-                onChange={(e) => setMobile(e.target.value)}
-                autoComplete="tel"
+
+          {paid ? (
+            <div className="flex flex-col items-center gap-3 py-6 text-center">
+              <CheckCircleIcon
+                className="size-12 text-green-600"
+                weight="fill"
               />
+              <p className="font-medium">Markx Pro is active</p>
+              <p className="text-sm text-muted-foreground">
+                You can add more than 100 items to your workspace.
+              </p>
+              <Button className="mt-2" onClick={() => setUpgradeOpen(false)}>
+                Done
+              </Button>
             </div>
-            <Button
-              className="w-full"
-              disabled={checkoutLoading || mobile.trim().length < 10}
-              onClick={() => void handleCheckout()}
-            >
-              {checkoutLoading ? (
-                <SpinnerIcon className="animate-spin" weight="regular" />
-              ) : (
-                "Continue to payment"
-              )}
-            </Button>
-          </div>
+          ) : session ? (
+            <div className="flex flex-col items-center gap-3">
+              <div className="rounded-xl border p-3">
+                <canvas ref={qrCanvasRef} aria-label="QRIS payment code" />
+              </div>
+              <p className="text-lg font-semibold tabular-nums">
+                Rp {new Intl.NumberFormat("id-ID").format(session.amount)}
+              </p>
+              {secondsLeft != null && secondsLeft > 0 ? (
+                <p className="text-sm text-muted-foreground tabular-nums">
+                  QR expires in {Math.floor(secondsLeft / 60)}:
+                  {String(secondsLeft % 60).padStart(2, "0")}
+                </p>
+              ) : secondsLeft === 0 ? (
+                <div className="flex flex-col items-center gap-2">
+                  <p className="text-sm text-destructive">
+                    QR expired. Generate a new one to continue.
+                  </p>
+                  <Button
+                    variant="outline"
+                    disabled={checkoutLoading}
+                    onClick={() => void handleCheckout()}
+                  >
+                    {checkoutLoading ? (
+                      <SpinnerIcon className="animate-spin" weight="regular" />
+                    ) : (
+                      "Generate new QR"
+                    )}
+                  </Button>
+                </div>
+              ) : null}
+              <p className="text-center text-sm text-muted-foreground">
+                Pro activates automatically once your payment is confirmed.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="upgrade-mobile">Mobile number (WhatsApp)</Label>
+                <Input
+                  id="upgrade-mobile"
+                  inputMode="tel"
+                  placeholder="081234567890"
+                  value={mobile}
+                  onChange={(e) => setMobile(e.target.value)}
+                  autoComplete="tel"
+                />
+              </div>
+              <Button
+                className="w-full"
+                disabled={checkoutLoading || mobile.trim().length < 10}
+                onClick={() => void handleCheckout()}
+              >
+                {checkoutLoading ? (
+                  <SpinnerIcon className="animate-spin" weight="regular" />
+                ) : (
+                  "Continue to payment"
+                )}
+              </Button>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </>

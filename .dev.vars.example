@@ -20,13 +20,10 @@ DATABASE_URL="postgresql://USER:PASSWORD@HOST-pooler.REGION.aws.neon.tech/DBNAME
 # Generate with: openssl rand -base64 32
 NEON_AUTH_COOKIE_SECRET="dev-only-secret-replace-in-production-32chars"
 
-# Mayar billing (Pro membership). Use sandbox key locally.
-# Create product/tier with: bun run mayar:bootstrap
+# Mayar billing (Markx Pro, custom QRIS checkout). Use sandbox key locally.
 # Feature flag (also in wrangler.jsonc vars). "true" enables limits + checkout UI.
 # MAYAR_BILLING_ENABLED=false
 MAYAR_API_KEY=
 MAYAR_ENV=sandbox
-# Local dev. Production Worker secret should be https://markx.app
-APP_URL=http://localhost:3000
-MAYAR_MEMBERSHIP_PRODUCT_ID=
-MAYAR_MEMBERSHIP_TIER_ID=
+# Pro price in IDR per 30-day period. Optional — defaults to 49000.
+# MAYAR_PRO_PRICE_IDR=49000

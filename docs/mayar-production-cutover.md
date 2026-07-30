@@ -42,24 +42,23 @@ When **off**: no free-tier entity limit, no Upgrade CTA, checkout rejects, and e
 
 ---
 
-## 1. Mayar production product
+## 1. Mayar production account
 
-In [web.mayar.id](https://web.mayar.id) (production), not `.club`:
+Checkout is **custom QRIS in-app** (generic `/invoices/create` with
+`paymentMethod: "qrcode"`); the app no longer uses a Mayar membership
+product, hosted bill page, or tier redirect. What the production account
+needs:
 
-- [ ] Create / confirm **Membership & SaaS** product **Markx Pro**
-- [ ] Tier: **Rp 49.000 / month**, published / **ACTIVE**
-- [ ] Tier **Redirect URL** = `https://markx.app/subscription/success`  
-  (Dashboard field — API often leaves tier `redirectUrl` empty; set it manually.)
-- [ ] Optional: product-level redirect / payment-link update also points at success URL
-- [ ] Copy IDs (keep offline, not in git):
-
-  | Secret | Value |
-  |--------|--------|
-  | `MAYAR_MEMBERSHIP_PRODUCT_ID` | _(prod UUID)_ |
-  | `MAYAR_MEMBERSHIP_TIER_ID` | _(prod UUID)_ |
-
+- [ ] **Direct-channel invoice creation enabled** — `paymentMethod` on
+  `/invoices/create` must return `paymentDetail.qr_code.qr_string`. Not all
+  accounts have this; if it 400s with "not available or disabled", ask Mayar
+  support to enable direct/dynamic QRIS for the account.
+- [ ] QRIS channel active (Integration → Payment Channels).
 - [ ] Create production API key: Integration → API Key  
-  Scope: read + write as needed for membership + transactions
+  Scope: read + write as needed for invoices + transactions
+
+The membership product/tier from the earlier flow is unused by the code
+(price comes from `MAYAR_PRO_PRICE_IDR`, default 49.000).
 
 ---
 
@@ -68,13 +67,11 @@ In [web.mayar.id](https://web.mayar.id) (production), not `.club`:
 Target Worker name: **`markx`**.  
 Prefer `wrangler versions secret put` / `secret bulk`, then **deploy** so the live version has secrets (see note below).
 
-| Secret | Production value |
+| Secret/var | Production value |
 |--------|------------------|
 | `MAYAR_API_KEY` | Production key from web.mayar.id |
 | `MAYAR_ENV` | `production` |
-| `APP_URL` | `https://markx.app` |
-| `MAYAR_MEMBERSHIP_PRODUCT_ID` | Prod product UUID |
-| `MAYAR_MEMBERSHIP_TIER_ID` | Prod tier UUID |
+| `MAYAR_PRO_PRICE_IDR` | `49000` (var or default; not a secret) |
 | `DATABASE_URL` | Already set (do not overwrite unless intentional) |
 | `NEON_AUTH_COOKIE_SECRET` | Already set |
 
@@ -86,9 +83,7 @@ cat > /tmp/markx-mayar-prod-secrets.json <<'EOF'
 {
   "MAYAR_API_KEY": "PASTE_PROD_KEY",
   "MAYAR_ENV": "production",
-  "APP_URL": "https://markx.app",
-  "MAYAR_MEMBERSHIP_PRODUCT_ID": "PASTE_PROD_PRODUCT_ID",
-  "MAYAR_MEMBERSHIP_TIER_ID": "PASTE_PROD_TIER_ID"
+  "MAYAR_PRO_PRICE_IDR": "49000"
 }
 EOF
 

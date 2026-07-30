@@ -6,17 +6,20 @@ import {
   getEntitlementsForUser,
   refreshSubscriptionFromMayar,
   startProCheckout as startProCheckoutSession,
+  validateProCouponCode,
 } from "@/lib/server/subscription.server"
 import type {
   ProCheckoutSession,
+  ProCouponValidation,
   UserEntitlements,
 } from "@/lib/server/subscription.server"
 
-export type { ProCheckoutSession, UserEntitlements }
+export type { ProCheckoutSession, ProCouponValidation, UserEntitlements }
 
 const checkoutSchema = z.object({
   mobile: z.string().trim().min(10).max(20),
   name: z.string().trim().max(250).optional(),
+  couponCode: z.string().trim().max(50).optional(),
 })
 
 export const getEntitlements = createServerFn({ method: "GET" })
@@ -33,6 +36,13 @@ export const refreshEntitlements = createServerFn({ method: "POST" })
     return refreshSubscriptionFromMayar(user.id)
   })
 
+export const validateProCoupon = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator(z.object({ code: z.string().trim().min(1).max(50) }))
+  .handler(async ({ data }): Promise<ProCouponValidation> => {
+    return validateProCouponCode(data.code)
+  })
+
 export const startProCheckout = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator(checkoutSchema)
@@ -43,5 +53,6 @@ export const startProCheckout = createServerFn({ method: "POST" })
       email: user.email,
       name: data.name ?? user.email,
       mobile: data.mobile,
+      couponCode: data.couponCode,
     })
   })

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { isPaidTransactionStatus } from "@/lib/mayar/client"
+import { computeProPrice } from "@/lib/server/subscription.server"
 
 /**
  * Mirrors the expiry rule used by getEntitlementsForUser /
@@ -64,5 +65,41 @@ describe("lazy Pro expiry", () => {
         now
       )
     ).toBe(false)
+  })
+})
+
+describe("computeProPrice (discount codes)", () => {
+  it("returns the list price without a coupon", () => {
+    expect(computeProPrice(49_000, null)).toBe(49_000)
+  })
+
+  it("applies percentage discounts", () => {
+    expect(
+      computeProPrice(49_000, { discountType: "percentage", discountValue: 50 })
+    ).toBe(24_500)
+    expect(
+      computeProPrice(49_000, { discountType: "percentage", discountValue: 10 })
+    ).toBe(44_100)
+  })
+
+  it("applies monetary discounts", () => {
+    expect(
+      computeProPrice(49_000, {
+        discountType: "monetary",
+        discountValue: 10_000,
+      })
+    ).toBe(39_000)
+  })
+
+  it("clamps deep discounts to the QRIS minimum", () => {
+    expect(
+      computeProPrice(49_000, { discountType: "percentage", discountValue: 99 })
+    ).toBe(1_000)
+    expect(
+      computeProPrice(49_000, {
+        discountType: "monetary",
+        discountValue: 49_000,
+      })
+    ).toBe(1_000)
   })
 })

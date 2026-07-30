@@ -9,6 +9,7 @@ import {
 import type { MarkxState } from "@/lib/markx/types"
 import {
   createQrisInvoice,
+  findCouponByCode,
   getTransaction,
   isPaidTransactionStatus,
 } from "@/lib/mayar/client"
@@ -22,6 +23,9 @@ const MAYAR_RECHECK_INTERVAL_MS = 60_000
 
 /** Pro period granted per paid invoice. Renewal is manual, once per period. */
 const PRO_PERIOD_MS = 30 * 24 * 60 * 60 * 1000
+
+/** QRIS invoices can't be zero — deep discounts clamp to this floor. */
+const MIN_QRIS_AMOUNT_IDR = 1_000
 
 export type UserEntitlements = {
   /** False when `MAYAR_BILLING_ENABLED` is off — no limits / upgrade UI. */
@@ -37,10 +41,74 @@ export type ProCheckoutSession = {
   transactionId: string
   /** Raw QRIS payload — rendered as a QR image by the client. */
   qrString: string
+  /** Final amount after any coupon — what the QR charges. */
   amount: number
+  /** List price before discount. */
+  listPriceIdr: number
+  /** Applied coupon code, or null when none. */
+  appliedCoupon: string | null
   invoiceCode: string | null
   /** ISO 8601; the QR dies at this time and must be regenerated. */
   expiredAt: string | null
+}
+
+export type ProCouponValidation = {
+  code: string
+  discountType: string
+  discountValue: number
+  listPriceIdr: number
+  finalPriceIdr: number
+}
+
+/** Final invoice rate after a coupon. Exported for unit tests. */
+export function computeProPrice(
+  priceIdr: number,
+  coupon: { discountType: string; discountValue: number } | null
+): number {
+  if (!coupon) return priceIdr
+  const discounted =
+    coupon.discountType === "percentage"
+      ? Math.round((priceIdr * (100 - coupon.discountValue)) / 100)
+      : priceIdr - coupon.discountValue
+  return Math.max(MIN_QRIS_AMOUNT_IDR, discounted)
+}
+
+/**
+ * Validates a Mayar-managed discount code for the Pro checkout. Throws with
+ * a user-facing message when the code can't be used. Redemption is
+ * deliberately untracked — codes follow their Mayar dashboard config.
+ */
+export async function validateProCouponCode(
+  code: string
+): Promise<ProCouponValidation> {
+  const config = await getMayarConfig()
+  const coupon = await findCouponByCode(code)
+  if (!coupon) throw new Error("Invalid coupon code.")
+  if (!coupon.isActive) throw new Error("This coupon is no longer active.")
+  if (coupon.expiredAt != null && coupon.expiredAt < Date.now()) {
+    throw new Error("This coupon has expired.")
+  }
+  if (
+    coupon.limit != null &&
+    coupon.usageCount != null &&
+    coupon.usageCount >= coupon.limit
+  ) {
+    throw new Error("This coupon has been fully used.")
+  }
+  if (
+    coupon.minimumPurchase != null &&
+    config.proPriceIdr < coupon.minimumPurchase
+  ) {
+    throw new Error("This coupon requires a higher minimum purchase.")
+  }
+
+  return {
+    code: coupon.code,
+    discountType: coupon.discountType,
+    discountValue: coupon.discountValue,
+    listPriceIdr: config.proPriceIdr,
+    finalPriceIdr: computeProPrice(config.proPriceIdr, coupon),
+  }
 }
 
 function isExpiredPro(row: {
@@ -338,6 +406,8 @@ export async function startProCheckout(input: {
   email: string
   name: string
   mobile: string
+  /** Optional Mayar-managed discount code — always re-validated server-side. */
+  couponCode?: string
 }): Promise<ProCheckoutSession> {
   if (!(await isMayarBillingEnabled())) {
     throw new Error("Billing is not enabled yet.")
@@ -348,12 +418,20 @@ export async function startProCheckout(input: {
   const customerName =
     input.name.trim() || input.email.split("@")[0] || "Markx User"
 
+  const coupon = input.couponCode?.trim()
+    ? await validateProCouponCode(input.couponCode)
+    : null
+  const priceIdr = coupon
+    ? coupon.finalPriceIdr
+    : computeProPrice(config.proPriceIdr, null)
+
   const invoice = await createQrisInvoice({
     name: customerName,
     email: input.email,
     mobile,
     userId: input.userId,
-    priceIdr: config.proPriceIdr,
+    priceIdr,
+    couponCode: coupon?.code ?? null,
   })
 
   const qrString = invoice.paymentDetail?.qr_code?.channel_properties?.qr_string
@@ -370,6 +448,8 @@ export async function startProCheckout(input: {
     transactionId: invoice.transactionId,
     qrString,
     amount: invoice.amount,
+    listPriceIdr: config.proPriceIdr,
+    appliedCoupon: coupon?.code ?? null,
     invoiceCode: invoice.invoiceCode ?? null,
     expiredAt: invoice.expiredAt ?? null,
   }

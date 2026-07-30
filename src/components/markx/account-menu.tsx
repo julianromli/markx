@@ -29,13 +29,16 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useAuthSession } from "@/lib/markx/hooks"
 import { signOut } from "@/lib/markx/auth-actions"
+import { cn } from "@/lib/utils"
 import {
   getEntitlements,
   refreshEntitlements,
   startProCheckout,
+  validateProCoupon,
 } from "@/lib/server/subscription"
 import type {
   ProCheckoutSession,
+  ProCouponValidation,
   UserEntitlements,
 } from "@/lib/server/subscription"
 
@@ -56,6 +59,11 @@ export function AccountMenu() {
   const [session, setSession] = useState<ProCheckoutSession | null>(null)
   const [paid, setPaid] = useState(false)
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null)
+  const [couponInput, setCouponInput] = useState("")
+  const [appliedCoupon, setAppliedCoupon] =
+    useState<ProCouponValidation | null>(null)
+  const [couponError, setCouponError] = useState<string | null>(null)
+  const [couponLoading, setCouponLoading] = useState(false)
   const qrCanvasRef = useRef<HTMLCanvasElement>(null)
   const qrExpiredRef = useRef(false)
   const signingOutRef = useRef(false)
@@ -135,10 +143,30 @@ export function AccountMenu() {
     }
   }
 
+  async function handleApplyCoupon() {
+    setCouponError(null)
+    setCouponLoading(true)
+    try {
+      const result = await validateProCoupon({
+        data: { code: couponInput.trim() },
+      })
+      setAppliedCoupon(result)
+    } catch (err) {
+      setAppliedCoupon(null)
+      setCouponError(
+        err instanceof Error ? err.message : "Unable to validate coupon."
+      )
+    } finally {
+      setCouponLoading(false)
+    }
+  }
+
   async function handleCheckout() {
     setCheckoutLoading(true)
     try {
-      const next = await startProCheckout({ data: { mobile } })
+      const next = await startProCheckout({
+        data: { mobile, couponCode: appliedCoupon?.code },
+      })
       setSession(next)
       setPaid(false)
     } catch (err) {
@@ -302,9 +330,22 @@ export function AccountMenu() {
               <div className="rounded-xl border p-3">
                 <canvas ref={qrCanvasRef} aria-label="QRIS payment code" />
               </div>
-              <p className="text-lg font-semibold tabular-nums">
-                Rp {new Intl.NumberFormat("id-ID").format(session.amount)}
-              </p>
+              <div className="text-center">
+                <p className="text-lg font-semibold tabular-nums">
+                  Rp {new Intl.NumberFormat("id-ID").format(session.amount)}
+                </p>
+                {session.appliedCoupon ? (
+                  <p className="text-sm text-muted-foreground">
+                    <span className="tabular-nums line-through">
+                      Rp{" "}
+                      {new Intl.NumberFormat("id-ID").format(
+                        session.listPriceIdr
+                      )}
+                    </span>{" "}
+                    — coupon {session.appliedCoupon} applied
+                  </p>
+                ) : null}
+              </div>
               {secondsLeft != null && secondsLeft > 0 ? (
                 <p className="text-sm text-muted-foreground tabular-nums">
                   QR expires in {Math.floor(secondsLeft / 60)}:
@@ -345,6 +386,77 @@ export function AccountMenu() {
                   autoComplete="tel"
                 />
               </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="upgrade-coupon">Discount code (optional)</Label>
+                {appliedCoupon ? (
+                  <div className="flex items-center justify-between rounded-3xl border bg-accent/50 px-3 py-2 text-sm">
+                    <span>
+                      <span className="font-medium">{appliedCoupon.code}</span>{" "}
+                      <span className="text-muted-foreground">
+                        — Rp{" "}
+                        {new Intl.NumberFormat("id-ID").format(
+                          appliedCoupon.finalPriceIdr
+                        )}
+                        <span className="line-through">
+                          {" "}
+                          Rp{" "}
+                          {new Intl.NumberFormat("id-ID").format(
+                            appliedCoupon.listPriceIdr
+                          )}
+                        </span>
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      className="text-muted-foreground transition-colors hover:text-foreground"
+                      onClick={() => {
+                        setAppliedCoupon(null)
+                        setCouponError(null)
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <Input
+                      id="upgrade-coupon"
+                      placeholder="e.g. LAUNCH50"
+                      value={couponInput}
+                      onChange={(e) => setCouponInput(e.target.value)}
+                      aria-invalid={!!couponError}
+                      aria-describedby="upgrade-coupon-error"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={couponLoading || !couponInput.trim()}
+                      onClick={() => void handleApplyCoupon()}
+                    >
+                      {couponLoading ? (
+                        <SpinnerIcon
+                          className="animate-spin"
+                          weight="regular"
+                        />
+                      ) : (
+                        "Apply"
+                      )}
+                    </Button>
+                  </div>
+                )}
+                <p
+                  id="upgrade-coupon-error"
+                  aria-live="polite"
+                  className={cn(
+                    "text-sm text-destructive",
+                    !couponError && "sr-only"
+                  )}
+                >
+                  {couponError}
+                </p>
+              </div>
+
               <Button
                 className="w-full"
                 disabled={checkoutLoading || mobile.trim().length < 10}

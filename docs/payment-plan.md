@@ -79,6 +79,14 @@ Pro diaktifkan saat entitlements dibaca dan **`GET /transactions/{id}`** mengonf
 
 Konsekuensi desain: aktivasi terjadi saat user berada di app (success page / load berikutnya). Tidak ada jalur aktivasi di luar app karena webhook sengaja tidak dipakai.
 
+## Discount codes
+
+- Kode dikelola di **dashboard Mayar** (campaign: `percentage`/`monetary`, `value`, kuota, expiry) — tanpa deploy untuk bikin kode baru.
+- Validasi: server fn `validateProCoupon` mencari kode via `GET /coupons?status=active` (paginated; tidak ada lookup by-code) lalu cek `isActive`, expiry, kuota, `minimumPurchase`.
+- Harga final dihitung app (`computeProPrice`), clamp minimum **Rp 1.000** (QRIS tidak bisa 0). `startProCheckout` **me-revalidasi** kode di server — client tidak dipercaya.
+- Redemption **tidak** ditracking (keputusan): kode reusable mengikuti config dashboard. `extraData.invoice` membawa `couponCode` untuk audit.
+- UX: field kode + tombol Apply di dialog upgrade; sukses → ringkasan harga coret; gagal → error inline `aria-live`.
+
 ## Limit 100 (free)
 
 - `FREE_TIER_ENTITY_LIMIT = 100`

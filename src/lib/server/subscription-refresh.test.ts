@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest"
 
-import { isActiveMembershipStatus } from "@/lib/mayar/client"
+import {
+  isActiveMembershipStatus,
+  isPaidTransactionStatus,
+} from "@/lib/mayar/client"
 
 /**
  * Mirrors refreshSubscriptionFromMayar plan selection.
@@ -36,5 +39,20 @@ describe("refreshSubscriptionFromMayar plan rules", () => {
     expect(
       nextPlanFromRefresh({ rowPlan: "pro", memberStatus: "inactive" })
     ).toBe("free")
+  })
+})
+
+describe("isPaidTransactionStatus (verify-on-read activation)", () => {
+  it("treats paid/success/settled as paid, case-insensitively", () => {
+    expect(isPaidTransactionStatus("paid")).toBe(true)
+    expect(isPaidTransactionStatus("SUCCESS")).toBe(true)
+    expect(isPaidTransactionStatus("Settled")).toBe(true)
+  })
+
+  it("rejects unpaid or terminal-but-unpaid statuses", () => {
+    expect(isPaidTransactionStatus("created")).toBe(false)
+    expect(isPaidTransactionStatus("pending")).toBe(false)
+    expect(isPaidTransactionStatus("expired")).toBe(false)
+    expect(isPaidTransactionStatus("failed")).toBe(false)
   })
 })

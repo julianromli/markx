@@ -24,7 +24,7 @@ Markx (TanStack Start + Cloudflare Workers) menjual **langganan membership bulan
 |----------|----------------|
 | `POST /memberships/members/create` | `productId`, `membershipTierId`, `customerInfo` (name, email, mobile), `membershipMonthlyPeriod: 1` → `memberId` |
 | `POST /memberships/members/{memberId}/invoice/create` | `productId` → `membershipBillUrl`, `transactionId` |
-| `GET /transactions/{id}` | Verifikasi webhook — bukti `paid`, bukan payload saja |
+| `GET /transactions/{id}` | **Verify-on-read** — bukti `paid` untuk aktivasi Pro (tanpa webhook) |
 | `GET /memberships/members/{memberId}?productId=` | Re-sync status (`active` / `inactive`, `expiredAt`) di success page atau maintenance |
 
 **Setup sekali di dashboard Mayar (sandbox):** buat produk membership SaaS **Rp 49.000/bulan** → simpan ID di env.
@@ -32,7 +32,7 @@ Markx (TanStack Start + Cloudflare Workers) menjual **langganan membership bulan
 ## Arsitektur di repo
 
 - **Checkout:** `createServerFn` + `authMiddleware` (user sudah login; email dari session).
-- **Webhook:** file route publik `src/routes/api/webhooks/mayar.ts` (untuk `mayar webhook register`).
+- **Aktivasi (API-only, tanpa webhook):** `getEntitlements` / `refreshEntitlements` me-refetch `GET /transactions/{id}` dan mengaktifkan Pro saat paid. Di-throttle 60 detik per user via `mayar_checked_at`; `refreshEntitlements` (dipoll success page) selalu force-check.
 - **Mayar helper:** `src/lib/mayar.ts` — baca env dari Cloudflare Workers (`getEnv()` / binding), bukan expose ke client.
 
 ## File yang dibuat
@@ -41,9 +41,8 @@ Markx (TanStack Start + Cloudflare Workers) menjual **langganan membership bulan
 |------|--------|
 | `src/lib/mayar.ts` | `mayarFetch`, register member, create invoice, get transaction/member |
 | `src/lib/markx/entity-count.ts` | Hitung total entitas di state |
-| `src/lib/server/subscription.server.ts` | DB subscription + dedupe webhook |
-| `src/lib/server/subscription.ts` | Server fns: checkout, `getEntitlements` |
-| `src/routes/api/webhooks/mayar.ts` | Webhook + provisioning |
+| `src/lib/server/subscription.server.ts` | DB subscription + aktivasi verify-on-read + dedupe transaksi |
+| `src/lib/server/subscription.ts` | Server fns: checkout, `getEntitlements`, `refreshEntitlements` |
 | `src/routes/subscription.success.tsx` | Halaman setelah `redirectUrl` |
 | Drizzle migration | `user_subscriptions`, `mayar_processed_transactions` |
 
@@ -69,19 +68,16 @@ Markx (TanStack Start + Cloudflare Workers) menjual **langganan membership bulan
 | `MAYAR_MEMBERSHIP_PRODUCT_ID` | UUID produk membership Markx Pro |
 | `MAYAR_MEMBERSHIP_TIER_ID` | UUID tier bulanan Rp 49.000 |
 
-## Fulfillment (webhook)
+## Fulfillment (verify-on-read, tanpa webhook)
 
-Setelah event relevan + **`GET /transactions/{id}`** status paid / success / settled:
+Pro diaktifkan saat entitlements dibaca dan **`GET /transactions/{id}`** mengonfirmasi status paid / success / settled:
 
-1. Cocokkan user: email customer Mayar ↔ Neon Auth `user.email`.
-2. Upsert `user_subscriptions`: `plan = 'pro'`, `status = 'active'`, `mayarMemberId`, `currentPeriodEnd` (dari member detail jika ada).
-3. **Idempotent:** insert `transactionId` ke `mayar_processed_transactions` dengan `onConflictDoNothing`; duplikat webhook tidak double-fulfill.
+1. Checkout menyimpan `mayar_transaction_id` (dari `invoice/create`) di row `user_subscriptions`.
+2. Saat baca entitlements (throttle 60 dtk per user, force-check dari success page): jika `plan != 'pro'` dan ada `mayar_transaction_id` → refetch transaksi → paid → upsert `plan = 'pro'`, `status = 'active'`, `currentPeriodEnd` (dari member detail jika ada).
+3. **Idempotent:** insert `transactionId` ke `mayar_processed_transactions` dengan `onConflictDoNothing`; aktivasi berulang aman.
+4. **Renewal/expiry lazy:** jika `currentPeriodEnd` terlewat saat read → refetch member detail → inactive/expired → downgrade ke `free` (data workspace tidak dihapus).
 
-Handler webhook:
-
-```ts
-// TODO: ganti verify-by-fetch dengan signature verification saat Mayar merilis HMAC webhook.
-```
+Konsekuensi desain: aktivasi terjadi saat user berada di app (success page / load berikutnya). Tidak ada jalur aktivasi di luar app karena webhook sengaja tidak dipakai.
 
 ## Limit 100 (free)
 
@@ -115,8 +111,8 @@ Implementasi: pada save, jika `plan !== 'pro'` dan count > 100, reject meskipun 
 3. `subscription.server.ts` + server fns
 4. Enforce limit di `workspace.server.ts`
 5. Account menu + `/subscription/success`
-6. Webhook + re-fetch + provisioning
-7. `npx -y mayar@latest --sandbox webhook register <url>` + uji E2E sandbox
+6. Verify-on-read activation + throttle
+7. Uji E2E sandbox (checkout → bayar → success page flip ke Pro)
 
 ## Go-live checklist
 
@@ -128,7 +124,5 @@ Ringkas:
 - [ ] Ganti `MAYAR_API_KEY` + `MAYAR_ENV=production`
 - [ ] Product/tier ID production di env
 - [ ] `APP_URL=https://markx.app`
-- [ ] Register webhook URL production (`https://markx.app/api/webhooks/mayar`)
 - [ ] Tier redirect → `https://markx.app/subscription/success`
-- [ ] Satu transaksi kecil nyata
-- [ ] Pantau `mayar webhook history`
+- [ ] Satu transaksi kecil nyata → Pro aktif di success page

@@ -47,8 +47,8 @@ function SubscriptionSuccessPage() {
     async function runTick() {
       if (cancelled) return
       try {
-        // DB-only read — Pro is granted by paid webhook, not member "active".
-        // refreshEntitlements may only downgrade / refresh period metadata.
+        // DB read — Pro is granted by verify-on-read (paid transaction), not
+        // member "active". refreshEntitlements force-checks the transaction.
         if (attempts === 0 || attempts === 5) {
           try {
             await refreshEntitlements()

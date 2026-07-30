@@ -80,6 +80,10 @@ export const userSubscriptions = pgTable("user_subscriptions", {
   status: text("status").notNull().default("inactive"),
   mayarMemberId: text("mayar_member_id"),
   mayarCustomerId: text("mayar_customer_id"),
+  /** Current-term membership invoice transaction; paid proof is re-fetched via API. */
+  mayarTransactionId: text("mayar_transaction_id"),
+  /** Last time Mayar was re-checked; throttles verify-on-read calls. */
+  mayarCheckedAt: timestamp("mayar_checked_at", { withTimezone: true }),
   currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()

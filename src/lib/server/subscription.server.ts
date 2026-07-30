@@ -11,10 +11,18 @@ import {
   createMembershipInvoice,
   findMemberIdByEmail,
   getMembershipMemberDetail,
+  getTransaction,
   isActiveMembershipStatus,
+  isPaidTransactionStatus,
   registerMembershipMember,
 } from "@/lib/mayar/client"
 import { getMayarConfig, isMayarBillingEnabled } from "@/lib/mayar/env"
+
+/**
+ * Minimum gap between Mayar re-checks per user on entitlement reads. Keeps
+ * verify-on-read well under Mayar's 50 req/min rate limit even on busy pages.
+ */
+const MAYAR_RECHECK_INTERVAL_MS = 60_000
 
 export type UserEntitlements = {
   /** False when `MAYAR_BILLING_ENABLED` is off — no limits / upgrade UI. */
@@ -33,36 +41,117 @@ export async function getEntitlementsForUser(
   const entityCount = state != null ? countMarkxEntities(state) : null
   const billingEnabled = await isMayarBillingEnabled()
 
-  return withDb(async ({ db }) => {
+  const row = await withDb(async ({ db }) => {
     const rows = await db
       .select()
       .from(userSubscriptions)
       .where(eq(userSubscriptions.userId, userId))
       .limit(1)
+    return rows.at(0) ?? null
+  })
 
-    if (rows.length === 0) {
-      return {
-        billingEnabled,
-        plan: "free",
-        status: "inactive",
-        // No free-tier cap while billing is feature-flagged off.
-        entityLimit: billingEnabled ? FREE_TIER_ENTITY_LIMIT : null,
-        entityCount,
-        currentPeriodEnd: null,
+  // Verify-on-read (no webhooks): a paid Mayar transaction is the only proof
+  // of Pro. Re-check at most once per MAYAR_RECHECK_INTERVAL_MS per user.
+  if (billingEnabled && row && isRecheckDue(row.mayarCheckedAt)) {
+    try {
+      if (row.plan !== "pro" && row.mayarTransactionId) {
+        const activated = await activateIfTransactionPaid(userId, row)
+        if (activated) return getEntitlementsForUser(userId, state)
+      } else if (
+        row.plan === "pro" &&
+        row.currentPeriodEnd != null &&
+        row.currentPeriodEnd.getTime() < Date.now()
+      ) {
+        // Past period end: confirm the member is still active (or downgrade).
+        return refreshSubscriptionFromMayar(userId)
+      }
+    } catch {
+      // Mayar unreachable — serve the current row as-is.
+    }
+  }
+
+  if (!row) {
+    return {
+      billingEnabled,
+      plan: "free",
+      status: "inactive",
+      // No free-tier cap while billing is feature-flagged off.
+      entityLimit: billingEnabled ? FREE_TIER_ENTITY_LIMIT : null,
+      entityCount,
+      currentPeriodEnd: null,
+    }
+  }
+
+  const proActive = row.plan === "pro" && row.status === "active"
+  return {
+    billingEnabled,
+    plan: proActive ? "pro" : "free",
+    status: row.status,
+    entityLimit: !billingEnabled || proActive ? null : FREE_TIER_ENTITY_LIMIT,
+    entityCount,
+    currentPeriodEnd: row.currentPeriodEnd?.toISOString() ?? null,
+  }
+}
+
+function isRecheckDue(mayarCheckedAt: Date | null): boolean {
+  return (
+    mayarCheckedAt == null ||
+    Date.now() - mayarCheckedAt.getTime() > MAYAR_RECHECK_INTERVAL_MS
+  )
+}
+
+/**
+ * API-only Pro activation: re-fetch the checkout transaction and activate
+ * when Mayar confirms it paid. Idempotent — the activation upsert and the
+ * processed-transaction claim make repeats safe. Always stamps
+ * `mayar_checked_at` so failures don't hammer the API.
+ */
+async function activateIfTransactionPaid(
+  userId: string,
+  row: {
+    mayarMemberId: string | null
+    mayarTransactionId: string | null
+  }
+): Promise<boolean> {
+  const txId = row.mayarTransactionId
+  if (!txId) return false
+
+  try {
+    const detail = await getTransaction(txId)
+    if (!isPaidTransactionStatus(detail.status)) return false
+
+    await claimProcessedTransaction(txId, userId)
+
+    const config = await getMayarConfig()
+    let periodEnd: Date | null = null
+    if (row.mayarMemberId) {
+      try {
+        const member = await getMembershipMemberDetail(
+          row.mayarMemberId,
+          config.productId
+        )
+        const end = member.expiredAt ?? member.nextPayment
+        periodEnd = end ? new Date(end) : null
+      } catch {
+        // Provisioning still proceeds without period metadata.
       }
     }
 
-    const row = rows[0]
-    const proActive = row.plan === "pro" && row.status === "active"
-    return {
-      billingEnabled,
-      plan: proActive ? "pro" : "free",
-      status: row.status,
-      entityLimit: !billingEnabled || proActive ? null : FREE_TIER_ENTITY_LIMIT,
-      entityCount,
-      currentPeriodEnd: row.currentPeriodEnd?.toISOString() ?? null,
-    }
-  })
+    await activateProForUser(userId, {
+      email: detail.customer.email,
+      mayarMemberId: row.mayarMemberId ?? undefined,
+      mayarCustomerId: detail.customer.id,
+      currentPeriodEnd: periodEnd,
+    })
+    return true
+  } finally {
+    await withDb(async ({ db }) => {
+      await db
+        .update(userSubscriptions)
+        .set({ mayarCheckedAt: new Date() })
+        .where(eq(userSubscriptions.userId, userId))
+    })
+  }
 }
 
 export function assertWorkspaceEntityLimit(
@@ -85,6 +174,7 @@ export async function upsertSubscriptionCheckout(
   data: {
     mayarMemberId: string
     mayarCustomerId: string
+    mayarTransactionId: string | null
     status: string
   }
 ): Promise<void> {
@@ -98,6 +188,7 @@ export async function upsertSubscriptionCheckout(
         status: data.status,
         mayarMemberId: data.mayarMemberId,
         mayarCustomerId: data.mayarCustomerId,
+        mayarTransactionId: data.mayarTransactionId,
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
@@ -106,6 +197,7 @@ export async function upsertSubscriptionCheckout(
           email,
           mayarMemberId: data.mayarMemberId,
           mayarCustomerId: data.mayarCustomerId,
+          mayarTransactionId: data.mayarTransactionId,
           status: data.status,
           updatedAt: new Date(),
         },
@@ -160,23 +252,6 @@ export async function activateProForUser(
         mayarMemberId: input.mayarMemberId,
         mayarCustomerId: input.mayarCustomerId,
         currentPeriodEnd: input.currentPeriodEnd ?? null,
-        updatedAt: new Date(),
-      })
-      .where(eq(userSubscriptions.userId, userId))
-  })
-}
-
-/** Downgrade after cancel/expire. Never deletes workspace data. */
-export async function deactivateProForUser(
-  userId: string,
-  status: string = "inactive"
-): Promise<void> {
-  await withDb(async ({ db }) => {
-    await db
-      .update(userSubscriptions)
-      .set({
-        plan: "free",
-        status,
         updatedAt: new Date(),
       })
       .where(eq(userSubscriptions.userId, userId))
@@ -249,11 +324,28 @@ export async function refreshSubscriptionFromMayar(
         .from(userSubscriptions)
         .where(eq(userSubscriptions.userId, userId))
         .limit(1)
-      return rows[0] ?? null
+      return rows.at(0) ?? null
     }),
   ])
 
-  if (!row?.mayarMemberId) {
+  if (!row) {
+    return getEntitlementsForUser(userId)
+  }
+
+  // Forced (unthrottled) paid check — the success page polls this right after
+  // checkout, so activate as soon as Mayar confirms payment.
+  if (row.plan !== "pro" && row.mayarTransactionId) {
+    try {
+      const activated = await activateIfTransactionPaid(userId, row)
+      if (activated) {
+        return getEntitlementsForUser(userId)
+      }
+    } catch {
+      // Fall through to the member-status refresh below.
+    }
+  }
+
+  if (!row.mayarMemberId) {
     return getEntitlementsForUser(userId)
   }
 
@@ -288,8 +380,9 @@ export async function refreshSubscriptionFromMayar(
       .set({
         plan: nextPlan,
         status: nextStatus,
-        mayarCustomerId: detail.customerId ?? row.mayarCustomerId,
+        mayarCustomerId: detail.customerId,
         currentPeriodEnd: nextPeriodEnd,
+        mayarCheckedAt: new Date(),
         updatedAt: new Date(),
       })
       .where(eq(userSubscriptions.userId, userId))
@@ -338,13 +431,14 @@ export async function startMembershipCheckout(input: {
     memberStatus = registered.status
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
+    // Mayar's own duplicate-email error message is Indonesian — match it as-is.
     if (!message.includes("Email sudah terdaftar")) {
       throw err
     }
     const existing = await findMemberIdByEmail(config.productId, input.email)
     if (!existing) {
       throw new Error(
-        "Email sudah terdaftar di Mayar, tapi member tidak ditemukan. Hubungi support."
+        "Email is already registered with Mayar, but the member was not found. Contact support."
       )
     }
     memberId = existing
@@ -353,16 +447,19 @@ export async function startMembershipCheckout(input: {
     memberStatus = detail.status
   }
 
+  const invoice = await createMembershipInvoice(memberId, config.productId)
+  if (!invoice.membershipBillUrl) {
+    throw new Error("Mayar did not return a checkout URL.")
+  }
+
+  // Store the current-term transaction: verify-on-read uses it as the paid
+  // proof (no webhook involved).
   await upsertSubscriptionCheckout(input.userId, input.email, {
     mayarMemberId: memberId,
     mayarCustomerId: customerId,
+    mayarTransactionId: invoice.transactionId ?? null,
     status: memberStatus,
   })
-
-  const invoice = await createMembershipInvoice(memberId, config.productId)
-  if (!invoice.membershipBillUrl) {
-    throw new Error("Mayar tidak mengembalikan URL checkout.")
-  }
 
   return { checkoutUrl: invoice.membershipBillUrl }
 }

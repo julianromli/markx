@@ -80,7 +80,7 @@ export function WorkspaceContextMenu({
       {selectedNotes.length > 0 ? (
         <>
           <div className="px-2 py-1.5">
-            <p className="mb-2 text-[11px] font-medium text-black/45">
+            <p className="mb-2 text-[11px] font-medium text-ink-muted">
               Note color
             </p>
             <NoteColorChoices

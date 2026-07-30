@@ -40,7 +40,7 @@ export function FolderIcon({
         <p className="truncate text-[20px] leading-7 font-semibold tracking-[-0.02em] text-balance text-ink/80">
           {name}
         </p>
-        <p className="mt-0.5 text-[16px] leading-[1.05] text-[rgba(45,55,72,0.5)] tabular-nums">
+        <p className="mt-0.5 text-[16px] leading-[1.05] text-ink-muted tabular-nums">
           {count} {count === 1 ? "page" : "pages"}
         </p>
       </div>

@@ -499,7 +499,7 @@ export function Workspace(props: WorkspaceProps) {
                 ? "Loading your workspace…"
                 : "Workspace could not be loaded"}
             </p>
-            <p className="mt-1 text-[13px] text-black/50">
+            <p className="mt-1 text-[13px] text-ink-muted">
               {initialSyncStatus === "loading"
                 ? "Your boards will appear as soon as cloud sync finishes."
                 : "Check your connection and try again. Editing stays disabled to protect your cloud data."}
@@ -519,7 +519,7 @@ export function Workspace(props: WorkspaceProps) {
                 ? "Create a folder or note"
                 : "Add a link or note"}
             </p>
-            <p className="mt-1 text-[13px] text-pretty text-black/50">
+            <p className="mt-1 text-[13px] text-pretty text-ink-muted">
               {props.mode === "home"
                 ? "Or add a note from the sidebar (⌘N)"
                 : "Or add a note, or paste a URL (⌘V)"}

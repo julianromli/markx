@@ -278,7 +278,7 @@ export function NoteCard({
               dangerouslySetInnerHTML={{ __html: note.content }}
             />
           ) : (
-            <p className="text-black/35">Double-click to edit</p>
+            <p className="text-ink/70">Double-click to edit</p>
           )}
         </div>
 

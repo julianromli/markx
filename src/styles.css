@@ -51,6 +51,7 @@
   --color-background: var(--background);
   --color-canvas: var(--canvas);
   --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
   --color-selection: var(--selection);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
@@ -89,6 +90,9 @@
   /* markx canvas chrome: the dot-grid app surface and its near-black ink. */
   --canvas: oklch(0.945 0.003 228.785);
   --ink: oklch(0.244 0 0);
+  /* Muted ink step, solid (not alpha) so contrast is predictable over any
+   * surface: 5.1:1 on white, 4.8:1 on canvas — WCAG AA for normal text. */
+  --ink-muted: oklch(0.478 0 0);
   /* Board marquee / range-selection affordance. */
   --selection: oklch(0.623 0.188 259.815);
   --sidebar: oklch(0.985 0 0);

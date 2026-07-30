@@ -67,7 +67,9 @@ function SubscriptionSuccessPage() {
         }
       } catch {
         if (!cancelled) {
-          setError("Gagal memuat status langganan. Coba refresh halaman ini.")
+          setError(
+            "Unable to load subscription status. Try refreshing this page."
+          )
         }
       }
 
@@ -107,21 +109,21 @@ function SubscriptionSuccessPage() {
       <div className="max-w-md space-y-2">
         <h1 className="text-2xl font-semibold tracking-tight">
           {isPro
-            ? "Markx Pro aktif"
+            ? "Markx Pro is active"
             : waiting
-              ? "Memverifikasi pembayaran…"
-              : "Pembayaran diterima"}
+              ? "Verifying your payment…"
+              : "Payment received"}
         </h1>
         <p className="text-sm text-muted-foreground">
           {error ??
             (isPro
-              ? "Kamu bisa menambah lebih dari 100 item di workspace. Perubahan bisa butuh beberapa detik."
+              ? "You can add more than 100 items to your workspace. Changes may take a few seconds."
               : waiting
-                ? "Menunggu konfirmasi dari Mayar. Jangan tutup halaman ini."
-                : "Kalau status belum Pro, pembayaran mungkin masih diproses. Buka halaman ini lagi dalam satu menit, atau cek email Mayar.")}
+                ? "Waiting for confirmation from Mayar. Don't close this page."
+                : "If your plan isn't Pro yet, the payment may still be processing. Check this page again in a minute, or look for the Mayar email.")}
         </p>
       </div>
-      <Button render={<Link to="/" />}>Kembali ke workspace</Button>
+      <Button render={<Link to="/" />}>Back to workspace</Button>
     </div>
   )
 }

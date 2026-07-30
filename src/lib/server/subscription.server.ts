@@ -1,10 +1,7 @@
 import { eq } from "drizzle-orm"
 
 import { withDb } from "@/lib/db/client"
-import {
-  mayarProcessedTransactions,
-  userSubscriptions,
-} from "@/lib/db/schema"
+import { mayarProcessedTransactions, userSubscriptions } from "@/lib/db/schema"
 import {
   FREE_TIER_ENTITY_LIMIT,
   countMarkxEntities,
@@ -33,8 +30,7 @@ export async function getEntitlementsForUser(
   userId: string,
   state?: MarkxState | null
 ): Promise<UserEntitlements> {
-  const entityCount =
-    state != null ? countMarkxEntities(state) : null
+  const entityCount = state != null ? countMarkxEntities(state) : null
   const billingEnabled = await isMayarBillingEnabled()
 
   return withDb(async ({ db }) => {
@@ -62,8 +58,7 @@ export async function getEntitlementsForUser(
       billingEnabled,
       plan: proActive ? "pro" : "free",
       status: row.status,
-      entityLimit:
-        !billingEnabled || proActive ? null : FREE_TIER_ENTITY_LIMIT,
+      entityLimit: !billingEnabled || proActive ? null : FREE_TIER_ENTITY_LIMIT,
       entityCount,
       currentPeriodEnd: row.currentPeriodEnd?.toISOString() ?? null,
     }
@@ -306,7 +301,7 @@ export async function refreshSubscriptionFromMayar(
 function normalizeMobile(mobile: string): string {
   const digits = mobile.replace(/\D/g, "")
   if (digits.length >= 10 && digits.length <= 15) return digits
-  throw new Error("Nomor HP harus 10–15 digit.")
+  throw new Error("Mobile number must be 10–15 digits.")
 }
 
 export async function startMembershipCheckout(input: {
@@ -316,7 +311,7 @@ export async function startMembershipCheckout(input: {
   mobile: string
 }): Promise<{ checkoutUrl: string }> {
   if (!(await isMayarBillingEnabled())) {
-    throw new Error("Billing belum diaktifkan.")
+    throw new Error("Billing is not enabled yet.")
   }
 
   const config = await getMayarConfig()

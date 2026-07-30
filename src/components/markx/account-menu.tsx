@@ -69,10 +69,12 @@ export function AccountMenu() {
 
   useEffect(() => {
     function onEntityLimit(event: Event) {
-      const detail = (event as CustomEvent<{
-        message?: string
-        limit?: number
-      }>).detail
+      const detail = (
+        event as CustomEvent<{
+          message?: string
+          limit?: number
+        }>
+      ).detail
       const limit = detail?.limit ?? 100
       const canUpgrade = entitlements?.billingEnabled === true
       toast.error(
@@ -129,7 +131,9 @@ export function AccountMenu() {
       window.location.href = checkoutUrl
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "Checkout gagal. Coba lagi."
+        err instanceof Error
+          ? err.message
+          : "Checkout failed. Please try again."
       toast.error(message)
     } finally {
       setCheckoutLoading(false)
@@ -147,7 +151,7 @@ export function AccountMenu() {
       >
         <DropdownMenuTrigger
           aria-label="Account"
-          className="flex items-center rounded-md p-1.5 text-muted-foreground transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] outline-none hover:bg-black/[0.04] active:scale-[0.96] focus-visible:ring-2 focus-visible:ring-black/10"
+          className="flex items-center rounded-md p-1.5 text-muted-foreground transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] outline-none hover:bg-black/[0.04] focus-visible:ring-2 focus-visible:ring-black/10 active:scale-[0.96]"
         >
           <UserCircleIcon className="size-5" weight="regular" />
         </DropdownMenuTrigger>
@@ -173,7 +177,7 @@ export function AccountMenu() {
               }}
             >
               <CrownIcon weight="regular" />
-              Upgrade to Pro — Rp 49.000/bulan
+              Upgrade to Pro — Rp 49,000/month
             </DropdownMenuItem>
           )}
           {showUpgrade && <DropdownMenuSeparator />}
@@ -199,13 +203,13 @@ export function AccountMenu() {
           <DialogHeader>
             <DialogTitle>Markx Pro</DialogTitle>
             <DialogDescription>
-              Lebih dari 100 item di workspace. Langganan bulanan Rp 49.000 via
-              Mayar.
+              More than 100 items in your workspace. Monthly subscription Rp
+              49,000 via Mayar.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label htmlFor="upgrade-mobile">Nomor HP (WhatsApp)</Label>
+              <Label htmlFor="upgrade-mobile">Mobile number (WhatsApp)</Label>
               <Input
                 id="upgrade-mobile"
                 inputMode="tel"
@@ -223,7 +227,7 @@ export function AccountMenu() {
               {checkoutLoading ? (
                 <SpinnerIcon className="animate-spin" weight="regular" />
               ) : (
-                "Lanjut ke pembayaran"
+                "Continue to payment"
               )}
             </Button>
           </div>

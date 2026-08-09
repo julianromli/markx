@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router"
-import type { ReactNode, RefObject } from "react"
+import type { CSSProperties, ReactNode, RefObject } from "react"
 import { useState } from "react"
 import { toast } from "sonner"
 
@@ -171,7 +171,10 @@ export function AppShell({
     })
 
   return (
-    <div className="markx-shell grid h-svh grid-cols-1 grid-rows-[auto_minmax(0,1fr)] bg-canvas antialiased md:grid-cols-[63px_minmax(0,1fr)]">
+    <div
+      className="markx-shell grid h-svh grid-cols-1 grid-rows-[auto_minmax(0,1fr)] bg-canvas antialiased md:grid-cols-[63px_minmax(0,1fr)]"
+      style={{ "--rail-pad": "21.5px" } as CSSProperties}
+    >
       <header className="relative z-30 col-span-full bg-white shadow-[0_1px_1px_rgba(51,61,78,0.2)]">
         <div className="relative flex h-12 w-full items-center justify-between gap-1">
           <div className="relative z-10 flex h-12 min-w-0 flex-1 items-center pl-[max(0.25rem,env(safe-area-inset-left))] md:pl-0">
@@ -202,13 +205,13 @@ export function AppShell({
                 const content = (
                   <>
                     {crumb.home ? (
-                      <span className="relative size-[18px] shrink-0 drop-shadow-[0_1px_1px_rgba(51,61,78,0.3)]">
+                      <span className="relative size-5 shrink-0 drop-shadow-[0_1px_1px_rgba(51,61,78,0.3)]">
                         <img
                           src={homeIcon}
                           alt=""
                           className="size-full"
-                          width={18}
-                          height={18}
+                          width={20}
+                          height={20}
                         />
                       </span>
                     ) : (
@@ -234,8 +237,11 @@ export function AppShell({
                     className={cn(
                       "flex h-11 min-w-0 items-center",
                       // First crumb icon centers in the 63px desktop rail
-                      // ((63 − 18) / 2 = 22.5) so it shares an axis with sidebar tools.
-                      index === 0 ? "pr-1 pl-1 md:pl-[22.5px]" : "px-1 md:px-0",
+                      // ((63 − 20) / 2 = 21.5) so it shares an axis with sidebar tools.
+                      // --rail-pad is shared with the right section for symmetric white space.
+                      index === 0
+                        ? "pr-1 md:pl-[var(--rail-pad)]"
+                        : "px-1 md:px-0",
                       isLast ? "flex" : "hidden md:flex"
                     )}
                   >
@@ -291,7 +297,8 @@ export function AppShell({
             </h1>
           </div>
 
-          <div className="relative z-10 flex h-12 shrink-0 items-center justify-end gap-1 pr-[max(0.25rem,env(safe-area-inset-right))] md:gap-0 md:pr-[22.5px]">
+          {/* Right edge padding mirrors the left rail (--rail-pad) for symmetric white space. */}
+          <div className="relative z-10 flex h-12 shrink-0 items-center justify-end gap-1 pr-[max(0.25rem,env(safe-area-inset-right))] md:gap-0 md:pr-[var(--rail-pad)]">
             {typeof zoomPercent === "number" && onZoomPreset && onZoomFit ? (
               <DropdownMenu>
                 <DropdownMenuTrigger
@@ -484,6 +491,21 @@ export function AppShell({
           <SheetHeader className="sr-only">
             <SheetTitle>More</SheetTitle>
           </SheetHeader>
+          {onShare ? (
+            <MoreMenuItem
+              label="Share"
+              icon={
+                <ShareNetworkIcon
+                  className="size-5"
+                  weight={shared ? "fill" : "regular"}
+                />
+              }
+              onClick={() => {
+                setMoreOpen(false)
+                onShare()
+              }}
+            />
+          ) : null}
           <MoreMenuItem
             label="Help"
             icon={<QuestionIcon className="size-5" weight="regular" />}

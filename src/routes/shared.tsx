@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
+import type { CSSProperties } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
@@ -58,10 +59,15 @@ function SharedWithMeRoute() {
         </p>
       ) : (
         <ul className="space-y-2">
-          {boards.map((b) => (
+          {boards.map((b, index) => (
             <li
               key={b.boardId}
-              className="flex items-center justify-between gap-3 rounded-xl border border-line px-4 py-3"
+              style={
+                {
+                  "--stagger-index": Math.min(index, 4),
+                } as CSSProperties
+              }
+              className="shared-board-list-item-in flex items-center justify-between gap-3 rounded-xl border border-line px-4 py-3"
             >
               <div className="min-w-0">
                 <p className="truncate font-medium">{b.title}</p>

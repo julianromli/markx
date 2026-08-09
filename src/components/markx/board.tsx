@@ -203,6 +203,13 @@ export function Board({
    * `null` until the first layout effect seeds it (SSR-safe).
    */
   const seenIdsRef = useRef<Set<string> | null>(null)
+  const previousItemsRef = useRef(items)
+  const [exitingItems, setExitingItems] = useState<BoardItemModel[]>([])
+  const [exitingIds, setExitingIds] = useState<Set<string>>(new Set())
+  const exitTimersRef = useRef(
+    new Map<string, ReturnType<typeof setTimeout>>()
+  )
+  const exitFrameRef = useRef<number | null>(null)
 
   // Coalesce gesture previews to one React commit per frame (single write path).
   const rafIdRef = useRef<number | null>(null)
@@ -343,6 +350,83 @@ export function Board({
     for (const item of items) seen.add(item.id)
     seenIdsRef.current = seen
   }, [items])
+
+  useLayoutEffect(() => {
+    const previousItems = previousItemsRef.current
+    const currentIds = new Set(items.map((item) => item.id))
+    const removedItems = previousItems.filter((item) => !currentIds.has(item.id))
+    previousItemsRef.current = items
+
+    setExitingItems((previous) => {
+      const next = previous.filter((item) => !currentIds.has(item.id))
+      for (const item of removedItems) {
+        if (!next.some((candidate) => candidate.id === item.id)) {
+          next.push(item)
+        }
+      }
+      return next.length === previous.length &&
+        next.every((item, index) => item === previous[index])
+        ? previous
+        : next
+    })
+    setExitingIds((previous) => {
+      const next = new Set(
+        [...previous].filter((id) => !currentIds.has(id))
+      )
+      return next.size === previous.size ? previous : next
+    })
+
+    if (exitFrameRef.current != null) {
+      cancelAnimationFrame(exitFrameRef.current)
+      exitFrameRef.current = null
+    }
+
+    if (removedItems.length === 0) return
+
+    const removedIds = removedItems.map((item) => item.id)
+    exitFrameRef.current = requestAnimationFrame(() => {
+      exitFrameRef.current = null
+      setExitingIds((previous) => {
+        const next = new Set(previous)
+        for (const id of removedIds) {
+          if (!currentIds.has(id)) next.add(id)
+        }
+        return next
+      })
+
+      for (const id of removedIds) {
+        const existingTimer = exitTimersRef.current.get(id)
+        if (existingTimer != null) clearTimeout(existingTimer)
+        exitTimersRef.current.set(
+          id,
+          setTimeout(() => {
+            exitTimersRef.current.delete(id)
+            setExitingItems((previous) =>
+              previous.filter((item) => item.id !== id)
+            )
+            setExitingIds((previous) => {
+              if (!previous.has(id)) return previous
+              const next = new Set(previous)
+              next.delete(id)
+              return next
+            })
+          }, 150)
+        )
+      }
+    })
+  }, [items])
+
+  useEffect(() => {
+    return () => {
+      if (exitFrameRef.current != null) {
+        cancelAnimationFrame(exitFrameRef.current)
+      }
+      for (const timer of exitTimersRef.current.values()) {
+        clearTimeout(timer)
+      }
+      exitTimersRef.current.clear()
+    }
+  }, [])
 
   const focusItem = (id: string) => {
     viewportRef.current
@@ -890,6 +974,13 @@ export function Board({
     return () => el.removeEventListener("wheel", onWheel)
   }, [])
 
+  const renderedItems = useMemo(() => {
+    const currentIds = new Set(items.map((item) => item.id))
+    return [
+      ...items,
+      ...exitingItems.filter((item) => !currentIds.has(item.id)),
+    ]
+  }, [exitingItems, items])
   const itemIds = useMemo(() => new Set(items.map((item) => item.id)), [items])
   const tabStop =
     tabStopId && itemIds.has(tabStopId)
@@ -941,15 +1032,20 @@ export function Board({
           transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})`,
         }}
       >
-        {items.map((item) => {
+        {renderedItems.map((item) => {
           const live = liveOffsets.get(item.id)
           const resize = liveResize.get(item.id)
           const x = resize?.x ?? live?.x ?? item.data.x
           const y = live?.y ?? item.data.y
-          const selected = selectedIds.has(item.id)
-          const dragging = liveOffsets.has(item.id) || liveResize.has(item.id)
+          const isLeaving = exitingIds.has(item.id)
+          const selected = !isLeaving && selectedIds.has(item.id)
+          const dragging =
+            !isLeaving &&
+            (liveOffsets.has(item.id) || liveResize.has(item.id))
           const animateIn =
-            seenIdsRef.current != null && !seenIdsRef.current.has(item.id)
+            !isLeaving &&
+            seenIdsRef.current != null &&
+            !seenIdsRef.current.has(item.id)
           return (
             <div
               key={item.id}
@@ -970,7 +1066,8 @@ export function Board({
               }}
               className={cn(
                 "absolute origin-top-left rounded-md outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-black/70",
-                animateIn && "board-item-in"
+                animateIn && "board-item-in",
+                isLeaving && "pointer-events-none"
               )}
               style={{
                 transform: `translate(${x}px, ${y}px)`,
@@ -979,8 +1076,10 @@ export function Board({
             >
               <div
                 className={cn(
-                  "origin-center transition-[opacity,transform] duration-150 ease-[var(--ease-out-strong)] motion-reduce:transition-opacity",
-                  dragging && trashArmed && "scale-90 opacity-50"
+                  !isLeaving &&
+                    "origin-center transition-[opacity,transform] duration-150 ease-[var(--ease-out-strong)] motion-reduce:transition-opacity",
+                  dragging && trashArmed && "scale-90 opacity-50",
+                  isLeaving && "board-item-out"
                 )}
               >
                 {renderItem(withLiveResize(item, resize), selected, dragging)}

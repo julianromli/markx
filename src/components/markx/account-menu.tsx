@@ -321,7 +321,7 @@ export function AccountMenu() {
           </DialogHeader>
 
           {paid ? (
-            <div className="flex flex-col items-center gap-3 py-6 text-center">
+            <div className="payment-success-in flex flex-col items-center gap-3 py-6 text-center">
               <CheckCircleIcon
                 className="size-12 text-green-600"
                 weight="fill"

@@ -44,6 +44,7 @@ import {
   folderHasItems,
   selectWorkspaceItems,
 } from "@/lib/markx/workspace-items"
+import { cn } from "@/lib/utils"
 
 type WorkspaceProps = { mode: "home" } | { mode: "folder"; folderId: string }
 
@@ -67,6 +68,11 @@ export function Workspace(props: WorkspaceProps) {
   const [confirmFolderOpen, setConfirmFolderOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
   const [shareFolder, setShareFolder] = useState<Folder | null>(null)
+  const [emptyStateMounted, setEmptyStateMounted] = useState(
+    () => selectWorkspaceItems(state, props).length === 0
+  )
+  const [emptyStateLeaving, setEmptyStateLeaving] = useState(false)
+  const emptyStateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // folderId → boardId for the owner's shared boards (drives "shared" badges + dialog mode).
   const [sharedBoardByFolder, setSharedBoardByFolder] = useState<Map<string, string>>(
     new Map()
@@ -109,6 +115,35 @@ export function Workspace(props: WorkspaceProps) {
     () => selectWorkspaceItems(state, props),
     [props, state]
   )
+
+  useEffect(() => {
+    if (emptyStateTimerRef.current != null) {
+      clearTimeout(emptyStateTimerRef.current)
+      emptyStateTimerRef.current = null
+    }
+
+    if (items.length === 0) {
+      setEmptyStateMounted(true)
+      setEmptyStateLeaving(false)
+      return
+    }
+
+    if (!emptyStateMounted) return
+
+    setEmptyStateLeaving(true)
+    emptyStateTimerRef.current = setTimeout(() => {
+      emptyStateTimerRef.current = null
+      setEmptyStateMounted(false)
+      setEmptyStateLeaving(false)
+    }, 180)
+
+    return () => {
+      if (emptyStateTimerRef.current != null) {
+        clearTimeout(emptyStateTimerRef.current)
+        emptyStateTimerRef.current = null
+      }
+    }
+  }, [emptyStateMounted, items.length])
 
   // Folder tiles show a bookmark count; computed once per bookmarks change so
   // memoized board items get a primitive prop instead of the whole array.
@@ -575,9 +610,14 @@ export function Workspace(props: WorkspaceProps) {
             ) : null}
           </div>
         </div>
-      ) : items.length === 0 ? (
+      ) : emptyStateMounted ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="pointer-events-auto rounded-2xl bg-white/80 px-6 py-5 text-center shadow-sm outline outline-1 outline-black/5 backdrop-blur">
+          <div
+            className={cn(
+              "workspace-empty-state pointer-events-auto rounded-2xl bg-white/80 px-6 py-5 text-center shadow-sm outline outline-1 outline-black/5 backdrop-blur",
+              emptyStateLeaving && "is-leaving"
+            )}
+          >
             <p className="text-[15px] font-medium text-balance text-ink">
               {props.mode === "home"
                 ? "Create a folder or note"

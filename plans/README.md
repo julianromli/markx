@@ -1,6 +1,6 @@
 # Animation improvement plans
 
-Audit produced by the `improve-animations` skill against commit `934a5bc`.
+Audit produced by the `improve-animations` skill against commit `12cbde6`.
 Each plan is self-contained and can be executed by an agent with no prior
 context. Plans are **read-only proposals** — they do not modify source until
 executed.
@@ -12,6 +12,11 @@ executed.
 | 001 | Animate the note editing toolbar's entrance | HIGH | IMPLEMENTED | `src/styles.css`, `src/components/markx/note-card.tsx` |
 | 002 | Animate canvas items in on creation | HIGH | IMPLEMENTED | `src/styles.css`, `src/components/markx/board.tsx` |
 | 003 | Animate the note toolbar's custom dropdowns on open | MEDIUM | IMPLEMENTED | `src/styles.css`, `src/components/markx/note-card.tsx` |
+| 004 | Crossfade image previews into view | MEDIUM | IMPLEMENTED | `src/styles.css`, `src/components/markx/image-card.tsx` |
+| 005 | Transition the empty workspace state | MEDIUM | IMPLEMENTED | `src/styles.css`, `src/components/markx/workspace.tsx` |
+| 006 | Animate canvas items out on deletion | MEDIUM | IMPLEMENTED | `src/styles.css`, `src/components/markx/board.tsx`, `src/components/markx/workspace.tsx` |
+| 007 | Transition the payment success state | LOW | IMPLEMENTED | `src/styles.css`, `src/components/markx/account-menu.tsx` |
+| 008 | Stagger shared-board list entrances | LOW | IMPLEMENTED | `src/styles.css`, `src/routes/shared.tsx` |
 
 ## Recommended execution order
 
@@ -21,6 +26,14 @@ executed.
    and its dropdowns ship together.
 3. **002** (canvas item entrance) — independent file (`board.tsx`); do last so
    its feel-check (drag/resize lag-free) is validated on its own.
+4. **004** (image preview crossfade) — independent and low-risk; verify image
+   geometry remains stable.
+5. **005** (empty workspace state) — do after 004; it adds mounted exit-state
+   handling and needs a focused state-transition test.
+6. **006** (canvas item deletion exit) — do after 005; it changes deletion
+   retention and needs drag, keyboard, and undo checks.
+7. **007** (payment success) — independent; do after functional payment checks.
+8. **008** (shared-board list stagger) — independent and lowest priority.
 
 ## Dependencies
 
@@ -32,6 +45,15 @@ executed.
   in `src/styles.css`. If executed in parallel by separate agents, expect a
   trivial text conflict in that one block — resolve by keeping all three
   additions.
+- **004–008** also add utilities to that same block. Execute them sequentially
+  or resolve additive text conflicts carefully.
+- **005** should precede **006** because both retain transient board/workspace
+  state, but they do not share implementation files.
+
+## Excluded
+
+- The copy-success icon in `src/components/markx/share-dialog.tsx:316` is
+  excluded because it already has the `copy-pop` animation.
 
 ## Shared conventions (all plans)
 

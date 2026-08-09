@@ -463,6 +463,15 @@ export function Workspace(props: WorkspaceProps) {
       zoomPercent={zoomPercent}
       onZoomPreset={(percent) => boardApiRef.current?.setZoomPercent(percent)}
       onZoomFit={() => boardApiRef.current?.fitToContent()}
+      onShare={
+        props.mode === "folder" && folder
+          ? () => {
+              setShareFolder(folder)
+              setShareOpen(true)
+            }
+          : undefined
+      }
+      shared={!!folder && sharedBoardByFolder.has(folder.id)}
     >
       <ContextMenu>
         <ContextMenuTrigger className="block h-full">

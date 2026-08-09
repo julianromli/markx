@@ -15,6 +15,7 @@ import { ListIcon } from "@phosphor-icons/react/dist/csr/List"
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/dist/csr/MagnifyingGlass"
 import { NoteBlankIcon } from "@phosphor-icons/react/dist/csr/NoteBlank"
 import { QuestionIcon } from "@phosphor-icons/react/dist/csr/Question"
+import { ShareNetworkIcon } from "@phosphor-icons/react/dist/csr/ShareNetwork"
 import { TrashIcon } from "@phosphor-icons/react/dist/csr/Trash"
 
 import homeIcon from "@/assets/markx/header/home.svg"
@@ -71,6 +72,10 @@ type AppShellProps = {
   zoomPercent?: number
   onZoomPreset?: (percent: number) => void
   onZoomFit?: () => void
+  /** Open the share dialog for the current folder (folder mode only). */
+  onShare?: () => void
+  /** Whether the current folder is already shared (drives the icon state). */
+  shared?: boolean
   children: ReactNode
 }
 
@@ -113,6 +118,8 @@ export function AppShell({
   zoomPercent,
   onZoomPreset,
   onZoomFit,
+  onShare,
+  shared,
   children,
 }: AppShellProps) {
   const actions = useMarkxActions()
@@ -367,6 +374,19 @@ export function AppShell({
             </div>
 
             <div className="hidden items-center md:flex">
+              {onShare ? (
+                <HeaderIconButton
+                  label="Share"
+                  icon={
+                    <ShareNetworkIcon
+                      className="size-5"
+                      weight={shared ? "fill" : "regular"}
+                    />
+                  }
+                  onClick={onShare}
+                />
+              ) : null}
+
               <HeaderIconButton
                 label="Help"
                 icon={<QuestionIcon className="size-5" weight="regular" />}

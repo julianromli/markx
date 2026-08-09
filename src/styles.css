@@ -241,6 +241,56 @@
       scale: 0.95;
     }
   }
+
+  /* Smooth height animation for content that appears or disappears inside
+   * a dialog (e.g. the share-board warning row and the empty-editors slot).
+   * Uses the grid-template-rows 0fr<->1fr trick so height animates without
+   * measuring `auto`. The direct child must carry `overflow: hidden`.
+   * Toggled via the `data-open` attribute — exit animation works because the
+   * node stays mounted while the track collapses. */
+  .collapsible {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 200ms var(--ease-out-strong);
+  }
+  .collapsible[data-open="true"] {
+    grid-template-rows: 1fr;
+  }
+  .collapsible > .collapsible-inner {
+    overflow: hidden;
+    opacity: 0;
+    transition: opacity 150ms var(--ease-out-strong);
+  }
+  .collapsible[data-open="true"] > .collapsible-inner {
+    opacity: 1;
+  }
+
+  /* Share-board editor rows. The `<li>` is a grid track that collapses to
+   * 0fr on exit so rows below slide up smoothly (no height snap). The inner
+   * fades in on mount via @starting-style and fades out on removal. Exit is
+   * faster than enter so removal feels snappy. Animates `opacity` and the
+   * grid track only — no `height`/`padding` layout thrash. */
+  .share-item {
+    display: grid;
+    grid-template-rows: 1fr;
+    transition: grid-template-rows 150ms var(--ease-out-strong);
+  }
+  .share-item.is-leaving {
+    grid-template-rows: 0fr;
+  }
+  .share-item > .share-item-inner {
+    overflow: hidden;
+    opacity: 1;
+    transition: opacity 120ms var(--ease-out-strong);
+  }
+  .share-item.is-leaving > .share-item-inner {
+    opacity: 0;
+  }
+  @starting-style {
+    .share-item > .share-item-inner {
+      opacity: 0;
+    }
+  }
 }
 
 @keyframes bookmark-shimmer {

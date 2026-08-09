@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
+import { cn } from "@/lib/utils"
 import {
   createSharedBoard,
   deleteSharedBoard,
@@ -72,6 +73,11 @@ export function ShareDialog({
   const [creating, setCreating] = useState(false)
   const [busyToken, setBusyToken] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  /** userId of the member row currently animating out before removal. */
+  const [removingId, setRemovingId] = useState<string | null>(null)
+  /** Which warning is shown. Kept mounted (clipped) while collapsing so the
+   *  height transition has content to interpolate against in both directions. */
+  const [warning, setWarning] = useState<"disabled" | "edit">("disabled")
   // Local toggle state (synced from the link, pushed to the server on change).
   const [allowRead, setAllowRead] = useState(true)
   const [allowEdit, setAllowEdit] = useState(false)
@@ -185,10 +191,18 @@ export function ShareDialog({
   async function removeMember(member: SharedBoardMemberInfo) {
     if (!boardId) return
     setBusyToken(`rm-${member.userId}`)
+    // Start the exit animation immediately and run the server call in
+    // parallel. Removal from the list happens once both the network request
+    // resolves and the 120ms exit transition have settled, so the row fades
+    // out instead of snapping away.
+    setRemovingId(member.userId)
     try {
-      const ok = await removeSharedBoardMember({
-        data: { boardId, memberUserId: member.userId },
-      })
+      const [ok] = await Promise.all([
+        removeSharedBoardMember({
+          data: { boardId, memberUserId: member.userId },
+        }),
+        new Promise((r) => setTimeout(r, 150)),
+      ])
       if (ok) {
         setAccess((prev) =>
           prev
@@ -197,9 +211,11 @@ export function ShareDialog({
         )
         toast.success(`${member.email} removed.`)
       } else {
+        setRemovingId(null)
         toast.error("Could not remove the member.")
       }
     } catch {
+      setRemovingId(null)
       toast.error("Could not remove the member.")
     } finally {
       setBusyToken(null)
@@ -228,6 +244,14 @@ export function ShareDialog({
 
   const link = access?.link
   const linkDisabled = !allowRead && !allowEdit
+
+  // Track which warning to render. While the row is open we follow the live
+  // toggle state; while closing we keep the last warning mounted so the
+  // collapse transition has content to interpolate against (no snap).
+  useEffect(() => {
+    if (linkDisabled) setWarning("disabled")
+    else if (allowEdit) setWarning("edit")
+  }, [linkDisabled, allowEdit])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -340,18 +364,26 @@ export function ShareDialog({
               </label>
             </div>
 
-            {linkDisabled ? (
-              <p className="flex items-start gap-1.5 text-xs text-ink-muted">
-                <WarningIcon weight="regular" className="mt-0.5 shrink-0" />
-                The link is disabled — turn on read or edit to share this board.
-              </p>
-            ) : allowEdit ? (
-              <p className="flex items-start gap-1.5 text-xs text-ink-muted">
-                <WarningIcon weight="regular" className="mt-0.5 shrink-0" />
-                Anyone with the link can edit this board after logging in.
-                Turn off edit to stop new editors.
-              </p>
-            ) : null}
+            <div
+              className="collapsible"
+              data-open={linkDisabled || allowEdit}
+            >
+              <div className="collapsible-inner">
+                {(linkDisabled ? "disabled" : allowEdit ? "edit" : warning) ===
+                "disabled" ? (
+                  <p className="flex items-start gap-1.5 text-xs text-ink-muted">
+                    <WarningIcon weight="regular" className="mt-0.5 shrink-0" />
+                    The link is disabled — turn on read or edit to share this board.
+                  </p>
+                ) : (
+                  <p className="flex items-start gap-1.5 text-xs text-ink-muted">
+                    <WarningIcon weight="regular" className="mt-0.5 shrink-0" />
+                    Anyone with the link can edit this board after logging in.
+                    Turn off edit to stop new editors.
+                  </p>
+                )}
+              </div>
+            </div>
 
             {/* Editors */}
             <div className="space-y-1.5">
@@ -360,41 +392,53 @@ export function ShareDialog({
                 {access.members.map((m) => (
                   <li
                     key={m.userId}
-                    className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-2"
+                    className={cn(
+                      "share-item",
+                      removingId === m.userId && "is-leaving"
+                    )}
                   >
-                    <span className="flex min-w-0 items-center gap-2">
-                        <span
-                          aria-hidden
-                          className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-medium text-muted-foreground"
-                        >
-                          {initials(m.email)}
+                    <div className="share-item-inner">
+                      <div className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-2">
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span
+                            aria-hidden
+                            className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-medium text-muted-foreground"
+                          >
+                            {initials(m.email)}
+                          </span>
+                          <span className="truncate text-sm">{m.email}</span>
                         </span>
-                        <span className="truncate text-sm">{m.email}</span>
-                      </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      disabled={busyToken === `rm-${m.userId}`}
-                      onClick={() => removeMember(m)}
-                    >
-                      Remove
-                    </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={busyToken === `rm-${m.userId}`}
+                          onClick={() => removeMember(m)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
                   </li>
                 ))}
-                {access.members.length === 0 ? (
-                  <li className="flex items-center gap-2 rounded-md border border-dashed border-line px-3 py-2">
-                    <span
-                      aria-hidden
-                      className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted/50 text-[11px] font-medium text-muted-foreground/60"
-                    >
-                      +
-                    </span>
-                    <span className="text-sm text-ink-muted">
-                      No editors yet. Share the link to invite people.
-                    </span>
-                  </li>
-                ) : null}
+                <li
+                  className="collapsible list-none p-0"
+                  data-open={access.members.length === 0}
+                >
+                  <div className="collapsible-inner">
+                    <div className="flex items-center gap-2 rounded-md border border-dashed border-line px-3 py-2">
+                      <span
+                        aria-hidden
+                        className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted/50 text-[11px] font-medium text-muted-foreground/60"
+                      >
+                        +
+                      </span>
+                      <span className="text-sm text-ink-muted">
+                        No editors yet. Share the link to invite people.
+                      </span>
+                    </div>
+                  </div>
+                </li>
               </ul>
             </div>
 

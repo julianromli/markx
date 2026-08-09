@@ -10,6 +10,7 @@ import {
 } from "@/lib/server/auth-proxy"
 import { checkOtpSendRateLimit } from "@/lib/server/otp-send-rate-limit"
 import { serveOgPreview } from "@/lib/server/og-preview"
+import { serveSharedBoardAsset } from "@/lib/server/shared-board-asset"
 
 /**
  * Same-origin reverse proxy for Neon Auth (Better Auth).
@@ -81,6 +82,9 @@ export default {
 
     const ogPreview = await serveOgPreview(request, env)
     if (ogPreview) return ogPreview
+
+    const sharedAsset = await serveSharedBoardAsset(request, env)
+    if (sharedAsset) return sharedAsset
 
     // TanStack Start's handler only needs the Request. Cloudflare bindings
     // (env) are accessed inside server functions via `cloudflare:workers`,

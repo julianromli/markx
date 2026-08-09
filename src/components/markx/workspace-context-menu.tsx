@@ -7,6 +7,7 @@ import { FolderSimpleIcon } from "@phosphor-icons/react/dist/csr/FolderSimple"
 import { LinkIcon } from "@phosphor-icons/react/dist/csr/Link"
 import { NoteBlankIcon } from "@phosphor-icons/react/dist/csr/NoteBlank"
 import { PencilSimpleIcon } from "@phosphor-icons/react/dist/csr/PencilSimple"
+import { ShareNetworkIcon } from "@phosphor-icons/react/dist/csr/ShareNetwork"
 import { TrashIcon } from "@phosphor-icons/react/dist/csr/Trash"
 
 import {
@@ -30,6 +31,7 @@ type WorkspaceContextMenuProps = {
   onMove: () => void
   onOpen: (id: string) => void
   onRename: (id: string) => void
+  onShare: (id: string) => void
   onResetSizes: (ids: string[]) => void
   onSetNoteColor: (
     ids: string[],
@@ -51,6 +53,7 @@ export function WorkspaceContextMenu({
   onMove,
   onOpen,
   onRename,
+  onShare,
   onResetSizes,
   onSetNoteColor,
 }: WorkspaceContextMenuProps) {
@@ -114,6 +117,18 @@ export function WorkspaceContextMenu({
         <PencilSimpleIcon weight="regular" />
         Rename
       </ContextMenuItem>
+      {mode === "home" ? (
+        <ContextMenuItem
+          disabled={ids.length !== 1}
+          onClick={() => {
+            const id = ids[0]
+            if (id) onShare(id)
+          }}
+        >
+          <ShareNetworkIcon weight="regular" />
+          Share
+        </ContextMenuItem>
+      ) : null}
       {mode === "folder" ? (
         <ContextMenuItem disabled={ids.length === 0} onClick={onMove}>
           <ArrowBendUpRightIcon weight="regular" />

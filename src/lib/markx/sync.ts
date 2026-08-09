@@ -721,6 +721,31 @@ export class SyncEngine {
     return this.conflict
   }
 
+  /** The workspace cloud version last confirmed by the server. */
+  getCloudVersion(): number {
+    return this.cloudVersion
+  }
+
+  /**
+   * Adopt a workspace state + version produced by an out-of-band server
+   * operation (e.g. lifting a folder into a shared board). Caches the
+   * state, advances the cloud version, and emits it as authoritative so
+   * the store replaces its working state without scheduling a save.
+   */
+  async adoptExternalWorkspaceUpdate(
+    newState: MarkxState,
+    newVersion: number
+  ): Promise<void> {
+    if (this.destroyed) return
+    this.cloudVersion = newVersion
+    this.currentState = newState
+    this.localEditsSinceLoad = false
+    await this.dependencies.storage.setCloudVersion(this.userId, newVersion)
+    await this.dependencies.storage.saveUserState(this.userId, newState)
+    await this.dependencies.storage.setPendingSnapshot(this.userId, null)
+    this.setStatus("saved", newState)
+  }
+
   /* ---------------------------------------------------------------- */
   /* Online / offline handling                                         */
   /* ---------------------------------------------------------------- */

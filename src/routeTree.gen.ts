@@ -10,7 +10,10 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SharedRouteImport } from './routes/shared'
+import { Route as BBoardIdRouteImport } from './routes/b.$boardId'
 import { Route as FolderFolderIdRouteImport } from './routes/folder.$folderId'
+import { Route as STokenRouteImport } from './routes/s.$token'
 import { Route as SubscriptionSuccessRouteImport } from './routes/subscription/success'
 
 const IndexRoute = IndexRouteImport.update({
@@ -18,9 +21,24 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SharedRoute = SharedRouteImport.update({
+  id: '/shared',
+  path: '/shared',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BBoardIdRoute = BBoardIdRouteImport.update({
+  id: '/b/$boardId',
+  path: '/b/$boardId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const FolderFolderIdRoute = FolderFolderIdRouteImport.update({
   id: '/folder/$folderId',
   path: '/folder/$folderId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const STokenRoute = STokenRouteImport.update({
+  id: '/s/$token',
+  path: '/s/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SubscriptionSuccessRoute = SubscriptionSuccessRouteImport.update({
@@ -31,31 +49,62 @@ const SubscriptionSuccessRoute = SubscriptionSuccessRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/shared': typeof SharedRoute
+  '/b/$boardId': typeof BBoardIdRoute
   '/folder/$folderId': typeof FolderFolderIdRoute
+  '/s/$token': typeof STokenRoute
   '/subscription/success': typeof SubscriptionSuccessRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/shared': typeof SharedRoute
+  '/b/$boardId': typeof BBoardIdRoute
   '/folder/$folderId': typeof FolderFolderIdRoute
+  '/s/$token': typeof STokenRoute
   '/subscription/success': typeof SubscriptionSuccessRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/shared': typeof SharedRoute
+  '/b/$boardId': typeof BBoardIdRoute
   '/folder/$folderId': typeof FolderFolderIdRoute
+  '/s/$token': typeof STokenRoute
   '/subscription/success': typeof SubscriptionSuccessRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/folder/$folderId' | '/subscription/success'
+  fullPaths:
+    | '/'
+    | '/shared'
+    | '/b/$boardId'
+    | '/folder/$folderId'
+    | '/s/$token'
+    | '/subscription/success'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/folder/$folderId' | '/subscription/success'
-  id: '__root__' | '/' | '/folder/$folderId' | '/subscription/success'
+  to:
+    | '/'
+    | '/shared'
+    | '/b/$boardId'
+    | '/folder/$folderId'
+    | '/s/$token'
+    | '/subscription/success'
+  id:
+    | '__root__'
+    | '/'
+    | '/shared'
+    | '/b/$boardId'
+    | '/folder/$folderId'
+    | '/s/$token'
+    | '/subscription/success'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  SharedRoute: typeof SharedRoute
+  BBoardIdRoute: typeof BBoardIdRoute
   FolderFolderIdRoute: typeof FolderFolderIdRoute
+  STokenRoute: typeof STokenRoute
   SubscriptionSuccessRoute: typeof SubscriptionSuccessRoute
 }
 
@@ -68,11 +117,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/shared': {
+      id: '/shared'
+      path: '/shared'
+      fullPath: '/shared'
+      preLoaderRoute: typeof SharedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/b/$boardId': {
+      id: '/b/$boardId'
+      path: '/b/$boardId'
+      fullPath: '/b/$boardId'
+      preLoaderRoute: typeof BBoardIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/folder/$folderId': {
       id: '/folder/$folderId'
       path: '/folder/$folderId'
       fullPath: '/folder/$folderId'
       preLoaderRoute: typeof FolderFolderIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/s/$token': {
+      id: '/s/$token'
+      path: '/s/$token'
+      fullPath: '/s/$token'
+      preLoaderRoute: typeof STokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/subscription/success': {
@@ -87,7 +157,10 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  SharedRoute: SharedRoute,
+  BBoardIdRoute: BBoardIdRoute,
   FolderFolderIdRoute: FolderFolderIdRoute,
+  STokenRoute: STokenRoute,
   SubscriptionSuccessRoute: SubscriptionSuccessRoute,
 }
 export const routeTree = rootRouteImport

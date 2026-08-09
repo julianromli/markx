@@ -37,6 +37,10 @@ type AuthDialogProps = {
   onOpenChange: (open: boolean) => void
   /** Called after a successful login (OTP verified + sync engine created). */
   onLoggedIn?: () => void
+  /** Override the email-step title (defaults to "Sign in to save"). */
+  title?: string
+  /** Override the email-step description. */
+  description?: string
 }
 
 const OTP_LENGTH = 6
@@ -56,6 +60,8 @@ export function AuthDialog({
   open,
   onOpenChange,
   onLoggedIn,
+  title,
+  description,
 }: AuthDialogProps) {
   const [step, setStep] = useState<Step>("email")
   const [email, setEmail] = useState("")
@@ -214,11 +220,11 @@ export function AuthDialog({
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <EnvelopeSimpleIcon className="size-5" weight="regular" />
-                Sign in to save
+                {title ?? "Sign in to save"}
               </DialogTitle>
               <DialogDescription>
-                Enter your email and we'll send you a one-time code. No password
-                needed. Use the same email to sign in everywhere.
+                {description ??
+                  "Enter your email and we'll send you a one-time code. No password needed. Use the same email to sign in everywhere."}
               </DialogDescription>
             </DialogHeader>
 

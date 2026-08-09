@@ -1,11 +1,12 @@
 import { useNavigate } from "@tanstack/react-router"
 import { FolderSimpleIcon } from "@phosphor-icons/react/dist/csr/FolderSimple"
 import { LinkIcon } from "@phosphor-icons/react/dist/csr/Link"
-import { useCallback, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { Board } from "@/components/markx/board"
 import type { BoardApi, BoardItemModel } from "@/components/markx/board"
+import type { Folder } from "@/lib/markx/types"
 import { AppShell } from "@/components/markx/app-shell"
 import type { CreateAction } from "@/components/markx/app-shell"
 import {
@@ -14,6 +15,8 @@ import {
   MoveToDialog,
   RenameDialog,
 } from "@/components/markx/dialogs"
+import { ShareDialog } from "@/components/markx/share-dialog"
+import { listMySharedBoards } from "@/lib/server/shared-board"
 import { useWorkspaceGlobalEvents } from "@/components/markx/use-workspace-global-events"
 import { WorkspaceBoardItem } from "@/components/markx/workspace-board-item"
 import { WorkspaceContextMenu } from "@/components/markx/workspace-context-menu"
@@ -48,7 +51,8 @@ export function Workspace(props: WorkspaceProps) {
   const state = useMarkxState()
   const actions = useMarkxActions()
   const ingestImage = useMarkxImageIngest()
-  const { initialSyncStatus, retryInitialSync } = useMarkxStore()
+  const storeApi = useMarkxStore()
+  const { initialSyncStatus, retryInitialSync } = storeApi
   const initialSyncBlocked = initialSyncStatus !== "idle"
   const navigate = useNavigate()
   const trashRef = useRef<HTMLButtonElement>(null)
@@ -61,6 +65,27 @@ export function Workspace(props: WorkspaceProps) {
   const [linkOpen, setLinkOpen] = useState(false)
   const [moveOpen, setMoveOpen] = useState(false)
   const [confirmFolderOpen, setConfirmFolderOpen] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
+  const [shareFolder, setShareFolder] = useState<Folder | null>(null)
+  // folderId → boardId for the owner's shared boards (drives "shared" badges + dialog mode).
+  const [sharedBoardByFolder, setSharedBoardByFolder] = useState<Map<string, string>>(
+    new Map()
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    listMySharedBoards()
+      .then((rows) => {
+        if (cancelled) return
+        setSharedBoardByFolder(new Map(rows.map((r) => [r.folderId, r.boardId])))
+      })
+      .catch(() => {
+        // Ignore — badges are decorative.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
   const pendingCreateRef = useRef<{
     x: number
     y: number
@@ -469,6 +494,10 @@ export function Workspace(props: WorkspaceProps) {
                   selected={selected}
                   interacting={dragging}
                   editing={editingNoteId === item.id}
+                  shared={
+                    item.kind === "folder" &&
+                    sharedBoardByFolder.has(item.id)
+                  }
                   folderBookmarkCount={
                     item.kind === "folder"
                       ? (folderBookmarkCounts.get(item.id) ?? 0)
@@ -498,6 +527,13 @@ export function Workspace(props: WorkspaceProps) {
           onRename={(id) => {
             setContextTargetId(id)
             setRenameOpen(true)
+          }}
+          onShare={(id) => {
+            const targetFolder = state.folders.find((f) => f.id === id) ?? null
+            if (targetFolder) {
+              setShareFolder(targetFolder)
+              setShareOpen(true)
+            }
           }}
           onResetSizes={actions.resetSizes}
           onSetNoteColor={(ids, color) => {
@@ -647,6 +683,25 @@ export function Workspace(props: WorkspaceProps) {
         onOpenChange={setConfirmFolderOpen}
         onConfirm={confirmDeleteFolders}
       />
+
+      {shareFolder ? (
+        <ShareDialog
+          open={shareOpen}
+          onOpenChange={setShareOpen}
+          folder={shareFolder}
+          initialBoardId={sharedBoardByFolder.get(shareFolder.id) ?? null}
+          onShared={(result) => {
+            setSharedBoardByFolder((prev) => new Map(prev).set(shareFolder.id, result.boardId))
+          }}
+          onUnshared={() => {
+            setSharedBoardByFolder((prev) => {
+              const next = new Map(prev)
+              next.delete(shareFolder.id)
+              return next
+            })
+          }}
+        />
+      ) : null}
 
       <input
         ref={fileInputRef}

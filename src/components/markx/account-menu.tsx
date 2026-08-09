@@ -4,6 +4,7 @@ import { toast } from "sonner"
 import QRCode from "qrcode"
 import { CheckCircleIcon } from "@phosphor-icons/react/dist/csr/CheckCircle"
 import { CrownIcon } from "@phosphor-icons/react/dist/csr/Crown"
+import { ShareNetworkIcon } from "@phosphor-icons/react/dist/csr/ShareNetwork"
 import { SignOutIcon } from "@phosphor-icons/react/dist/csr/SignOut"
 import { SpinnerIcon } from "@phosphor-icons/react/dist/csr/Spinner"
 import { UserCircleIcon } from "@phosphor-icons/react/dist/csr/UserCircle"
@@ -269,6 +270,16 @@ export function AccountMenu() {
             </DropdownMenuItem>
           )}
           {showUpgrade && <DropdownMenuSeparator />}
+          <DropdownMenuItem
+            onClick={() => {
+              void navigate({ to: "/shared" })
+              setOpen(false)
+            }}
+          >
+            <ShareNetworkIcon weight="regular" />
+            Shared with me
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem
             disabled={signingOut}
             onClick={() => void handleSignOut()}

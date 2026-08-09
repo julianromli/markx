@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm"
 import {
+  boolean,
   jsonb,
   pgTable,
   text,
@@ -110,3 +111,104 @@ export const mayarProcessedTransactions = pgTable(
 export type UserSubscription = typeof userSubscriptions.$inferSelect
 export type MayarProcessedTransaction =
   typeof mayarProcessedTransactions.$inferSelect
+
+/**
+ * A board shared by an owner with other users or via a public link.
+ *
+ * Live-reference model (Milanote-style): the folder and its items
+ * STAY in the owner's workspace JSONB blob. This row only stores
+ * the sharing metadata (which folder, links, members) plus a
+ * per-board version for optimistic editor saves. The owner keeps
+ * opening and editing the folder normally in their own workspace.
+ */
+export const sharedBoards = pgTable(
+  "shared_boards",
+  {
+    id: text("id").primaryKey().notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    /** Denormalized at creation so members can see who shared with them. */
+    ownerEmail: text("owner_email").notNull(),
+    /** The shared folder's id in the owner's workspace blob. */
+    folderId: text("folder_id").notNull(),
+    title: text("title").notNull(),
+    /** Per-board optimistic version for editor saves. */
+    version: integer("version").notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (table) => [
+    index("shared_boards_owner_user_id_idx").on(table.ownerUserId),
+    uniqueIndex("shared_boards_owner_user_id_folder_id_idx").on(
+      table.ownerUserId,
+      table.folderId
+    ),
+  ]
+)
+
+/**
+ * Explicit members of a shared board (editors). Viewers do not need a row —
+ * they access via a public view link. The owner is implied by
+ * `sharedBoards.ownerUserId` and does not need a member row.
+ */
+export const sharedBoardMembers = pgTable(
+  "shared_board_members",
+  {
+    boardId: text("board_id").notNull(),
+    userId: text("user_id").notNull(),
+    /** Denormalized at join time so the owner sees who has access. */
+    email: text("email").notNull(),
+    /** Only `editor` is stored; the owner is implicit. */
+    role: text("role").notNull().default("editor"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (table) => [
+    uniqueIndex("shared_board_members_board_id_user_id_idx").on(
+      table.boardId,
+      table.userId
+    ),
+    index("shared_board_members_user_id_idx").on(table.userId),
+  ]
+)
+
+/**
+ * One share link per board (Relume-style: a single flexible link
+ * with `allowRead` / `allowEdit` toggles). When `allowEdit` is on, the
+ * link grants edit (login required). When only `allowRead` is on, the
+ * link is read-only (no login). Both off = link grants nothing.
+ */
+export const sharedBoardLinks = pgTable(
+  "shared_board_links",
+  {
+    id: text("id").primaryKey().notNull(),
+    boardId: text("board_id").notNull(),
+    token: text("token").notNull(),
+    allowRead: boolean("allow_read").notNull().default(true),
+    allowEdit: boolean("allow_edit").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (table) => [
+    uniqueIndex("shared_board_links_token_idx").on(table.token),
+    uniqueIndex("shared_board_links_board_id_idx").on(table.boardId),
+  ]
+)
+
+/**
+ * Image assets for a shared board stay in the owner's `assets` table and
+ * R2 bucket (live-reference model). The public asset endpoint resolves
+ * a share token + imageId to the owner's asset row and streams the blob.
+ */
+
+export type SharedBoard = typeof sharedBoards.$inferSelect
+export type NewSharedBoard = typeof sharedBoards.$inferInsert
+export type SharedBoardMember = typeof sharedBoardMembers.$inferSelect
+export type NewSharedBoardMember = typeof sharedBoardMembers.$inferInsert
+export type SharedBoardLink = typeof sharedBoardLinks.$inferSelect
+export type NewSharedBoardLink = typeof sharedBoardLinks.$inferInsert

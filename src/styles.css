@@ -250,6 +250,22 @@
 }
 
 /*
+ * One-shot success pop for the "copy link" buttons: the Copy icon swaps to a
+ * check and pops in. Starts at scale(0.8) (never 0) with opacity, runs on
+ * the strong ease-out curve. Neutralized by the reduced-motion block below.
+ */
+@keyframes copy-pop {
+  from {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/*
  * Reduced-motion handling.
  *
  * Honors `prefers-reduced-motion: reduce` by keeping opacity/color feedback

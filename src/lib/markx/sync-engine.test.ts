@@ -149,11 +149,56 @@ describe("SyncEngine dependency boundaries", () => {
     }))
 
     const engine = await SyncEngine.createFromCache("user-1", dependencies)
+    let authoritative: MarkxState | undefined
+    engine.subscribe((_status, _conflict, state) => {
+      authoritative = state
+    })
     await vi.advanceTimersByTimeAsync(2000)
 
     expect(engine.getLoadedState()).toBe(remote)
+    expect(authoritative).toBe(remote)
     expect(engine.getStatus()).toBe("saved")
     expect(dependencies.workspace.load).toHaveBeenCalledTimes(1)
+    engine.destroy()
+  })
+
+  it("merges local and cloud additions without showing a conflict", async () => {
+    vi.useFakeTimers()
+    const local = stateWithFolder("laptop-folder")
+    const cloud = stateWithFolder("mobile-folder")
+    const { dependencies, save } = createDependencies({
+      saveResult: {
+        ok: false,
+        reason: "conflict",
+        cloudVersion: 4,
+        cloudState: cloud,
+        cloudUpdatedAt: "later",
+      },
+    })
+    save
+      .mockResolvedValueOnce({
+        ok: false,
+        reason: "conflict",
+        cloudVersion: 4,
+        cloudState: cloud,
+        cloudUpdatedAt: "later",
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        version: 5,
+        updatedAt: "now",
+      })
+    const engine = await SyncEngine.createFromCache("user-1", dependencies)
+
+    engine.onStateChange(local)
+    await vi.advanceTimersByTimeAsync(1500)
+
+    expect(engine.getStatus()).toBe("saved")
+    expect(engine.getConflict()).toBeUndefined()
+    expect(engine.getLoadedState()?.folders.map((folder) => folder.id)).toEqual(
+      ["mobile-folder", "laptop-folder"]
+    )
+    expect(save).toHaveBeenCalledTimes(2)
     engine.destroy()
   })
 

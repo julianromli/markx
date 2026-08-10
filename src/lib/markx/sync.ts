@@ -109,6 +109,35 @@ export type SyncEngineDependencies = {
   storage: SyncStorageDependency
 }
 
+function mergeById<T extends { id: string }>(
+  local: readonly T[],
+  cloud: readonly T[]
+): T[] {
+  const merged = new Map(cloud.map((item) => [item.id, item]))
+  for (const item of local) {
+    if (!merged.has(item.id)) merged.set(item.id, item)
+  }
+  return [...merged.values()]
+}
+
+/**
+ * Merge non-overlapping workspace additions automatically.
+ * Cloud wins when both devices changed the same entity.
+ */
+export function mergeWorkspaceStates(
+  local: MarkxState,
+  cloud: MarkxState
+): MarkxState {
+  return {
+    folders: mergeById(local.folders, cloud.folders),
+    bookmarks: mergeById(local.bookmarks, cloud.bookmarks),
+    notes: mergeById(local.notes, cloud.notes),
+    images: mergeById(local.images, cloud.images),
+    hasOnboarded: local.hasOnboarded || cloud.hasOnboarded,
+    zCounter: Math.max(local.zCounter, cloud.zCounter),
+  }
+}
+
 const defaultSyncEngineDependencies: SyncEngineDependencies = {
   workspace: {
     async load() {
@@ -476,7 +505,7 @@ export class SyncEngine {
             snapshot.state
           )
           await this.finalizeFirstLoginBootstrap()
-          this.setStatus("saved")
+          this.setStatus("saved", snapshot.state)
           return snapshot.state
         }
         console.info(
@@ -504,7 +533,7 @@ export class SyncEngine {
       this.currentState = snapshot.state
       await this.dependencies.storage.saveUserState(this.userId, snapshot.state)
       await this.finalizeFirstLoginBootstrap()
-      this.setStatus("saved")
+      this.setStatus("saved", snapshot.state)
       return snapshot.state
     } catch (err) {
       console.error("[markx sync] loadWorkspace failed, keeping cache", err)
@@ -570,11 +599,11 @@ export class SyncEngine {
       const deletedImageIds =
         await this.dependencies.storage.getDeletedImageIds(this.userId)
 
-      const result: SaveResult = await this.dependencies.workspace.save({
+      const result = await this.saveWithAutomaticMerge(
         state,
         baseVersion,
-        deletedImageIds,
-      })
+        deletedImageIds
+      )
 
       if (result.ok) {
         this.cloudVersion = result.version
@@ -584,7 +613,7 @@ export class SyncEngine {
         )
         await this.dependencies.storage.clearDeletedImageIds(this.userId)
         await this.dependencies.storage.setPendingSnapshot(this.userId, null)
-        this.setStatus("saved")
+        this.setStatus("saved", this.currentState)
       } else if (result.reason === "conflict") {
         this.conflict = {
           cloudVersion: result.cloudVersion,
@@ -624,6 +653,38 @@ export class SyncEngine {
     } finally {
       this.isSyncing = false
     }
+  }
+
+  private async saveWithAutomaticMerge(
+    state: MarkxState,
+    baseVersion: number,
+    deletedImageIds: string[],
+    attempt = 0
+  ): Promise<SaveResult> {
+    const result = await this.dependencies.workspace.save({
+      state,
+      baseVersion,
+      deletedImageIds,
+    })
+    if (result.ok || result.reason !== "conflict" || attempt >= 2) {
+      return result
+    }
+
+    const merged = mergeWorkspaceStates(state, result.cloudState)
+    this.currentState = merged
+    this.cloudVersion = result.cloudVersion
+    await this.dependencies.storage.setCloudVersion(
+      this.userId,
+      result.cloudVersion
+    )
+    await this.dependencies.storage.setPendingSnapshot(this.userId, merged)
+
+    return this.saveWithAutomaticMerge(
+      merged,
+      result.cloudVersion,
+      deletedImageIds,
+      attempt + 1
+    )
   }
 
   /**

@@ -185,6 +185,23 @@ describe("SyncEngine dependency boundaries", () => {
     expect(engine.getLoadedState()).toBe(cloud)
     engine.destroy()
   })
+
+  it("keeps the per-user cache when logout cannot sync pending changes", async () => {
+    const { dependencies } = createDependencies({
+      saveResult: {
+        ok: false,
+        reason: "error",
+        message: "offline",
+      },
+    })
+    const engine = await SyncEngine.createFromCache("user-1", dependencies)
+
+    engine.onStateChange(stateWithFolder("pending"))
+    const canClearCache = await engine.flushAndDestroy()
+
+    expect(canClearCache).toBe(false)
+    expect(dependencies.storage.setPendingSnapshot).toHaveBeenCalled()
+  })
 })
 
 describe("SyncEngine first-login guest bootstrap", () => {

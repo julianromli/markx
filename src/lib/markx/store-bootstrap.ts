@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react"
 import { getAuthSession } from "@/lib/auth/session"
 import type { AuthUser } from "@/lib/auth/types"
 import { shouldImportGuest } from "./state"
-import { getLastUserId, loadUserState } from "./storage"
+import { getLastUserId } from "./storage"
 import {
   attachEngineAndPaint,
   refreshEngineInBackground,
@@ -104,38 +104,9 @@ export function useMarkxBootstrap(store: MarkxStore): {
 
       console.info("[markx init] starting")
       const sessionPromise = getSessionUserWithTimeout()
-      let optimisticEngine: SyncEngine | null = null
-      const lastUserId = await getLastUserId()
-      if (isCancelled()) return
-
-      if (lastUserId) {
-        try {
-          const cached = await loadUserState(lastUserId)
-          if (isCancelled()) return
-          if (cached) {
-            optimisticEngine = await SyncEngine.createFromCache(lastUserId)
-            if (isCancelled()) {
-              optimisticEngine.destroy()
-              return
-            }
-            await attachEngineAndPaint(store, optimisticEngine)
-            if (isCancelled()) {
-              optimisticEngine.destroy()
-              return
-            }
-            markShellReady("cache-optimistic")
-          }
-        } catch (err) {
-          console.error("[markx init] optimistic cache paint failed", err)
-          optimisticEngine?.destroy()
-          optimisticEngine = null
-        }
-      }
-      logTiming("cache-lookup")
-
+      const lastUserIdPromise = getLastUserId()
       const session = await sessionPromise
       if (isCancelled()) {
-        optimisticEngine?.destroy()
         return
       }
       console.info(
@@ -143,20 +114,10 @@ export function useMarkxBootstrap(store: MarkxStore): {
         session.status === "user" ? `user=${session.user.id}` : session.status
       )
       logTiming("session-restore")
-
-      if (session.status === "timeout" && optimisticEngine) {
-        console.warn(
-          "[markx init] session timeout — keeping optimistic cache paint"
-        )
-        refreshEngineInBackground(store, optimisticEngine, isCancelled)
-        return
-      }
+      await lastUserIdPromise
+      logTiming("cache-lookup")
 
       if (session.status !== "user") {
-        if (optimisticEngine) {
-          optimisticEngine.destroy()
-          store.detachSync()
-        }
         await store.hydrate()
         if (isCancelled()) return
         markShellReady("guest")
@@ -164,20 +125,6 @@ export function useMarkxBootstrap(store: MarkxStore): {
       }
 
       const user = session.user
-      if (optimisticEngine && optimisticEngine.getUserId() === user.id) {
-        if (!(await shouldImportGuest(user.id))) {
-          refreshEngineInBackground(store, optimisticEngine, isCancelled)
-          return
-        }
-        optimisticEngine.destroy()
-        store.detachSync()
-        optimisticEngine = null
-      }
-
-      if (optimisticEngine) {
-        optimisticEngine.destroy()
-        store.detachSync()
-      }
 
       try {
         const cachedEngine = await SyncEngine.createFromCache(user.id)

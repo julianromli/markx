@@ -30,6 +30,12 @@ describe("isGuestModified", () => {
     expect(isGuestModified(state)).toBe(true)
   })
 
+  it("returns true after changing an existing demo bookmark", () => {
+    const state = createDemoState()
+    state.bookmarks[0].title = "Changed title"
+    expect(isGuestModified(state)).toBe(true)
+  })
+
   it("returns true after deleting a bookmark", () => {
     const state = createDemoState()
     state.bookmarks.pop()

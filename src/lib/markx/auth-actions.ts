@@ -81,7 +81,7 @@ export async function onLoginSuccess(): Promise<SyncEngine> {
  *
  * Policy:
  *  1. Flush pending changes to the cloud (best-effort).
- *  2. Always clear the per-user IndexedDB cache (pending hangus after logout).
+ *  2. Clear the per-user cache only after all pending data is synced.
  *  3. Detach the SyncEngine from the store.
  *  4. Reset guest workspace to the demo seed and enter guest mode.
  */
@@ -89,10 +89,10 @@ export async function signOut(): Promise<void> {
   const engine = store.getSyncEngine()
 
   if (engine) {
-    await engine.flushAndDestroy()
-    // Explicit logout abandons any unsynced local pending — next login
-    // is pure cloud-wins from a clean cache.
-    await engine.clearCache()
+    const canClearCache = await engine.flushAndDestroy()
+    if (canClearCache) {
+      await engine.clearCache()
+    }
   }
 
   // Tell Neon Auth to revoke the session.

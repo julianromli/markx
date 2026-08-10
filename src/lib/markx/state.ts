@@ -33,15 +33,7 @@ export function getFolder(folders: Folder[], id: string): Folder | undefined {
 }
 
 export function isGuestModified(state: MarkxState): boolean {
-  const demo = createDemoState()
-  return (
-    state.folders.length !== demo.folders.length ||
-    state.bookmarks.length !== demo.bookmarks.length ||
-    state.notes.length > 0 ||
-    state.images.length > 0 ||
-    state.zCounter !== demo.zCounter ||
-    state.hasOnboarded !== demo.hasOnboarded
-  )
+  return JSON.stringify(state) !== JSON.stringify(createDemoState())
 }
 
 export type GuestImportStorage = Pick<MarkxStorage, "load"> & {

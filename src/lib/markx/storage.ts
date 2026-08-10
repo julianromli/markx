@@ -80,19 +80,26 @@ interface MarkxDB extends DBSchema {
 }
 
 async function openMarkxDatabase(): Promise<IDBPDatabase<MarkxDB>> {
-  return openDB<MarkxDB>(DB_NAME, DB_VERSION, {
-    upgrade(db, oldVersion) {
+  const db = await openDB<MarkxDB>(DB_NAME, DB_VERSION, {
+    upgrade(database, oldVersion) {
       if (oldVersion < 1) {
-        db.createObjectStore("meta")
+        database.createObjectStore("meta")
       }
       if (oldVersion < 2) {
-        db.createObjectStore(IMAGES_STORE)
+        database.createObjectStore(IMAGES_STORE)
       }
       if (oldVersion < 3) {
-        db.createObjectStore(SYNC_STORE)
+        database.createObjectStore(SYNC_STORE)
       }
     },
+    blocked() {
+      console.warn("[markx storage] database upgrade is blocked by another tab")
+    },
   })
+  db.onversionchange = () => {
+    db.close()
+  }
+  return db
 }
 
 /* ------------------------------------------------------------------ */

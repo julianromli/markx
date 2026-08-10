@@ -162,11 +162,15 @@ describe("MarkxProvider authenticated bootstrap", () => {
     view.unmount()
   })
 
-  it("persists lastUserId before exposing an optimistic cached workspace", async () => {
-    const session = deferred<never>()
+  it("persists lastUserId before exposing a cached workspace", async () => {
     const lastUserWrite = deferred<void>()
     const { MarkxProvider } = await setupProvider({
-      session: session.promise,
+      session: Promise.resolve({
+        user: { id: "user-1", email: "user@example.com" },
+        token: "token",
+        isPending: false,
+        checkedAt: Date.now(),
+      }),
       lastUserId: Promise.resolve("user-1"),
       cachedState: emptyState,
       setLastUserId: () => lastUserWrite.promise,

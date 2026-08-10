@@ -880,12 +880,27 @@ export class SyncEngine {
    * Flush pending changes, then tear down listeners. Called on sign-out
    * after the user confirms pending changes are synced.
    */
-  async flushAndDestroy(): Promise<void> {
+  async flushAndDestroy(): Promise<boolean> {
     // Try one final sync.
     if (this.currentState && this.status !== "conflict") {
       await this.sync()
     }
+    const pending = await this.dependencies.storage.getPendingSnapshot(
+      this.userId
+    )
+    const deletedImageIds = await this.dependencies.storage.getDeletedImageIds(
+      this.userId
+    )
+    const assetQueue = await this.dependencies.storage.getAssetQueue(
+      this.userId
+    )
+    const canClearCache =
+      this.status === "saved" &&
+      !pending &&
+      deletedImageIds.length === 0 &&
+      assetQueue.length === 0
     this.destroy()
+    return canClearCache
   }
 
   /**

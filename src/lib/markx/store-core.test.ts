@@ -199,4 +199,53 @@ describe("createMarkxStore", () => {
       vi.useRealTimers()
     }
   })
+
+  it("does not mark the sync engine dirty when enriching bookmarks", async () => {
+    vi.useFakeTimers()
+    try {
+      const onStateChange = vi.fn()
+      const enrich = vi.fn(async () => ({
+        title: "Enriched",
+        imageUrl: "https://img.example.com/x.png",
+        faviconUrl: "",
+      }))
+      const initial = {
+        ...createEmptyState(),
+        folders: [{ id: "folder-1", name: "Root", x: 0, y: 0, z: 1 }],
+        bookmarks: [
+          {
+            id: "bm-1",
+            folderId: "folder-1",
+            url: "https://example.com/a",
+            title: "example.com",
+            x: 0,
+            y: 0,
+            z: 1,
+          },
+        ],
+        zCounter: 1,
+      }
+      const created = createMarkxStore({
+        storage: {
+          load: vi.fn(async () => initial),
+          save: vi.fn(async () => {}),
+        },
+        enrich,
+        sweepOrphanImages: vi.fn(async () => {}),
+      })
+      created.replaceState(initial, { persist: false })
+      created.attachSync({
+        onStateChange,
+        subscribe: () => () => {},
+      } as never)
+
+      await created.actions.enrichMissingBookmarks()
+      await vi.advanceTimersByTimeAsync(200)
+
+      expect(created.getState().bookmarks[0]?.title).toBe("Enriched")
+      expect(onStateChange).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

@@ -165,18 +165,18 @@ const defaultSyncEngineDependencies: SyncEngineDependencies = {
 }
 
 /**
- * Whether a cloud snapshot should be ignored in favor of keeping the
- * current local/cache state (pending offline edits, in-flight local
- * edits, or an unresolved conflict).
+ * Whether a cloud snapshot should be ignored in favor of keeping this
+ * tab's unsent local edits (or an unresolved conflict).
+ *
+ * Shared IndexedDB `pendingSnapshot` from another tab must not block
+ * cloud adopt — online idle tabs always take the server snapshot.
  */
 export function shouldKeepLocalAfterCloudRefresh(opts: {
-  hasPendingSnapshot: boolean
   localEditsSinceLoad: boolean
   hasDebouncedEdit: boolean
   status: SyncStatus
 }): boolean {
   return (
-    opts.hasPendingSnapshot ||
     opts.localEditsSinceLoad ||
     opts.hasDebouncedEdit ||
     opts.status === "conflict"
@@ -190,6 +190,8 @@ export function shouldKeepLocalAfterCloudRefresh(opts: {
  * Responsibilities:
  *  1. Hydrate from the per-user IndexedDB cache for instant revisit paint.
  *  2. Refresh from the cloud in the background (or await on first login).
+ *     Online idle tabs always adopt the server snapshot (cloud-first);
+ *     shared IndexedDB pending from another tab does not block adopt.
  *  3. Debounce local state changes and push coalesced snapshots to the
  *     cloud with optimistic version control.
  *  4. Queue writes when offline and flush them on reconnect.
@@ -339,12 +341,8 @@ export class SyncEngine {
 
       const previousCloudVersion = this.cloudVersion
 
-      const pending = await this.dependencies.storage.getPendingSnapshot(
-        this.userId
-      )
       if (
         shouldKeepLocalAfterCloudRefresh({
-          hasPendingSnapshot: Boolean(pending),
           localEditsSinceLoad: this.localEditsSinceLoad,
           hasDebouncedEdit: this.debounceTimer !== null,
           status: this.status,
@@ -357,10 +355,10 @@ export class SyncEngine {
           return null
         }
 
-        // Remote moved ahead while this device has local edits: merge by id
+        // Remote moved ahead while this tab has unsent edits: merge by id
         // (cloud wins on same id), then push the union.
         if (snapshot.version > previousCloudVersion) {
-          const local = pending ?? this.currentState
+          const local = this.currentState
           if (!local) return null
 
           const merged = mergeWorkspaceStates(local, snapshot.state)
@@ -386,9 +384,6 @@ export class SyncEngine {
         console.info(
           "[markx sync] keeping local state after cloud refresh (pending local edits)"
         )
-        if (pending) {
-          this.currentState = pending
-        }
         await this.finalizeFirstLoginBootstrap()
         if (this.online) {
           void this.sync()
@@ -398,6 +393,7 @@ export class SyncEngine {
         return null
       }
 
+      // Online idle (or no unsent edits): cloud is source of truth.
       this.cloudVersion = snapshot.version
       await this.dependencies.storage.setCloudVersion(
         this.userId,
@@ -815,9 +811,15 @@ export class SyncEngine {
     this.flushTimer = setTimeout(() => void this.sync(), SYNC_RETRY_DEBOUNCE_MS)
   }
 
+  private handleVisibilityChange = () => {
+    if (typeof document === "undefined") return
+    if (document.visibilityState !== "visible") return
+    void this.refreshFromCloud()
+  }
+
   /**
    * Poll the versioned snapshot so another device's save appears without a
-   * manual reload. Polling is intentionally small and uses the existing API.
+   * manual reload. Also refetch immediately when the tab becomes visible.
    */
   private startRealtimeRefresh(): void {
     if (typeof window === "undefined" || this.refreshTimer) return
@@ -825,6 +827,7 @@ export class SyncEngine {
       if (document.visibilityState === "hidden") return
       void this.refreshFromCloud()
     }, 2000)
+    document.addEventListener("visibilitychange", this.handleVisibilityChange)
   }
 
   /* ---------------------------------------------------------------- */
@@ -901,6 +904,12 @@ export class SyncEngine {
     if (typeof window !== "undefined") {
       window.removeEventListener("online", this.handleOnline)
       window.removeEventListener("offline", this.handleOffline)
+    }
+    if (typeof document !== "undefined") {
+      document.removeEventListener(
+        "visibilitychange",
+        this.handleVisibilityChange
+      )
     }
     this.listeners.clear()
   }

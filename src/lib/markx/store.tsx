@@ -153,10 +153,13 @@ export function createMarkxStore(
     for (const listener of listeners) listener()
   }
 
-  const persist = () => {
+  const persist = (opts?: { sync?: boolean }) => {
     if (saveTimer) clearTimeout(saveTimer)
     saveTimer = setTimeout(() => {
       if (syncEngine) {
+        // Metadata enrich must not mark the engine dirty (blocks cross-tab
+        // cloud adopt). User edits always sync (opts.sync !== false).
+        if (opts?.sync === false) return
         const deleted = [...pendingDeletedImageIds]
         pendingDeletedImageIds.clear()
         syncEngine.onStateChange(state, deleted)
@@ -191,10 +194,13 @@ export function createMarkxStore(
   }
 
   /** Apply a change without touching history (enrich, raiseZ, etc.). */
-  const patch = (updater: (prev: MarkxState) => MarkxState) => {
+  const patch = (
+    updater: (prev: MarkxState) => MarkxState,
+    opts?: { sync?: boolean }
+  ) => {
     state = updater(state)
     emit()
-    persist()
+    persist(opts)
   }
 
   const actions: MarkxActions = {
@@ -435,23 +441,30 @@ export function createMarkxStore(
 
       // Enrich in the background: the card is already on the board, and waiting
       // for the scrape would delay selection and edit affordances.
+      // Do not mark SyncEngine dirty — the create commit already queued a sync.
       void (async () => {
         try {
           const meta = await dependencies.enrich({ data: { url: normalized } })
-          patch((prev) => ({
-            ...prev,
-            bookmarks: prev.bookmarks.map((b) =>
-              b.id === created.id ? applyBookmarkMetadata(b, meta) : b
-            ),
-          }))
+          patch(
+            (prev) => ({
+              ...prev,
+              bookmarks: prev.bookmarks.map((b) =>
+                b.id === created.id ? applyBookmarkMetadata(b, meta) : b
+              ),
+            }),
+            { sync: false }
+          )
         } catch {
           // Keep the optimistic card, but clear the loading shimmer.
-          patch((prev) => ({
-            ...prev,
-            bookmarks: prev.bookmarks.map((b) =>
-              b.id === created.id ? { ...b, enrichStatus: "done" } : b
-            ),
-          }))
+          patch(
+            (prev) => ({
+              ...prev,
+              bookmarks: prev.bookmarks.map((b) =>
+                b.id === created.id ? { ...b, enrichStatus: "done" } : b
+              ),
+            }),
+            { sync: false }
+          )
         }
       })()
 
@@ -565,13 +578,16 @@ export function createMarkxStore(
         if (imageUrl) youtubeImages.set(bookmark.id, imageUrl)
       }
       if (youtubeImages.size > 0) {
-        patch((prev) => ({
-          ...prev,
-          bookmarks: prev.bookmarks.map((b) => {
-            const imageUrl = youtubeImages.get(b.id)
-            return imageUrl && !b.imageUrl ? { ...b, imageUrl } : b
+        patch(
+          (prev) => ({
+            ...prev,
+            bookmarks: prev.bookmarks.map((b) => {
+              const imageUrl = youtubeImages.get(b.id)
+              return imageUrl && !b.imageUrl ? { ...b, imageUrl } : b
+            }),
           }),
-        }))
+          { sync: false }
+        )
       }
 
       // Fetches run in parallel, but results land in separate tasks — React
@@ -586,16 +602,19 @@ export function createMarkxStore(
         if (pendingMeta.size === 0) return
         const batch = new Map(pendingMeta)
         pendingMeta.clear()
-        patch((prev) => ({
-          ...prev,
-          bookmarks: prev.bookmarks.map((b) => {
-            if (!batch.has(b.id)) return b
-            const meta = batch.get(b.id)
-            return meta
-              ? applyBookmarkMetadata(b, meta)
-              : { ...b, enrichStatus: "done" as const }
+        patch(
+          (prev) => ({
+            ...prev,
+            bookmarks: prev.bookmarks.map((b) => {
+              if (!batch.has(b.id)) return b
+              const meta = batch.get(b.id)
+              return meta
+                ? applyBookmarkMetadata(b, meta)
+                : { ...b, enrichStatus: "done" as const }
+            }),
           }),
-        }))
+          { sync: false }
+        )
       }
 
       await Promise.all(

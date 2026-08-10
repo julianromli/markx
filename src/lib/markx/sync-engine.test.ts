@@ -180,6 +180,76 @@ describe("SyncEngine dependency boundaries", () => {
     engine.destroy()
   })
 
+  it("adopts newer cloud state even when another tab left a shared pending snapshot", async () => {
+    const staleLocal = stateWithFolder("stale-local")
+    const remote = stateWithFolder("from-other-tab")
+    const { dependencies } = createDependencies({
+      cached: staleLocal,
+      pending: stateWithFolder("other-tab-pending"),
+      cloud: remote,
+    })
+    dependencies.workspace.load = vi.fn(async () => ({
+      id: "workspace",
+      userId: "user-1",
+      state: remote,
+      version: 5,
+      updatedAt: "later",
+    }))
+    dependencies.storage.getCloudVersion = vi.fn(async () => 4)
+
+    const engine = await SyncEngine.createFromCache("user-1", dependencies)
+    let authoritative: MarkxState | undefined
+    engine.subscribe((_status, _conflict, state) => {
+      if (state) authoritative = state
+    })
+
+    const refreshed = await engine.refreshFromCloud()
+
+    expect(refreshed).toBe(remote)
+    expect(authoritative).toBe(remote)
+    expect(engine.getLoadedState()).toBe(remote)
+    expect(engine.getStatus()).toBe("saved")
+    engine.destroy()
+  })
+
+  it("refreshes from cloud immediately when the tab becomes visible", async () => {
+    vi.useFakeTimers()
+    const remote = stateWithFolder("visible-remote")
+    const { dependencies } = createDependencies({
+      cached: stateWithFolder("local"),
+    })
+    const load = vi.fn(async () => ({
+      id: "workspace",
+      userId: "user-1",
+      state: remote,
+      version: 3,
+      updatedAt: "later",
+    }))
+    dependencies.workspace.load = load
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    })
+
+    const engine = await SyncEngine.createFromCache("user-1", dependencies)
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(load).not.toHaveBeenCalled()
+
+    let visibility: DocumentVisibilityState = "visible"
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => visibility,
+    })
+    document.dispatchEvent(new Event("visibilitychange"))
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(load).toHaveBeenCalledTimes(1)
+    expect(engine.getLoadedState()).toBe(remote)
+    engine.destroy()
+    visibility = "visible"
+  })
+
   it("adopts server-merged state from a single save", async () => {
     vi.useFakeTimers()
     const local = stateWithFolder("laptop-folder")

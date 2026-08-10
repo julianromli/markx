@@ -616,6 +616,16 @@ export function Board({
         onSelectedIdsChange(new Set())
       }
       capturePointer(e.currentTarget, e.pointerId)
+      if (e.pointerType === "touch") {
+        dragRef.current = {
+          mode: "pan",
+          pointerId: e.pointerId,
+          startScreen: { x: e.clientX, y: e.clientY },
+          startBoard: boardPoint,
+          originCamera: { ...cam },
+        }
+        return
+      }
       dragRef.current = {
         mode: "marquee",
         pointerId: e.pointerId,

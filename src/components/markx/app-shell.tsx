@@ -460,6 +460,52 @@ export function AppShell({
       </aside>
 
       <main className="relative col-start-1 row-start-2 min-h-0 min-w-0 md:col-start-2">
+        {typeof zoomPercent === "number" &&
+        onZoomPreset &&
+        onZoomFit ? (
+          <div className="pointer-events-none absolute top-3 right-3 z-20 md:hidden">
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                className="pointer-events-auto flex h-11 items-center gap-1 rounded-xl border border-black/10 bg-white/90 px-3 text-[13px] font-medium text-ink/80 shadow-sm backdrop-blur-xl transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] outline-none hover:bg-white focus-visible:ring-2 focus-visible:ring-black/10 active:scale-[0.96]"
+                aria-label="Zoom"
+              >
+                <span className="tabular-nums" suppressHydrationWarning>
+                  {zoomPercent}%
+                </span>
+                <CaretDownIcon className="size-[14px]" weight="bold" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-[9.5rem]">
+                <DropdownMenuRadioGroup
+                  value={
+                    (ZOOM_PRESET_PERCENTS as readonly number[]).includes(
+                      zoomPercent
+                    )
+                      ? String(zoomPercent)
+                      : undefined
+                  }
+                  onValueChange={(value) => {
+                    const percent = Number(value)
+                    if (Number.isFinite(percent)) onZoomPreset(percent)
+                  }}
+                >
+                  {ZOOM_PRESET_PERCENTS.map((percent) => (
+                    <DropdownMenuRadioItem
+                      key={percent}
+                      value={String(percent)}
+                      className="tabular-nums"
+                    >
+                      {percent}%
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => onZoomFit()}>
+                  Fit
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        ) : null}
         {children}
       </main>
 
@@ -467,9 +513,8 @@ export function AppShell({
       <Sheet open={toolsOpen} onOpenChange={setToolsOpen}>
         <SheetContent
           side="left"
-          showCloseButton={false}
           aria-label="Tools"
-          className="w-[80%] max-w-[320px] gap-0 p-0 pt-[env(safe-area-inset-top)]"
+          className="w-[80%] max-w-[320px] gap-0 p-0 pt-[env(safe-area-inset-top)] [&_[data-slot=sheet-close]]:top-[max(1rem,env(safe-area-inset-top))] [&_[data-slot=sheet-close]]:size-11"
         >
           <SheetHeader className="px-4 pt-4 pb-2">
             <SheetTitle>Tools</SheetTitle>
@@ -484,9 +529,8 @@ export function AppShell({
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
         <SheetContent
           side="bottom"
-          showCloseButton={false}
           aria-label="More"
-          className="gap-0 p-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+          className="gap-0 p-2 pt-14 pb-[max(0.75rem,env(safe-area-inset-bottom))] [&_[data-slot=sheet-close]]:size-11"
         >
           <SheetHeader className="sr-only">
             <SheetTitle>More</SheetTitle>

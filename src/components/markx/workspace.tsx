@@ -30,6 +30,7 @@ import {
   useMarkxStore,
 } from "@/lib/markx/store"
 import { prepareImage } from "@/lib/markx/images"
+import { openExternalUrl } from "@/lib/markx/open-url"
 import {
   BOOKMARK_SIZE,
   FOLDER_SIZE,
@@ -176,7 +177,7 @@ export function Workspace(props: WorkspaceProps) {
         return
       }
       const bookmark = state.bookmarks.find((b) => b.id === id)
-      if (bookmark) window.open(bookmark.url, "_blank", "noopener,noreferrer")
+      if (bookmark) openExternalUrl(bookmark.url)
     },
     [actions, navigate, props.mode, state.bookmarks, state.notes]
   )

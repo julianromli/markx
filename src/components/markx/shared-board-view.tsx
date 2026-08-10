@@ -13,6 +13,7 @@ import { nextZ } from "@/lib/markx/state"
 import { SharedBoardSyncEngine } from "@/lib/markx/shared-board-sync"
 import type { SharedBoardSnapshot } from "@/lib/markx/shared-board"
 import { useAuthSession } from "@/lib/markx/hooks"
+import { openExternalUrl } from "@/lib/markx/open-url"
 import type {
   MarkxState,
   Note,
@@ -198,8 +199,8 @@ export function SharedBoardView({ snapshot, token, mode, showDuplicate = true, o
   const handleOpenItem = useCallback(
     (id: string) => {
       const item = items.find((i) => i.id === id)
-      if (item?.kind === "bookmark" && typeof window !== "undefined") {
-        window.open(item.data.url, "_blank", "noopener,noreferrer")
+      if (item?.kind === "bookmark") {
+        openExternalUrl(item.data.url)
       }
     },
     [items]
@@ -311,6 +312,7 @@ export function SharedBoardView({ snapshot, token, mode, showDuplicate = true, o
         trashRef={trashRef}
         editingId={editingNoteId ?? undefined}
         boardApiRef={boardApiRef}
+        itemGesturesEnabled={editable}
       />
     </div>
   )

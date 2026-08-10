@@ -53,6 +53,10 @@ export type { BoardItemModel } from "@/lib/markx/geometry"
 /** Keyboard nudge distance in board units (Shift for the coarse step). */
 const KEYBOARD_MOVE_STEP = 10
 const KEYBOARD_MOVE_STEP_SHIFT = 50
+/** Max gap between taps for double-tap / double-click open (mobile needs room). */
+const DOUBLE_TAP_DELAY_MS = 500
+/** Max screen-pixel drift between the two taps of a double-tap. */
+const DOUBLE_TAP_MAX_DISTANCE = 32
 
 const ARROW_DIRECTIONS: Partial<Record<string, Direction>> = {
   ArrowLeft: "left",
@@ -101,6 +105,11 @@ type BoardProps = {
   getItemLabel?: (item: BoardItemModel) => string
   editingId?: string
   boardApiRef?: React.RefObject<BoardApi | null>
+  /**
+   * When false (read-only shared boards), skip move/resize so a double-tap
+   * can open bookmark URLs without fighting a pending drag.
+   */
+  itemGesturesEnabled?: boolean
   className?: string
 }
 
@@ -147,6 +156,7 @@ export function Board({
   getItemLabel,
   editingId,
   boardApiRef,
+  itemGesturesEnabled = true,
   className,
 }: BoardProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
@@ -185,7 +195,12 @@ export function Board({
   const selectedRef = useRef(selectedIds)
   const itemsRef = useRef(items)
   const anchorIdRef = useRef<string | null>(null)
-  const lastClickRef = useRef<{ id: string; time: number } | null>(null)
+  const lastClickRef = useRef<{
+    id: string
+    time: number
+    x: number
+    y: number
+  } | null>(null)
   const resizeRectRef = useRef<LiveResize | null>(null)
   /** Roving-tabindex stop for keyboard users reaching the canvas via Tab. */
   const [tabStopId, setTabStopId] = useState<string | null>(null)
@@ -632,9 +647,10 @@ export function Board({
     }
 
     if (
-      hit.kind === "bookmark" ||
-      hit.kind === "note" ||
-      hit.kind === "image"
+      itemGesturesEnabled &&
+      (hit.kind === "bookmark" ||
+        hit.kind === "note" ||
+        hit.kind === "image")
     ) {
       const rect = getBoardItemRect(hit)
       const minSize =
@@ -680,12 +696,27 @@ export function Board({
 
     const now = Date.now()
     const last = lastClickRef.current
-    if (last && last.id === hit.id && now - last.time < 350) {
+    if (
+      last &&
+      last.id === hit.id &&
+      now - last.time < DOUBLE_TAP_DELAY_MS &&
+      Math.hypot(e.clientX - last.x, e.clientY - last.y) <=
+        DOUBLE_TAP_MAX_DISTANCE
+    ) {
       onOpenItem(hit.id)
       lastClickRef.current = null
       return
     }
-    lastClickRef.current = { id: hit.id, time: now }
+    lastClickRef.current = {
+      id: hit.id,
+      time: now,
+      x: e.clientX,
+      y: e.clientY,
+    }
+
+    // Read-only boards: record the tap for double-open, but do not start
+    // move/resize. A pending drag steals the second tap on mobile.
+    if (!itemGesturesEnabled) return
 
     const additive = e.metaKey || e.ctrlKey
     let nextSelection: Set<string>
@@ -839,6 +870,7 @@ export function Board({
     if (drag.mode === "pending") {
       if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return
       drag.mode = "move"
+      lastClickRef.current = null
       setDragItemCount(drag.origins?.size ?? 1)
       onItemMoveDragChangeRef.current?.(true)
       if (isMobile) {

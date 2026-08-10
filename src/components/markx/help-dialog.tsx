@@ -83,11 +83,11 @@ function BasicsSection() {
     },
     {
       icon: <LinkIcon className="size-4" weight="regular" />,
-      text: "Paste a URL inside a folder to add it as a bookmark.",
+      text: "Paste a URL inside a folder to add a link (bookmark).",
     },
     {
       icon: <NoteBlankIcon className="size-4" weight="regular" />,
-      text: "Add notes to jot down ideas alongside your links.",
+      text: "Add notes next to your links.",
     },
     {
       icon: <ImageIcon className="size-4" weight="regular" />,
@@ -99,7 +99,7 @@ function BasicsSection() {
     },
     {
       icon: <HandIcon className="size-4" weight="regular" />,
-      text: "On touch: one finger selects or moves cards; two fingers pan and pinch-zoom the board.",
+      text: "On touch: one finger selects or moves items; two fingers pan and pinch-zoom the board.",
     },
   ]
   return (
@@ -137,7 +137,7 @@ function ShortcutsSection({ mod }: { mod: string }) {
     },
     { keys: ["Enter"], text: "Open the selected item" },
     { keys: ["F2"], text: "Rename selected folder or bookmark" },
-    { keys: ["Delete"], text: "Delete selected" },
+    { keys: ["Delete"], text: "Delete selected items" },
     { keys: ["Esc"], text: "Clear selection or leave note editing" },
   ]
   return (
@@ -168,15 +168,19 @@ function SyncSection() {
   const items = [
     {
       icon: <CloudIcon className="size-4" weight="regular" />,
-      text: "Saved. Your workspace is synced to the cloud.",
+      text: "Healthy sync stays silent. No badge means your workspace is up to date.",
     },
     {
       icon: <CloudSlashIcon className="size-4" weight="regular" />,
-      text: "Offline. Changes are queued and sync when you reconnect.",
+      text: "Offline (queued). Changes are saved locally and will sync when you reconnect.",
     },
     {
       icon: <CloudWarningIcon className="size-4" weight="regular" />,
-      text: "Conflict. Pick which version to keep.",
+      text: "Conflict. The cloud version changed. Select the badge to resolve.",
+    },
+    {
+      icon: <CloudWarningIcon className="size-4" weight="regular" />,
+      text: "Sync issue. Last sync failed. Check your connection, or upgrade to Pro if you have more than 100 items.",
     },
   ]
   return (

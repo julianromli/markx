@@ -203,6 +203,7 @@ export class SyncEngine {
   private conflict: ConflictData | undefined
   private debounceTimer: ReturnType<typeof setTimeout> | null = null
   private flushTimer: ReturnType<typeof setTimeout> | null = null
+  private refreshTimer: ReturnType<typeof setInterval> | null = null
   private isSyncing = false
   private online = true
   private listeners = new Set<SyncListener>()
@@ -305,6 +306,7 @@ export class SyncEngine {
     // "saving" while a background cloud refresh may still be in flight.
     this.setStatus(this.online ? "saving" : "offline")
     this.attachOnlineListeners()
+    this.startRealtimeRefresh()
   }
 
   /**
@@ -370,10 +372,7 @@ export class SyncEngine {
     await this.dependencies.storage.saveUserState(this.userId, cloudState)
     await this.dependencies.storage.setPendingSnapshot(this.userId, null)
     await this.finalizeFirstLoginBootstrap()
-    this.setStatus(
-      "saved",
-      opts?.notifyStore ? cloudState : undefined
-    )
+    this.setStatus("saved", opts?.notifyStore ? cloudState : undefined)
   }
 
   /**
@@ -440,11 +439,7 @@ export class SyncEngine {
         return null
       }
 
-      this.cloudVersion = snapshot.version
-      await this.dependencies.storage.setCloudVersion(
-        this.userId,
-        snapshot.version
-      )
+      const previousCloudVersion = this.cloudVersion
 
       // If the user already diverged locally, keep local as source of truth
       // and let the normal sync / conflict path reconcile.
@@ -459,6 +454,31 @@ export class SyncEngine {
           status: this.status,
         })
       ) {
+        // A newer cloud version is a remote edit. Adopt it when this device
+        // has no pending local write. `localEditsSinceLoad` stays true after
+        // the first local edit, so the version check must happen first.
+        if (
+          snapshot.version > previousCloudVersion &&
+          !pending &&
+          this.debounceTimer === null &&
+          !this.isSyncing &&
+          this.status !== "conflict"
+        ) {
+          this.cloudVersion = snapshot.version
+          await this.dependencies.storage.setCloudVersion(
+            this.userId,
+            snapshot.version
+          )
+          this.currentState = snapshot.state
+          this.localEditsSinceLoad = false
+          await this.dependencies.storage.saveUserState(
+            this.userId,
+            snapshot.state
+          )
+          await this.finalizeFirstLoginBootstrap()
+          this.setStatus("saved")
+          return snapshot.state
+        }
         console.info(
           "[markx sync] keeping local state after cloud refresh (pending local edits)"
         )
@@ -476,6 +496,11 @@ export class SyncEngine {
         return null
       }
 
+      this.cloudVersion = snapshot.version
+      await this.dependencies.storage.setCloudVersion(
+        this.userId,
+        snapshot.version
+      )
       this.currentState = snapshot.state
       await this.dependencies.storage.saveUserState(this.userId, snapshot.state)
       await this.finalizeFirstLoginBootstrap()
@@ -804,6 +829,18 @@ export class SyncEngine {
     this.flushTimer = setTimeout(() => void this.sync(), SYNC_RETRY_DEBOUNCE_MS)
   }
 
+  /**
+   * Poll the versioned snapshot so another device's save appears without a
+   * manual reload. Polling is intentionally small and uses the existing API.
+   */
+  private startRealtimeRefresh(): void {
+    if (typeof window === "undefined" || this.refreshTimer) return
+    this.refreshTimer = setInterval(() => {
+      if (document.visibilityState === "hidden") return
+      void this.refreshFromCloud()
+    }, 2000)
+  }
+
   /* ---------------------------------------------------------------- */
   /* Status + subscription                                             */
   /* ---------------------------------------------------------------- */
@@ -827,10 +864,7 @@ export class SyncEngine {
     }
   }
 
-  private setStatus(
-    status: SyncStatus,
-    authoritativeState?: MarkxState
-  ): void {
+  private setStatus(status: SyncStatus, authoritativeState?: MarkxState): void {
     if (this.status === status && !authoritativeState) return
     this.status = status
     for (const listener of this.listeners) {
@@ -862,6 +896,7 @@ export class SyncEngine {
     this.destroyed = true
     if (this.debounceTimer) clearTimeout(this.debounceTimer)
     if (this.flushTimer) clearTimeout(this.flushTimer)
+    if (this.refreshTimer) clearInterval(this.refreshTimer)
     if (typeof window !== "undefined") {
       window.removeEventListener("online", this.handleOnline)
       window.removeEventListener("offline", this.handleOffline)

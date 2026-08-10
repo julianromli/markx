@@ -134,6 +134,29 @@ describe("SyncEngine dependency boundaries", () => {
     engine.destroy()
   })
 
+  it("adopts a newer remote snapshot during realtime refresh", async () => {
+    vi.useFakeTimers()
+    const remote = stateWithFolder("remote-bookmark")
+    const { dependencies } = createDependencies({
+      cached: stateWithFolder("local"),
+    })
+    dependencies.workspace.load = vi.fn(async () => ({
+      id: "workspace",
+      userId: "user-1",
+      state: remote,
+      version: 3,
+      updatedAt: "later",
+    }))
+
+    const engine = await SyncEngine.createFromCache("user-1", dependencies)
+    await vi.advanceTimersByTimeAsync(2000)
+
+    expect(engine.getLoadedState()).toBe(remote)
+    expect(engine.getStatus()).toBe("saved")
+    expect(dependencies.workspace.load).toHaveBeenCalledTimes(1)
+    engine.destroy()
+  })
+
   it("surfaces and resolves an injected save conflict", async () => {
     vi.useFakeTimers()
     const cloud = stateWithFolder("cloud-conflict")

@@ -398,7 +398,6 @@ export function AppShell({
               <HeaderIconButton
                 label="Help"
                 icon={<QuestionIcon className="size-5" weight="regular" />}
-                frame
                 onClick={() => setHelpOpen(true)}
               />
               <HeaderIconButton
@@ -406,7 +405,6 @@ export function AppShell({
                 icon={
                   <MagnifyingGlassIcon className="size-5" weight="regular" />
                 }
-                frame
               />
             </div>
 
@@ -579,16 +577,11 @@ function HeaderIconButton({
   label,
   icon,
   disabled,
-  frame,
-  last,
   onClick,
 }: {
   label: string
   icon: ReactNode
   disabled?: boolean
-  /** Wider hit target for help/search/bell/settings */
-  frame?: boolean
-  last?: boolean
   onClick?: () => void
 }) {
   return (
@@ -598,21 +591,13 @@ function HeaderIconButton({
       aria-label={label}
       onClick={onClick}
       className={cn(
-        "flex h-12 items-center justify-center text-ink/80 transition-[transform,opacity,background-color] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96] disabled:pointer-events-none disabled:opacity-20 disabled:active:scale-100",
-        frame ? (last ? "w-11 md:w-8" : "w-11 md:w-10") : "w-11 md:w-[34px]",
-        !disabled && "hover:bg-black/[0.03]"
+        // Match AccountMenu trigger: compact rounded chip, not a full-height strip.
+        "flex items-center rounded-md p-1.5 text-ink/80 transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] outline-none active:scale-[0.96] disabled:pointer-events-none disabled:opacity-20 disabled:active:scale-100",
+        !disabled &&
+          "hover:bg-black/[0.04] focus-visible:ring-2 focus-visible:ring-black/10"
       )}
     >
-      <span
-        className={cn(
-          "flex items-center justify-center",
-          frame
-            ? cn("h-6", last ? "w-8 pl-2" : "w-10 px-2")
-            : "h-[21px] w-[34px] px-2 pb-0.5"
-        )}
-      >
-        {icon}
-      </span>
+      {icon}
     </button>
   )
 }

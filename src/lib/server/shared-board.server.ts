@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm"
+import { and, eq, inArray, sql } from "drizzle-orm"
 
 import { withDb } from "@/lib/db/client"
 import {
@@ -67,6 +67,39 @@ async function loadBoardByToken(token: string) {
     const board = boardRows.at(0)
     if (!board) return null
     return { board, link }
+  })
+}
+
+/**
+ * Record one public view with one compact write.
+ *
+ * The client gates this call with sessionStorage. The database update also
+ * caps the seed list, so board analytics cannot grow with traffic.
+ */
+export async function recordSharedBoardView(
+  token: string,
+  viewerSeed: string
+): Promise<boolean> {
+  return withDb(async ({ db }) => {
+    const result = await db
+      .update(sharedBoards)
+      .set({
+        viewCount: sql`${sharedBoards.viewCount} + 1`,
+        recentViewerSeeds: sql`jsonb_path_query_array(
+          jsonb_build_array(${viewerSeed}) || coalesce(${sharedBoards.recentViewerSeeds}, '[]'::jsonb),
+          '$[0 to 5]'
+        )`,
+      })
+      .where(
+        sql`${sharedBoards.id} = (
+          select ${sharedBoardLinks.boardId}
+          from ${sharedBoardLinks}
+          where ${sharedBoardLinks.token} = ${token}
+            and (${sharedBoardLinks.allowRead} = true or ${sharedBoardLinks.allowEdit} = true)
+          limit 1
+        )`
+      )
+    return result.count > 0
   })
 }
 
@@ -296,7 +329,10 @@ export async function saveSharedBoardForUser(
         : { ok: false, reason: "error", message: "Board not found" }
     }
 
-    const entitlements = await getEntitlementsForUser(board.ownerUserId, input.state)
+    const entitlements = await getEntitlementsForUser(
+      board.ownerUserId,
+      input.state
+    )
     const limit = assertWorkspaceEntityLimit(entitlements, input.state)
     if (!limit.ok) {
       return {
@@ -322,7 +358,7 @@ export async function saveSharedBoardForUser(
     const newState: MarkxState = {
       folders: ownerState.folders.map((f) =>
         f.id === folderId
-          ? input.state.folders.find((sf) => sf.id === folderId) ?? f
+          ? (input.state.folders.find((sf) => sf.id === folderId) ?? f)
           : f
       ),
       bookmarks: [
@@ -344,7 +380,11 @@ export async function saveSharedBoardForUser(
     const updated = await db.transaction(async (tx) => {
       const rows = await tx
         .update(workspaces)
-        .set({ state: newState, version: workspace.version + 1, updatedAt: new Date() })
+        .set({
+          state: newState,
+          version: workspace.version + 1,
+          updatedAt: new Date(),
+        })
         .where(
           and(
             eq(workspaces.userId, board.ownerUserId),
@@ -465,7 +505,10 @@ export async function duplicateSharedBoardToWorkspaceForUser(
       .where(
         and(
           eq(assets.userId, loaded.board.ownerUserId),
-          inArray(assets.id, slice.slice.images.map((i) => i.imageId))
+          inArray(
+            assets.id,
+            slice.slice.images.map((i) => i.imageId)
+          )
         )
       )
     const assetByOldImageId = new Map(ownerAssetRows.map((r) => [r.id, r]))
@@ -488,7 +531,12 @@ export async function duplicateSharedBoardToWorkspaceForUser(
           await env.MARKX_BUCKET.put(newKey, bytes, {
             httpMetadata: { contentType: img.mime },
           })
-          newAssetRows.push({ id: newImageId, userId, objectKey: newKey, mime: img.mime })
+          newAssetRows.push({
+            id: newImageId,
+            userId,
+            objectKey: newKey,
+            mime: img.mime,
+          })
         }
       } catch {
         // Skip images that fail to copy.
@@ -520,11 +568,21 @@ export async function duplicateSharedBoardToWorkspaceForUser(
     const updated = await db.transaction(async (tx) => {
       const rows = await tx
         .update(workspaces)
-        .set({ state: newState, version: baseVersion + 1, updatedAt: new Date() })
+        .set({
+          state: newState,
+          version: baseVersion + 1,
+          updatedAt: new Date(),
+        })
         .where(
-          and(eq(workspaces.userId, userId), eq(workspaces.version, baseVersion))
+          and(
+            eq(workspaces.userId, userId),
+            eq(workspaces.version, baseVersion)
+          )
         )
-        .returning({ version: workspaces.version, updatedAt: workspaces.updatedAt })
+        .returning({
+          version: workspaces.version,
+          updatedAt: workspaces.updatedAt,
+        })
       if (rows.length === 0) return null
       if (newAssetRows.length > 0) {
         await tx.insert(assets).values(newAssetRows).onConflictDoNothing()
@@ -566,10 +624,18 @@ export async function deleteSharedBoardForUser(
       .where(eq(sharedBoards.id, boardId))
       .limit(1)
     if (boardRows.at(0)?.ownerUserId !== userId) {
-      return { ok: false, reason: "error", message: "Board not found or not owner" }
+      return {
+        ok: false,
+        reason: "error",
+        message: "Board not found or not owner",
+      }
     }
-    await db.delete(sharedBoardLinks).where(eq(sharedBoardLinks.boardId, boardId))
-    await db.delete(sharedBoardMembers).where(eq(sharedBoardMembers.boardId, boardId))
+    await db
+      .delete(sharedBoardLinks)
+      .where(eq(sharedBoardLinks.boardId, boardId))
+    await db
+      .delete(sharedBoardMembers)
+      .where(eq(sharedBoardMembers.boardId, boardId))
     await db.delete(sharedBoards).where(eq(sharedBoards.id, boardId))
     return { ok: true }
   })
@@ -632,7 +698,14 @@ export async function getSharedBoardAccessForUser(
       createdAt: m.createdAt.toISOString(),
     }))
 
-    return { boardId, title: board.title, link: linkInfo, members }
+    return {
+      boardId,
+      title: board.title,
+      link: linkInfo,
+      members,
+      viewCount: board.viewCount,
+      recentViewerSeeds: board.recentViewerSeeds,
+    }
   })
 }
 

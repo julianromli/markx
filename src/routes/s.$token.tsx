@@ -12,6 +12,7 @@ import type { SharedBoardSnapshot } from "@/lib/markx/shared-board"
 import {
   acceptEditorLink,
   loadSharedBoardByToken,
+  recordSharedBoardViewEvent,
 } from "@/lib/server/shared-board"
 
 export const Route = createFileRoute("/s/$token")({
@@ -24,7 +25,9 @@ export const Route = createFileRoute("/s/$token")({
 function SharedBoardRoute() {
   const { token } = Route.useParams()
   const session = useAuthSession()
-  const [snapshot, setSnapshot] = useState<SharedBoardSnapshot | null | undefined>(undefined)
+  const [snapshot, setSnapshot] = useState<
+    SharedBoardSnapshot | null | undefined
+  >(undefined)
   const [authOpen, setAuthOpen] = useState(false)
 
   // Load the shared board by token (public; no login required for view).
@@ -41,6 +44,24 @@ function SharedBoardRoute() {
       cancelled = true
     }
   }, [token])
+
+  // Count one view per browser tab session. The seed changes on a new visit,
+  // which gives the owner a fresh anonymous avatar without storing identity.
+  useEffect(() => {
+    if (!snapshot || typeof window === "undefined") return
+    const sessionKey = `markx:shared-board-viewed:${token}`
+    try {
+      if (window.sessionStorage.getItem(sessionKey)) return
+      window.sessionStorage.setItem(sessionKey, "1")
+      const viewerSeed =
+        typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random()}`
+      void recordSharedBoardViewEvent({ data: { token, viewerSeed } })
+    } catch {
+      // Private browsing can disable sessionStorage. Do not block board viewing.
+    }
+  }, [snapshot, token])
 
   // After login (via the auth dialog), accept the edit link and reload.
   async function acceptAndReload() {
@@ -137,10 +158,15 @@ function NotFoundShell() {
   return (
     <main className="markx-dot-bg flex min-h-svh items-center justify-center p-4">
       <div className="w-full max-w-sm rounded-2xl bg-white/80 px-6 py-10 text-center shadow-sm outline outline-1 outline-black/5 backdrop-blur">
-        <div className="pointer-events-none mx-auto flex size-12 select-none items-center justify-center rounded-full bg-black/[0.04]">
-          <WarningCircleIcon className="size-6 text-ink-muted" weight="regular" />
+        <div className="pointer-events-none mx-auto flex size-12 items-center justify-center rounded-full bg-black/[0.04] select-none">
+          <WarningCircleIcon
+            className="size-6 text-ink-muted"
+            weight="regular"
+          />
         </div>
-        <h1 className="mt-5 text-lg font-medium text-balance">Board not found</h1>
+        <h1 className="mt-5 text-lg font-medium text-balance">
+          Board not found
+        </h1>
         <p className="mt-1.5 text-sm text-pretty text-ink-muted">
           This share link is invalid, revoked, or the board was deleted.
         </p>

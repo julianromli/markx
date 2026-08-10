@@ -19,14 +19,13 @@ import {
   listSharedWithMeForUser,
   loadSharedBoardByIdForCaller,
   loadSharedBoardSnapshotForCaller,
+  recordSharedBoardView,
   regenerateLinkForUser,
   removeMemberForUser,
   saveSharedBoardForUser,
   updateLinkTogglesForUser,
 } from "@/lib/server/shared-board.server"
-import type {
-  CreateSharedBoardResult,
-} from "@/lib/server/shared-board.server"
+import type { CreateSharedBoardResult } from "@/lib/server/shared-board.server"
 import type { SaveResult } from "@/lib/server/workspace-helpers"
 
 export type { CreateSharedBoardResult }
@@ -46,6 +45,10 @@ export const createSharedBoard = createServerFn({ method: "POST" })
   })
 
 const tokenSchema = z.object({ token: z.string() })
+const viewSchema = z.object({
+  token: z.string(),
+  viewerSeed: z.string().min(1).max(128),
+})
 
 /**
  * Load a shared board by token. Public: no login required for a view
@@ -56,7 +59,18 @@ export const loadSharedBoardByToken = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .validator(tokenSchema)
   .handler(async ({ data, context }): Promise<SharedBoardSnapshot | null> => {
-    return loadSharedBoardSnapshotForCaller(data.token, context.user?.id ?? null)
+    return loadSharedBoardSnapshotForCaller(
+      data.token,
+      context.user?.id ?? null
+    )
+  })
+
+/** Record one anonymous view. The client limits this to one call per session. */
+export const recordSharedBoardViewEvent = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator(viewSchema)
+  .handler(async ({ data }): Promise<boolean> => {
+    return recordSharedBoardView(data.token, data.viewerSeed)
   })
 
 const boardIdOnlySchema = z.object({ boardId: z.string() })
@@ -108,7 +122,11 @@ export const duplicateSharedBoardToWorkspace = createServerFn({
   .validator(duplicateSchema)
   .handler(async ({ data, context }): Promise<SaveResult> => {
     const user = requireUser(context)
-    return duplicateSharedBoardToWorkspaceForUser(user.id, data.token, data.baseVersion)
+    return duplicateSharedBoardToWorkspaceForUser(
+      user.id,
+      data.token,
+      data.baseVersion
+    )
   })
 
 const boardIdSchema = z.object({ boardId: z.string() })
@@ -143,7 +161,12 @@ export const updateSharedBoardLinkToggles = createServerFn({ method: "POST" })
   .validator(togglesSchema)
   .handler(async ({ data, context }): Promise<boolean> => {
     const user = requireUser(context)
-    return updateLinkTogglesForUser(user.id, data.boardId, data.allowRead, data.allowEdit)
+    return updateLinkTogglesForUser(
+      user.id,
+      data.boardId,
+      data.allowRead,
+      data.allowEdit
+    )
   })
 
 const removeMemberSchema = z.object({
@@ -188,7 +211,9 @@ export const listSharedWithMe = createServerFn({ method: "GET" })
 export const listMySharedBoards = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(
-    async ({ context }): Promise<{ folderId: string; boardId: string; title: string }[]> => {
+    async ({
+      context,
+    }): Promise<{ folderId: string; boardId: string; title: string }[]> => {
       const user = requireUser(context)
       return listMySharedBoardsForUser(user.id)
     }

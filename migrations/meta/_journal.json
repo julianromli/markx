@@ -29,6 +29,13 @@
       "when": 1786244343928,
       "tag": "0003_secret_mentor",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786364400000,
+      "tag": "0006_shared_board_analytics",
+      "breakpoints": true
     }
   ]
 }

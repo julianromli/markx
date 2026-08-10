@@ -73,6 +73,8 @@ export type SharedBoardAccessView = {
   title: string
   link: SharedBoardLinkInfo | null
   members: SharedBoardMemberInfo[]
+  viewCount: number
+  recentViewerSeeds: string[]
 }
 
 /** A board shared with the caller (for the "shared with me" list). */

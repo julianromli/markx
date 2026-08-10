@@ -133,6 +133,13 @@ export const sharedBoards = pgTable(
     title: text("title").notNull(),
     /** Per-board optimistic version for editor saves. */
     version: integer("version").notNull().default(1),
+    /** Total public views. Incremented once per browser session by the view API. */
+    viewCount: integer("view_count").notNull().default(0),
+    /** Most recent anonymous viewer seeds, newest first. Capped by the view API. */
+    recentViewerSeeds: jsonb("recent_viewer_seeds")
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .default(sql`now()`),

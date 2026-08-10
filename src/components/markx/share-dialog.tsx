@@ -6,6 +6,8 @@ import { CopyIcon } from "@phosphor-icons/react/dist/csr/Copy"
 import { CheckCircleIcon } from "@phosphor-icons/react/dist/csr/CheckCircle"
 import { WarningIcon } from "@phosphor-icons/react/dist/csr/Warning"
 import { ArrowClockwiseIcon } from "@phosphor-icons/react/dist/csr/ArrowClockwise"
+import { EyeIcon } from "@phosphor-icons/react/dist/csr/Eye"
+import { Avatar as OreoAvatar } from "@oreo-design/avatar/react"
 
 import {
   Dialog,
@@ -119,7 +121,9 @@ export function ShareDialog({
       if (result.ok) {
         setBoardId(result.boardId)
         onShared({ boardId: result.boardId, token: result.token })
-        const view = await getSharedBoardAccess({ data: { boardId: result.boardId } })
+        const view = await getSharedBoardAccess({
+          data: { boardId: result.boardId },
+        })
         if (view) {
           setAccess(view)
           setAllowRead(view.link?.allowRead ?? true)
@@ -206,7 +210,10 @@ export function ShareDialog({
       if (ok) {
         setAccess((prev) =>
           prev
-            ? { ...prev, members: prev.members.filter((m) => m.userId !== member.userId) }
+            ? {
+                ...prev,
+                members: prev.members.filter((m) => m.userId !== member.userId),
+              }
             : prev
         )
         toast.success(`${member.email} removed.`)
@@ -273,8 +280,8 @@ export function ShareDialog({
         {!boardId ? (
           <div className="space-y-4">
             <p className="text-sm text-ink-muted">
-              Sharing lets others view or edit this folder. The folder
-              stays on your canvas — nothing is moved out.
+              Sharing lets others view or edit this folder. The folder stays on
+              your canvas — nothing is moved out.
             </p>
             <DialogFooter>
               <Button
@@ -316,7 +323,7 @@ export function ShareDialog({
                   {copied ? (
                     <CheckCircleIcon
                       weight="fill"
-                      className="size-4 text-green-600 animate-[copy-pop_200ms_var(--ease-out-strong)]"
+                      className="size-4 animate-[copy-pop_200ms_var(--ease-out-strong)] text-green-600"
                     />
                   ) : (
                     <CopyIcon weight="regular" />
@@ -335,8 +342,45 @@ export function ShareDialog({
               </div>
             </div>
 
+            {/* Lightweight analytics */}
+            <div className="border-line flex items-center justify-between rounded-xl border bg-muted/20 px-4 py-3">
+              <div className="flex items-center gap-2.5">
+                <EyeIcon
+                  aria-hidden
+                  className="size-4 text-ink-muted"
+                  weight="regular"
+                />
+                <div>
+                  <p className="text-sm font-medium tabular-nums">
+                    {access.viewCount.toLocaleString()}{" "}
+                    {access.viewCount === 1 ? "view" : "views"}
+                  </p>
+                  <p className="text-xs text-ink-muted">Anonymous visitors</p>
+                </div>
+              </div>
+              {access.recentViewerSeeds.length > 0 ? (
+                <div
+                  className="flex -space-x-1.5"
+                  aria-label={`${access.recentViewerSeeds.length} recent anonymous visitors`}
+                >
+                  {access.recentViewerSeeds.slice(0, 6).map((seed) => (
+                    <OreoAvatar
+                      key={seed}
+                      aria-hidden
+                      shape="bloom"
+                      palette="aurora-pink"
+                      variantId={seed}
+                      drift={8}
+                      size={28}
+                      className="rounded-full ring-2 ring-background"
+                    />
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
             {/* Access toggles */}
-            <div className="space-y-2 rounded-xl border border-line p-4">
+            <div className="border-line space-y-2 rounded-xl border p-4">
               <label className="flex items-center justify-between gap-3">
                 <span className="text-sm">
                   <span className="font-medium">Allow read</span>
@@ -346,10 +390,12 @@ export function ShareDialog({
                 </span>
                 <Switch
                   checked={allowRead}
-                  onCheckedChange={(v) => void setToggles(v, v ? allowEdit : false)}
+                  onCheckedChange={(v) =>
+                    void setToggles(v, v ? allowEdit : false)
+                  }
                 />
               </label>
-              <div className="h-px bg-line" />
+              <div className="bg-line h-px" />
               <label className="flex items-center justify-between gap-3">
                 <span className="text-sm">
                   <span className="font-medium">Allow edit</span>
@@ -359,21 +405,21 @@ export function ShareDialog({
                 </span>
                 <Switch
                   checked={allowEdit}
-                  onCheckedChange={(v) => void setToggles(v ? true : allowRead, v)}
+                  onCheckedChange={(v) =>
+                    void setToggles(v ? true : allowRead, v)
+                  }
                 />
               </label>
             </div>
 
-            <div
-              className="collapsible"
-              data-open={linkDisabled || allowEdit}
-            >
+            <div className="collapsible" data-open={linkDisabled || allowEdit}>
               <div className="collapsible-inner">
                 {(linkDisabled ? "disabled" : allowEdit ? "edit" : warning) ===
                 "disabled" ? (
                   <p className="flex items-start gap-1.5 text-xs text-ink-muted">
                     <WarningIcon weight="regular" className="mt-0.5 shrink-0" />
-                    The link is disabled — turn on read or edit to share this board.
+                    The link is disabled — turn on read or edit to share this
+                    board.
                   </p>
                 ) : (
                   <p className="flex items-start gap-1.5 text-xs text-ink-muted">
@@ -387,7 +433,9 @@ export function ShareDialog({
 
             {/* Editors */}
             <div className="space-y-1.5">
-              <Label className="tabular-nums">Editors ({access.members.length})</Label>
+              <Label className="tabular-nums">
+                Editors ({access.members.length})
+              </Label>
               <ul className="space-y-1.5">
                 {access.members.map((m) => (
                   <li
@@ -398,7 +446,7 @@ export function ShareDialog({
                     )}
                   >
                     <div className="share-item-inner">
-                      <div className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-2">
+                      <div className="border-line flex items-center justify-between gap-2 rounded-md border px-3 py-2">
                         <span className="flex min-w-0 items-center gap-2">
                           <span
                             aria-hidden
@@ -426,7 +474,7 @@ export function ShareDialog({
                   data-open={access.members.length === 0}
                 >
                   <div className="collapsible-inner">
-                    <div className="flex items-center gap-2 rounded-md border border-dashed border-line px-3 py-2">
+                    <div className="border-line flex items-center gap-2 rounded-md border border-dashed px-3 py-2">
                       <span
                         aria-hidden
                         className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted/50 text-[11px] font-medium text-muted-foreground/60"

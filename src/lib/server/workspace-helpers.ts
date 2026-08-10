@@ -19,7 +19,7 @@ export type WorkspaceSnapshot = {
 }
 
 export type SaveResult =
-  | { ok: true; version: number; updatedAt: string }
+  | { ok: true; version: number; updatedAt: string; state: MarkxState }
   | {
       ok: false
       reason: "conflict"

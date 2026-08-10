@@ -1,6 +1,7 @@
 import type { SaveResult, WorkspaceSnapshot } from "@/lib/server/workspace"
 import { blobToDataUrl, dataUrlToBlob } from "@/lib/data-url"
-import { createEmptyState, getGuestImportDecision } from "@/lib/markx/state"
+import { createEmptyState } from "@/lib/markx/state"
+import { mergeWorkspaceStates } from "@/lib/markx/merge-workspace"
 import {
   addDeletedImageIds,
   clearDeletedImageIds,
@@ -28,6 +29,8 @@ import {
   SYNC_STATE_DEBOUNCE_MS,
 } from "@/lib/markx/sync-timings"
 import type { MarkxState } from "@/lib/markx/types"
+
+export { mergeWorkspaceStates } from "@/lib/markx/merge-workspace"
 
 /**
  * Sync status shown in the header.
@@ -107,35 +110,6 @@ export type SyncEngineDependencies = {
   workspace: WorkspaceSyncDependency
   assets: AssetSyncDependency
   storage: SyncStorageDependency
-}
-
-function mergeById<T extends { id: string }>(
-  local: readonly T[],
-  cloud: readonly T[]
-): T[] {
-  const merged = new Map(cloud.map((item) => [item.id, item]))
-  for (const item of local) {
-    if (!merged.has(item.id)) merged.set(item.id, item)
-  }
-  return [...merged.values()]
-}
-
-/**
- * Merge non-overlapping workspace additions automatically.
- * Cloud wins when both devices changed the same entity.
- */
-export function mergeWorkspaceStates(
-  local: MarkxState,
-  cloud: MarkxState
-): MarkxState {
-  return {
-    folders: mergeById(local.folders, cloud.folders),
-    bookmarks: mergeById(local.bookmarks, cloud.bookmarks),
-    notes: mergeById(local.notes, cloud.notes),
-    images: mergeById(local.images, cloud.images),
-    hasOnboarded: local.hasOnboarded || cloud.hasOnboarded,
-    zCounter: Math.max(local.zCounter, cloud.zCounter),
-  }
 }
 
 const defaultSyncEngineDependencies: SyncEngineDependencies = {
@@ -242,10 +216,10 @@ export class SyncEngine {
   /** True after the user edits locally (debounce scheduled) during init refresh. */
   private localEditsSinceLoad = false
   /**
-   * Guest workspace awaiting first-login import after an offline / failed
-   * attempt. Cleared once import or silent cloud-wins completes.
+   * Bumped only by {@link onStateChange} so an in-flight save can detect
+   * mid-save user edits without treating merge-retry updates as edits.
    */
-  private pendingGuestImport: MarkxState | null = null
+  private editGeneration = 0
   private dependencies: SyncEngineDependencies
 
   private constructor(userId: string, dependencies: SyncEngineDependencies) {
@@ -257,17 +231,13 @@ export class SyncEngine {
   /**
    * Create and fully initialize a SyncEngine (blocking).
    *
-   * Used on explicit login (`onLoginSuccess`) where waiting for cloud /
-   * guest-import is expected. Returning visits should use
-   * {@link createFromCache} + {@link refreshFromCloud} instead so the UI
-   * can paint from IndexedDB immediately.
+   * Used on explicit login (`onLoginSuccess`) where waiting for cloud is
+   * expected. Returning visits should use {@link createFromCache} +
+   * {@link refreshFromCloud} instead so the UI can paint from IndexedDB
+   * immediately.
    *
-   * Flow:
-   *  1. Load the per-user cache (or empty onboarded state).
-   *  2. If first-login flag unset AND guest was modified from demo, attempt
-   *     one-time import (cloud empty → import; cloud has data → silent
-   *     cloud-wins). Offline → keep guest locally and retry on reconnect.
-   *  3. Otherwise, refresh from the cloud and finalize first-login flag.
+   * Guest board edits are discarded: login always loads the cloud workspace
+   * (or an empty cloud board) and resets the guest store.
    */
   static async create(
     userId: string,
@@ -275,16 +245,6 @@ export class SyncEngine {
   ): Promise<SyncEngine> {
     const engine = new SyncEngine(userId, dependencies)
     await engine.initFromCache()
-
-    const decision = await getGuestImportDecision(userId, {
-      load: dependencies.storage.loadGuestState,
-      isGuestImported: dependencies.storage.isGuestImported,
-    })
-    if (decision.shouldImport && decision.guestState) {
-      await engine.tryImportGuest(decision.guestState)
-      return engine
-    }
-
     await engine.refreshFromCloud()
     return engine
   }
@@ -339,96 +299,6 @@ export class SyncEngine {
   }
 
   /**
-   * Attempt a one-time guest import.
-   *
-   * - Cloud empty → guest becomes cloud; enqueue guest image uploads.
-   * - Cloud already has data → silent cloud-wins (no conflict dialog).
-   * - Network failure → keep guest locally and retry on reconnect without
-   *   setting the first-login flag.
-   */
-  private async tryImportGuest(guestState: MarkxState): Promise<void> {
-    try {
-      const result = await this.dependencies.workspace.importGuest(guestState)
-      if (this.isDestroyed()) return
-
-      if (result.ok) {
-        await this.applySuccessfulGuestImport(guestState, result.version)
-        return
-      }
-
-      if (result.reason === "conflict") {
-        await this.applySilentCloudWins(
-          result.cloudState,
-          result.cloudVersion,
-          { notifyStore: Boolean(this.pendingGuestImport) }
-        )
-        return
-      }
-
-      await this.adoptPendingGuestImport(guestState)
-    } catch {
-      if (this.isDestroyed()) return
-      await this.adoptPendingGuestImport(guestState)
-    }
-  }
-
-  private async applySuccessfulGuestImport(
-    guestState: MarkxState,
-    version: number
-  ): Promise<void> {
-    this.pendingGuestImport = null
-    this.cloudVersion = version
-    await this.dependencies.storage.setCloudVersion(this.userId, version)
-    this.currentState = guestState
-    await this.dependencies.storage.saveUserState(this.userId, guestState)
-    await this.enqueueGuestImages(guestState)
-    await this.finalizeFirstLoginBootstrap()
-    this.setStatus("saved")
-    if (this.online) {
-      this.scheduleFlush()
-    }
-  }
-
-  private async applySilentCloudWins(
-    cloudState: MarkxState,
-    cloudVersion: number,
-    opts?: { notifyStore?: boolean }
-  ): Promise<void> {
-    this.pendingGuestImport = null
-    this.cloudVersion = cloudVersion
-    await this.dependencies.storage.setCloudVersion(this.userId, cloudVersion)
-    this.currentState = cloudState
-    await this.dependencies.storage.saveUserState(this.userId, cloudState)
-    await this.dependencies.storage.setPendingSnapshot(this.userId, null)
-    await this.finalizeFirstLoginBootstrap()
-    this.setStatus("saved", opts?.notifyStore ? cloudState : undefined)
-  }
-
-  /**
-   * Keep guest data as the working state until the cloud is reachable.
-   * Does not set the first-login flag.
-   */
-  private async adoptPendingGuestImport(guestState: MarkxState): Promise<void> {
-    this.pendingGuestImport = guestState
-    this.currentState = guestState
-    await this.dependencies.storage.saveUserState(this.userId, guestState)
-    this.setStatus(this.online ? "error" : "offline")
-  }
-
-  private async enqueueGuestImages(state: MarkxState): Promise<void> {
-    for (const image of state.images) {
-      const blob = await this.dependencies.storage.getImageBlob(image.imageId)
-      if (!blob) continue
-      const dataUrl = await blobToDataUrl(blob)
-      await this.enqueueAssetInternal({
-        imageId: image.imageId,
-        mime: image.mime,
-        dataUrl,
-      })
-    }
-  }
-
-  /**
    * Mark first-login bootstrap complete and reset the guest store to demo.
    * No-ops when the flag is already set.
    */
@@ -445,10 +315,9 @@ export class SyncEngine {
   /**
    * Fetch the workspace from the cloud and update the local cache.
    *
-   * Returns the cloud state when the UI should adopt it, or `null` when
-   * the existing local/cache state should be kept (network failure, no
-   * snapshot, or the user already made local edits / has a pending
-   * snapshot).
+   * Returns the cloud (or merged) state when the UI should adopt it, or
+   * `null` when the existing local/cache state should be kept (network
+   * failure, no snapshot).
    */
   async refreshFromCloud(): Promise<MarkxState | null> {
     if (this.isDestroyed()) return null
@@ -470,8 +339,6 @@ export class SyncEngine {
 
       const previousCloudVersion = this.cloudVersion
 
-      // If the user already diverged locally, keep local as source of truth
-      // and let the normal sync / conflict path reconcile.
       const pending = await this.dependencies.storage.getPendingSnapshot(
         this.userId
       )
@@ -483,43 +350,49 @@ export class SyncEngine {
           status: this.status,
         })
       ) {
-        // A newer cloud version is a remote edit. Adopt it when this device
-        // has no pending local write. `localEditsSinceLoad` stays true after
-        // the first local edit, so the version check must happen first.
-        if (
-          snapshot.version > previousCloudVersion &&
-          !pending &&
-          this.debounceTimer === null &&
-          !this.isSyncing &&
-          this.status !== "conflict"
-        ) {
+        if (this.status === "conflict") {
+          console.info(
+            "[markx sync] keeping local state after cloud refresh (unresolved conflict)"
+          )
+          return null
+        }
+
+        // Remote moved ahead while this device has local edits: merge by id
+        // (cloud wins on same id), then push the union.
+        if (snapshot.version > previousCloudVersion) {
+          const local = pending ?? this.currentState
+          if (!local) return null
+
+          const merged = mergeWorkspaceStates(local, snapshot.state)
           this.cloudVersion = snapshot.version
           await this.dependencies.storage.setCloudVersion(
             this.userId,
             snapshot.version
           )
-          this.currentState = snapshot.state
-          this.localEditsSinceLoad = false
-          await this.dependencies.storage.saveUserState(
+          this.currentState = merged
+          await this.dependencies.storage.saveUserState(this.userId, merged)
+          await this.dependencies.storage.setPendingSnapshot(
             this.userId,
-            snapshot.state
+            merged
           )
           await this.finalizeFirstLoginBootstrap()
-          this.setStatus("saved", snapshot.state)
-          return snapshot.state
+          if (this.online) {
+            void this.sync()
+          }
+          this.setStatus(this.online ? "saving" : "offline", merged)
+          return merged
         }
+
         console.info(
           "[markx sync] keeping local state after cloud refresh (pending local edits)"
         )
         if (pending) {
           this.currentState = pending
         }
-        // Cloud was reachable — first-login flag can be set even if we keep
-        // local pending (session-expire recovery path).
         await this.finalizeFirstLoginBootstrap()
-        if (this.status !== "conflict" && this.online) {
+        if (this.online) {
           void this.sync()
-        } else if (!this.online) {
+        } else {
           this.setStatus("offline")
         }
         return null
@@ -551,6 +424,7 @@ export class SyncEngine {
     if (this.destroyed) return
     this.currentState = state
     this.localEditsSinceLoad = true
+    this.editGeneration += 1
 
     // Always cache locally for instant load + offline.
     void this.dependencies.storage.saveUserState(this.userId, state)
@@ -594,13 +468,14 @@ export class SyncEngine {
       // Flush any queued image assets first.
       await this.flushAssetQueue()
 
-      const state = this.currentState
+      const sentState = this.currentState
+      const generationAtStart = this.editGeneration
       const baseVersion = this.cloudVersion
       const deletedImageIds =
         await this.dependencies.storage.getDeletedImageIds(this.userId)
 
       const result = await this.saveWithAutomaticMerge(
-        state,
+        sentState,
         baseVersion,
         deletedImageIds
       )
@@ -611,9 +486,32 @@ export class SyncEngine {
           this.userId,
           result.version
         )
-        await this.dependencies.storage.clearDeletedImageIds(this.userId)
-        await this.dependencies.storage.setPendingSnapshot(this.userId, null)
-        this.setStatus("saved", this.currentState)
+        await this.retireDeletedImageIds(deletedImageIds)
+
+        if (this.editGeneration === generationAtStart) {
+          await this.dependencies.storage.setPendingSnapshot(this.userId, null)
+          this.currentState = result.state
+          this.localEditsSinceLoad = false
+          await this.dependencies.storage.saveUserState(
+            this.userId,
+            result.state
+          )
+          this.setStatus("saved", result.state)
+        } else {
+          // User edited while the save was in flight. Keep local-only
+          // entities; server/cloud wins on the same id.
+          const live = this.currentState ?? result.state
+          const adopted = mergeWorkspaceStates(live, result.state)
+          this.currentState = adopted
+          await this.dependencies.storage.saveUserState(this.userId, adopted)
+          await this.dependencies.storage.setPendingSnapshot(
+            this.userId,
+            adopted
+          )
+          this.localEditsSinceLoad = true
+          this.setStatus("saved", adopted)
+          this.scheduleFlush()
+        }
       } else if (result.reason === "conflict") {
         this.conflict = {
           cloudVersion: result.cloudVersion,
@@ -621,10 +519,16 @@ export class SyncEngine {
           cloudUpdatedAt: result.cloudUpdatedAt,
         }
         this.cloudVersion = result.cloudVersion
-        await this.dependencies.storage.setPendingSnapshot(this.userId, state)
+        await this.dependencies.storage.setPendingSnapshot(
+          this.userId,
+          this.currentState
+        )
         this.setStatus("conflict")
       } else if (result.reason === "entity_limit") {
-        await this.dependencies.storage.setPendingSnapshot(this.userId, state)
+        await this.dependencies.storage.setPendingSnapshot(
+          this.userId,
+          sentState
+        )
         this.setStatus("error")
         if (typeof window !== "undefined") {
           window.dispatchEvent(
@@ -640,7 +544,10 @@ export class SyncEngine {
       } else {
         // Generic error — keep the pending snapshot and mark as error
         // so the UI shows a retry indicator instead of "saved".
-        await this.dependencies.storage.setPendingSnapshot(this.userId, state)
+        await this.dependencies.storage.setPendingSnapshot(
+          this.userId,
+          sentState
+        )
         this.setStatus("error")
       }
     } catch {
@@ -652,6 +559,26 @@ export class SyncEngine {
       this.setStatus("offline")
     } finally {
       this.isSyncing = false
+    }
+  }
+
+  /**
+   * Drop only the deleted-image ids that this save attempted to flush so
+   * mid-save deletions stay queued.
+   */
+  private async retireDeletedImageIds(sentIds: string[]): Promise<void> {
+    if (sentIds.length === 0) return
+    const current = await this.dependencies.storage.getDeletedImageIds(
+      this.userId
+    )
+    const sent = new Set(sentIds)
+    const remaining = current.filter((id) => !sent.has(id))
+    await this.dependencies.storage.clearDeletedImageIds(this.userId)
+    if (remaining.length > 0) {
+      await this.dependencies.storage.addDeletedImageIds(
+        this.userId,
+        remaining
+      )
     }
   }
 
@@ -670,7 +597,10 @@ export class SyncEngine {
       return result
     }
 
-    const merged = mergeWorkspaceStates(state, result.cloudState)
+    // Prefer live local state so mid-flight user adds are included in the
+    // retry merge. Do not bump editGeneration here.
+    const localBase = this.currentState ?? state
+    const merged = mergeWorkspaceStates(localBase, result.cloudState)
     this.currentState = merged
     this.cloudVersion = result.cloudVersion
     await this.dependencies.storage.setCloudVersion(
@@ -798,8 +728,9 @@ export class SyncEngine {
       )
       await this.dependencies.storage.clearDeletedImageIds(this.userId)
       await this.dependencies.storage.setPendingSnapshot(this.userId, null)
+      this.currentState = result.state
       this.conflict = undefined
-      this.setStatus("saved")
+      this.setStatus("saved", result.state)
     }
   }
 
@@ -845,13 +776,7 @@ export class SyncEngine {
   private handleOnline = async () => {
     this.online = true
 
-    // Finish first-login guest import that was deferred while offline.
-    if (this.pendingGuestImport) {
-      await this.tryImportGuest(this.pendingGuestImport)
-      return
-    }
-
-    // First login with unmodified guest that never reached the cloud yet.
+    // First login that never reached the cloud yet.
     if (!(await this.dependencies.storage.isGuestImported(this.userId))) {
       const cloudState = await this.refreshFromCloud()
       if (this.isDestroyed()) return

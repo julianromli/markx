@@ -228,8 +228,8 @@ describe("MarkxProvider authenticated bootstrap", () => {
     await waitFor(() => expect(screen.getByText("idle")).toBeTruthy())
   })
 
-  it("retries guest import when a user cache exists but the marker is absent", async () => {
-    const { MarkxProvider, create, createFromCache, isGuestImported, engine } =
+  it("paints from cache when guest marker is absent", async () => {
+    const { MarkxProvider, create, createFromCache, engine } =
       await setupProvider({
         session: Promise.resolve({
           user: { id: "user-1", email: "user@example.com" },
@@ -247,13 +247,12 @@ describe("MarkxProvider authenticated bootstrap", () => {
     expect(await screen.findByText("cached-workspace")).toBeTruthy()
 
     expect(createFromCache).toHaveBeenCalled()
-    expect(isGuestImported).toHaveBeenCalledWith("user-1")
-    expect(create).toHaveBeenCalledWith("user-1")
-    expect(engine.refreshFromCloud).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+    expect(engine.refreshFromCloud).toHaveBeenCalledTimes(1)
   })
 
-  it("imports modified guest data when the authenticated cache is empty", async () => {
-    const { MarkxProvider, create, createFromCache, isGuestImported } =
+  it("loads cloud when authenticated cache is empty", async () => {
+    const { MarkxProvider, create, createFromCache, engine } =
       await setupProvider({
         session: Promise.resolve({
           user: { id: "user-1", email: "user@example.com" },
@@ -262,7 +261,7 @@ describe("MarkxProvider authenticated bootstrap", () => {
           checkedAt: Date.now(),
         }),
         lastUserId: Promise.resolve("user-1"),
-        cachedState: emptyState,
+        cachedState: null,
         guestImported: false,
         guestModified: true,
       })
@@ -271,8 +270,8 @@ describe("MarkxProvider authenticated bootstrap", () => {
     expect(await screen.findByText("imported-workspace")).toBeTruthy()
 
     expect(createFromCache).toHaveBeenCalled()
-    expect(isGuestImported).toHaveBeenCalledWith("user-1")
-    expect(create).toHaveBeenCalledWith("user-1")
+    expect(create).not.toHaveBeenCalled()
+    expect(engine.refreshFromCloud).toHaveBeenCalled()
   })
 
   it("clears the initial-sync guard when auth switches engines", async () => {

@@ -46,19 +46,16 @@ export const guestImportStorage: GuestImportStorage = {
 }
 
 export async function shouldImportGuest(
-  userId: string,
-  storage: GuestImportStorage = guestImportStorage
+  _userId: string,
+  _storage: GuestImportStorage = guestImportStorage
 ): Promise<boolean> {
-  return (await getGuestImportDecision(userId, storage)).shouldImport
+  // Guest edits are disposable. Login always loads the cloud workspace.
+  return false
 }
 
 export async function getGuestImportDecision(
-  userId: string,
-  storage: GuestImportStorage = guestImportStorage
+  _userId: string,
+  _storage: GuestImportStorage = guestImportStorage
 ): Promise<{ shouldImport: boolean; guestState: MarkxState | null }> {
-  if (await storage.isGuestImported(userId)) {
-    return { shouldImport: false, guestState: null }
-  }
-  const guestState = await storage.load()
-  return { shouldImport: isGuestModified(guestState), guestState }
+  return { shouldImport: false, guestState: null }
 }

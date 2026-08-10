@@ -2,6 +2,10 @@ import { and, eq, sql } from "drizzle-orm"
 
 import { withDb } from "@/lib/db/client"
 import { workspaces } from "@/lib/db/schema"
+import {
+  filterDeletedImageIdsForState,
+  mergeWorkspaceStates,
+} from "@/lib/markx/merge-workspace"
 import { createEmptyState } from "@/lib/markx/seed"
 import type { MarkxState } from "@/lib/markx/types"
 import { softDeleteAssetRows } from "@/lib/server/assets.server"
@@ -71,41 +75,93 @@ export async function saveWorkspaceForUser(
     deletedImageIds?: string[]
   }
 ): Promise<SaveResult> {
-  const limitError = await enforceEntityLimitForUser(userId, input.state)
-  if (limitError) return limitError
+  const entitlements = await getEntitlementsForUser(userId)
 
   return withDb(async ({ db }) => {
-    const updated = await db.transaction(async (tx) => {
+    const outcome = await db.transaction(async (tx) => {
+      const currentRows = await tx
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.userId, userId))
+        .limit(1)
+        .for("update")
+
+      if (currentRows.length === 0) {
+        return { kind: "not_found" as const }
+      }
+
+      const current = currentRows[0]
+      const cloudState = parseWorkspaceState(current.state)
+      const stateToWrite =
+        current.version === input.baseVersion
+          ? input.state
+          : mergeWorkspaceStates(input.state, cloudState)
+
+      const limit = assertWorkspaceEntityLimit(entitlements, stateToWrite)
+      if (!limit.ok) {
+        return {
+          kind: "entity_limit" as const,
+          entityCount: limit.count,
+          limit: limit.limit,
+        }
+      }
+
       const rows = await tx
         .update(workspaces)
         .set({
-          state: input.state,
-          version: input.baseVersion + 1,
+          state: stateToWrite,
+          version: current.version + 1,
           updatedAt: new Date(),
         })
         .where(
           and(
-            eq(workspaces.userId, userId),
-            eq(workspaces.version, input.baseVersion)
+            eq(workspaces.id, current.id),
+            eq(workspaces.version, current.version)
           )
         )
         .returning({
           version: workspaces.version,
           updatedAt: workspaces.updatedAt,
+          state: workspaces.state,
         })
 
-      if (rows.length === 0) return null
-      await softDeleteAssetRows(tx, userId, input.deletedImageIds)
-      return rows[0]
+      if (rows.length === 0) {
+        return { kind: "race" as const }
+      }
+
+      await softDeleteAssetRows(
+        tx,
+        userId,
+        filterDeletedImageIdsForState(input.deletedImageIds, stateToWrite)
+      )
+      return {
+        kind: "saved" as const,
+        version: rows[0].version,
+        updatedAt: rows[0].updatedAt,
+        state: stateToWrite,
+      }
     })
 
-    if (!updated) {
+    if (outcome.kind === "not_found") {
+      return { ok: false, reason: "error", message: "Workspace not found" }
+    }
+    if (outcome.kind === "entity_limit") {
+      return {
+        ok: false,
+        reason: "entity_limit",
+        entityCount: outcome.entityCount,
+        limit: outcome.limit,
+        message: `Free plan is limited to ${outcome.limit} items. Upgrade to Pro or remove items.`,
+      }
+    }
+    if (outcome.kind === "race") {
+      // Another writer changed the row between SELECT FOR UPDATE and UPDATE.
+      // Extremely rare under row lock; surface as conflict so the client retries.
       const cloudRows = await db
         .select()
         .from(workspaces)
         .where(eq(workspaces.userId, userId))
         .limit(1)
-
       return cloudRows.length > 0
         ? toConflictResult(cloudRows[0])
         : { ok: false, reason: "error", message: "Workspace not found" }
@@ -113,8 +169,9 @@ export async function saveWorkspaceForUser(
 
     return {
       ok: true,
-      version: updated.version,
-      updatedAt: updated.updatedAt.toISOString(),
+      version: outcome.version,
+      updatedAt: outcome.updatedAt.toISOString(),
+      state: outcome.state,
     }
   })
 }
@@ -194,6 +251,7 @@ export async function importGuestWorkspaceForUser(
       ok: true,
       version: outcome.workspace.version,
       updatedAt: outcome.workspace.updatedAt.toISOString(),
+      state,
     }
   })
 }
@@ -230,6 +288,7 @@ export async function overwriteWorkspaceForUser(
           ok: true,
           version: updated.version,
           updatedAt: updated.updatedAt.toISOString(),
+          state: input.state,
         }
       : { ok: false, reason: "error", message: "Workspace not found" }
   })

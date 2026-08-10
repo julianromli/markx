@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { mergeWorkspaceStates } from "@/lib/markx/merge-workspace"
 import { createDemoState, createEmptyState } from "@/lib/markx/seed"
 import { SyncEngine } from "@/lib/markx/sync"
 import type { SyncEngineDependencies } from "@/lib/markx/sync"
@@ -33,14 +34,24 @@ function createDependencies(opts?: {
   const save = vi.fn(async () =>
     opts?.saveResult
       ? opts.saveResult
-      : { ok: true as const, version: 2, updatedAt: "now" }
+      : {
+          ok: true as const,
+          version: 2,
+          updatedAt: "now",
+          state: cloud,
+        }
   )
   const importGuest =
     opts?.importGuestImpl ??
     vi.fn(async () =>
       opts?.importGuestResult
         ? opts.importGuestResult
-        : { ok: true as const, version: 2, updatedAt: "now" }
+        : {
+            ok: true as const,
+            version: 2,
+            updatedAt: "now",
+            state: guestState,
+          }
     )
   const resetGuestState = vi.fn(async () => createDemoState())
   const markGuestImported = vi.fn(async () => {
@@ -59,10 +70,11 @@ function createDependencies(opts?: {
       })),
       save,
       importGuest,
-      overwrite: vi.fn(async () => ({
+      overwrite: vi.fn(async (input) => ({
         ok: true as const,
         version: 3,
         updatedAt: "now",
+        state: input.state,
       })),
     },
     assets: {
@@ -121,16 +133,22 @@ describe("SyncEngine dependency boundaries", () => {
     engine.destroy()
   })
 
-  it("keeps local edits when a cloud refresh completes later", async () => {
+  it("merges remote additions into local edits on cloud refresh", async () => {
     const local = stateWithFolder("local")
-    const { dependencies } = createDependencies()
+    const cloud = stateWithFolder("cloud")
+    const { dependencies } = createDependencies({ cloud })
     const engine = await SyncEngine.createFromCache("user-1", dependencies)
 
     engine.onStateChange(local)
     const refreshed = await engine.refreshFromCloud()
 
-    expect(refreshed).toBeNull()
-    expect(engine.getLoadedState()).toBe(local)
+    expect(refreshed?.folders.map((folder) => folder.id)).toEqual([
+      "cloud",
+      "local",
+    ])
+    expect(engine.getLoadedState()?.folders.map((folder) => folder.id)).toEqual(
+      ["cloud", "local"]
+    )
     engine.destroy()
   })
 
@@ -162,7 +180,84 @@ describe("SyncEngine dependency boundaries", () => {
     engine.destroy()
   })
 
-  it("merges local and cloud additions without showing a conflict", async () => {
+  it("adopts server-merged state from a single save", async () => {
+    vi.useFakeTimers()
+    const local = stateWithFolder("laptop-folder")
+    const cloud = stateWithFolder("mobile-folder")
+    const merged = mergeWorkspaceStates(local, cloud)
+    const { dependencies, save } = createDependencies({
+      saveResult: {
+        ok: true,
+        version: 5,
+        updatedAt: "now",
+        state: merged,
+      },
+    })
+    const engine = await SyncEngine.createFromCache("user-1", dependencies)
+
+    engine.onStateChange(local)
+    await vi.advanceTimersByTimeAsync(1500)
+
+    expect(engine.getStatus()).toBe("saved")
+    expect(engine.getConflict()).toBeUndefined()
+    expect(engine.getLoadedState()?.folders.map((folder) => folder.id)).toEqual(
+      ["mobile-folder", "laptop-folder"]
+    )
+    expect(save).toHaveBeenCalledTimes(1)
+    engine.destroy()
+  })
+
+  it("keeps mid-save local edits when adopting server state", async () => {
+    vi.useFakeTimers()
+    const sent = stateWithFolder("sent-folder")
+    const duringSave = stateWithFolder("during-folder")
+    let resolveSave!: (value: {
+      ok: true
+      version: number
+      updatedAt: string
+      state: MarkxState
+    }) => void
+    const saveGate = new Promise<{
+      ok: true
+      version: number
+      updatedAt: string
+      state: MarkxState
+    }>((resolve) => {
+      resolveSave = resolve
+    })
+    const { dependencies, save } = createDependencies()
+    save.mockImplementation(async () => saveGate)
+
+    const engine = await SyncEngine.createFromCache("user-1", dependencies)
+    let authoritative: MarkxState | undefined
+    engine.subscribe((_status, _conflict, state) => {
+      if (state) authoritative = state
+    })
+
+    engine.onStateChange(sent)
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(save).toHaveBeenCalledTimes(1)
+
+    engine.onStateChange(duringSave)
+    resolveSave({
+      ok: true,
+      version: 5,
+      updatedAt: "now",
+      state: sent,
+    })
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(engine.getLoadedState()?.folders.map((folder) => folder.id)).toEqual(
+      ["sent-folder", "during-folder"]
+    )
+    expect(authoritative?.folders.map((folder) => folder.id)).toEqual([
+      "sent-folder",
+      "during-folder",
+    ])
+    engine.destroy()
+  })
+
+  it("falls back to client merge when the server still returns conflict", async () => {
     vi.useFakeTimers()
     const local = stateWithFolder("laptop-folder")
     const cloud = stateWithFolder("mobile-folder")
@@ -187,6 +282,7 @@ describe("SyncEngine dependency boundaries", () => {
         ok: true,
         version: 5,
         updatedAt: "now",
+        state: mergeWorkspaceStates(local, cloud),
       })
     const engine = await SyncEngine.createFromCache("user-1", dependencies)
 
@@ -250,86 +346,34 @@ describe("SyncEngine dependency boundaries", () => {
 })
 
 describe("SyncEngine first-login guest bootstrap", () => {
-  it("imports modified guest data when the cloud is empty", async () => {
-    const guest = stateWithFolder("guest-folder")
-    const { dependencies, importGuest, markGuestImported, resetGuestState } =
-      createDependencies({
-        guestImported: false,
-        guestState: guest,
-        cached: null,
-        importGuestResult: {
-          ok: true,
-          version: 1,
-          updatedAt: "now",
-        },
-      })
-
-    const engine = await SyncEngine.create("user-1", dependencies)
-
-    expect(importGuest).toHaveBeenCalledWith(guest)
-    expect(engine.getLoadedState()?.folders[0]?.id).toBe("guest-folder")
-    expect(markGuestImported).toHaveBeenCalledWith("user-1")
-    expect(resetGuestState).toHaveBeenCalled()
-    expect(engine.getStatus()).toBe("saved")
-    expect(engine.getConflict()).toBeUndefined()
-    engine.destroy()
-  })
-
-  it("silently adopts cloud when guest import conflicts", async () => {
+  it("discards modified guest data and loads cloud on login", async () => {
     const guest = stateWithFolder("guest-folder")
     const cloud = stateWithFolder("cloud-folder")
-    const { dependencies, markGuestImported, resetGuestState } =
-      createDependencies({
-        guestImported: false,
-        guestState: guest,
-        cached: null,
-        importGuestResult: {
-          ok: false,
-          reason: "conflict",
-          cloudVersion: 5,
-          cloudState: cloud,
-          cloudUpdatedAt: "now",
-        },
-      })
-
-    const engine = await SyncEngine.create("user-1", dependencies)
-
-    expect(engine.getLoadedState()?.folders[0]?.id).toBe("cloud-folder")
-    expect(engine.getStatus()).toBe("saved")
-    expect(engine.getConflict()).toBeUndefined()
-    expect(markGuestImported).toHaveBeenCalledWith("user-1")
-    expect(resetGuestState).toHaveBeenCalled()
-    engine.destroy()
-  })
-
-  it("keeps guest locally without setting the flag when import is offline", async () => {
-    const guest = stateWithFolder("guest-offline")
-    const { dependencies, markGuestImported, resetGuestState } =
-      createDependencies({
-        guestImported: false,
-        guestState: guest,
-        cached: null,
-        importGuestImpl: vi.fn(async () => {
-          throw new Error("network down")
-        }),
-      })
-
-    vi.stubGlobal("navigator", { onLine: false })
-    const engine = await SyncEngine.create("user-1", dependencies)
-
-    expect(engine.getLoadedState()?.folders[0]?.id).toBe("guest-offline")
-    expect(engine.getStatus()).toBe("offline")
-    expect(markGuestImported).not.toHaveBeenCalled()
-    expect(resetGuestState).not.toHaveBeenCalled()
-    engine.destroy()
-    vi.unstubAllGlobals()
-  })
-
-  it("skips guest import for unmodified demo and finalizes from cloud", async () => {
     const { dependencies, importGuest, markGuestImported, resetGuestState } =
       createDependencies({
         guestImported: false,
-        guestState: createDemoState(),
+        guestState: guest,
+        cached: null,
+        cloud,
+      })
+
+    const engine = await SyncEngine.create("user-1", dependencies)
+
+    expect(importGuest).not.toHaveBeenCalled()
+    expect(dependencies.workspace.load).toHaveBeenCalled()
+    expect(engine.getLoadedState()?.folders[0]?.id).toBe("cloud-folder")
+    expect(markGuestImported).toHaveBeenCalledWith("user-1")
+    expect(resetGuestState).toHaveBeenCalled()
+    expect(engine.getStatus()).toBe("saved")
+    expect(engine.getConflict()).toBeUndefined()
+    engine.destroy()
+  })
+
+  it("finalizes bootstrap from an empty cloud without importing guest", async () => {
+    const { dependencies, importGuest, markGuestImported, resetGuestState } =
+      createDependencies({
+        guestImported: false,
+        guestState: stateWithFolder("guest-folder"),
         cached: null,
         cloud: createEmptyState(),
       })
@@ -341,44 +385,6 @@ describe("SyncEngine first-login guest bootstrap", () => {
     expect(engine.getLoadedState()?.folders).toEqual([])
     expect(markGuestImported).toHaveBeenCalledWith("user-1")
     expect(resetGuestState).toHaveBeenCalled()
-    engine.destroy()
-  })
-
-  it("enqueues guest image blobs on successful import", async () => {
-    const guest: MarkxState = {
-      ...stateWithFolder("guest-folder"),
-      images: [
-        {
-          id: "board-img-1",
-          folderId: null,
-          imageId: "blob-1",
-          mime: "image/png",
-          naturalWidth: 1,
-          naturalHeight: 1,
-          x: 0,
-          y: 0,
-          z: 1,
-        },
-      ],
-    }
-    const png = new Blob([new Uint8Array([1, 2, 3])], { type: "image/png" })
-    const { dependencies, enqueueAsset, getImageBlob } = createDependencies({
-      guestImported: false,
-      guestState: guest,
-      cached: null,
-      importGuestResult: { ok: true, version: 1, updatedAt: "now" },
-    })
-    getImageBlob.mockResolvedValue(png)
-
-    const engine = await SyncEngine.create("user-1", dependencies)
-
-    expect(enqueueAsset).toHaveBeenCalledWith(
-      "user-1",
-      expect.objectContaining({
-        imageId: "blob-1",
-        mime: "image/png",
-      })
-    )
     engine.destroy()
   })
 })

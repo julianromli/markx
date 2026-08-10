@@ -19,6 +19,25 @@ function makeSave(
   return vi.fn(impl)
 }
 
+function stateWithNote(id: string): MarkxState {
+  return {
+    ...createEmptyState(),
+    notes: [
+      {
+        id,
+        folderId: "f1",
+        content: id,
+        color: "yellow",
+        font: "sans",
+        fontSize: "m",
+        x: 0,
+        y: 0,
+        z: 1,
+      },
+    ],
+  }
+}
+
 describe("SharedBoardSyncEngine", () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -32,6 +51,7 @@ describe("SharedBoardSyncEngine", () => {
       ok: true,
       version: input.baseVersion + 1,
       updatedAt: new Date().toISOString(),
+      state: input.state,
     }))
     const engine = new SharedBoardSyncEngine(
       "board-1",
@@ -39,29 +59,79 @@ describe("SharedBoardSyncEngine", () => {
       3,
       { save }
     )
-    const next: MarkxState = {
-      ...createEmptyState(),
-      notes: [
-        {
-          id: "n1",
-          folderId: "f1",
-          content: "hi",
-          color: "yellow",
-          font: "sans",
-          fontSize: "m",
-          x: 0,
-          y: 0,
-          z: 1,
-        },
-      ],
-    }
+    const next = stateWithNote("n1")
     engine.onStateChange(next)
     expect(save).not.toHaveBeenCalled()
     vi.advanceTimersByTime(DEBOUNCE)
-    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(engine.getStatus()).toBe("saved"))
+    expect(save).toHaveBeenCalledTimes(1)
     expect(save.mock.calls[0][0].baseVersion).toBe(3)
-    expect(engine.getStatus()).toBe("saved")
-    expect(engine.getLoadedState()).toBe(next)
+    expect(engine.getLoadedState()).toEqual(next)
+  })
+
+  it("adopts server-merged state without showing a conflict", async () => {
+    const local = stateWithNote("local-note")
+    const merged: MarkxState = {
+      ...createEmptyState(),
+      notes: [
+        ...stateWithNote("cloud-note").notes,
+        ...local.notes,
+      ],
+    }
+    const save = makeSave(async () => ({
+      ok: true,
+      version: 5,
+      updatedAt: new Date().toISOString(),
+      state: merged,
+    }))
+    const engine = new SharedBoardSyncEngine("board-1", createEmptyState(), 1, {
+      save,
+    })
+    let authoritative: MarkxState | undefined
+    engine.subscribe((_status, _conflict, state) => {
+      if (state) authoritative = state
+    })
+
+    engine.onStateChange(local)
+    vi.advanceTimersByTime(DEBOUNCE)
+    await vi.waitFor(() => expect(engine.getStatus()).toBe("saved"))
+
+    expect(engine.getConflict()).toBeUndefined()
+    expect(authoritative?.notes.map((note) => note.id)).toEqual([
+      "cloud-note",
+      "local-note",
+    ])
+  })
+
+  it("keeps mid-save local edits when adopting server state", async () => {
+    const sent = stateWithNote("sent-note")
+    const during = stateWithNote("during-note")
+    let resolveSave!: (value: SharedBoardSaveResult) => void
+    const saveGate = new Promise<SharedBoardSaveResult>((resolve) => {
+      resolveSave = resolve
+    })
+    const save = makeSave(async () => saveGate)
+    const engine = new SharedBoardSyncEngine("board-1", createEmptyState(), 1, {
+      save,
+    })
+
+    engine.onStateChange(sent)
+    vi.advanceTimersByTime(DEBOUNCE)
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+
+    engine.onStateChange(during)
+    resolveSave({
+      ok: true,
+      version: 5,
+      updatedAt: new Date().toISOString(),
+      state: sent,
+    })
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(engine.getLoadedState().notes.map((note) => note.id)).toEqual([
+      "sent-note",
+      "during-note",
+    ])
   })
 
   it("surfaces a conflict and resolves to cloud-wins", async () => {
@@ -118,10 +188,11 @@ describe("SharedBoardSyncEngine", () => {
   })
 
   it("does not save while offline", async () => {
-    const save = makeSave(async () => ({
+    const save = makeSave(async (input) => ({
       ok: true,
       version: 2,
       updatedAt: new Date().toISOString(),
+      state: input.state,
     }))
     const engine = new SharedBoardSyncEngine(
       "board-1",
@@ -129,7 +200,6 @@ describe("SharedBoardSyncEngine", () => {
       1,
       { save }
     )
-    // Simulate going offline.
     window.dispatchEvent(new Event("offline"))
     expect(engine.getStatus()).toBe("offline")
     engine.onStateChange(createEmptyState())

@@ -1,7 +1,9 @@
-import { SYNC_STATE_DEBOUNCE_MS } from "@/lib/markx/sync-timings"
-import type {
-  SharedBoardSaveResult,
-} from "@/lib/markx/shared-board"
+import {
+  SYNC_RETRY_DEBOUNCE_MS,
+  SYNC_STATE_DEBOUNCE_MS,
+} from "@/lib/markx/sync-timings"
+import { mergeWorkspaceStates } from "@/lib/markx/merge-workspace"
+import type { SharedBoardSaveResult } from "@/lib/markx/shared-board"
 import type { MarkxState } from "@/lib/markx/types"
 
 /**
@@ -35,18 +37,9 @@ export type SharedBoardSyncDependency = {
 
 /**
  * SharedBoardSyncEngine orchestrates local ↔ cloud sync for a single shared
- * board (owner or editor). It reuses the optimistic-version + conflict
- * pattern from the workspace {@link import("@/lib/markx/sync").SyncEngine}
- * but trims the guest-import and asset-upload paths: shared-board state is
- * a single versioned JSONB snapshot, and image blobs are served by the
- * public asset endpoint.
- *
- * Responsibilities:
- *  1. Debounce local state changes and push coalesced snapshots to the
- *     cloud with optimistic version control.
- *  2. Queue writes when offline and flush them on reconnect.
- *  3. Surface mid-session conflicts so the UI can choose "use cloud" or
- *     "overwrite cloud".
+ * board (owner or editor). The server merges concurrent slice edits by
+ * entity id; this client adopts the returned state and keeps mid-save local
+ * additions.
  */
 export class SharedBoardSyncEngine {
   private boardId: string
@@ -56,10 +49,12 @@ export class SharedBoardSyncEngine {
   private status: SharedBoardSyncStatus = "saving"
   private conflict: SharedBoardConflictData | undefined
   private debounceTimer: ReturnType<typeof setTimeout> | null = null
+  private flushTimer: ReturnType<typeof setTimeout> | null = null
   private isSyncing = false
   private online = true
   private listeners = new Set<SharedBoardSyncListener>()
   private destroyed = false
+  private editGeneration = 0
   private deps: SharedBoardSyncDependency
 
   constructor(
@@ -72,8 +67,7 @@ export class SharedBoardSyncEngine {
     this.cloudVersion = initialVersion
     this.currentState = initialState
     this.deps = deps
-    this.online =
-      typeof navigator !== "undefined" ? navigator.onLine : true
+    this.online = typeof navigator !== "undefined" ? navigator.onLine : true
     this.setStatus("saved")
     this.attachOnlineListeners()
   }
@@ -101,6 +95,7 @@ export class SharedBoardSyncEngine {
   onStateChange(state: MarkxState, deletedImageIds: string[] = []): void {
     if (this.destroyed) return
     this.currentState = state
+    this.editGeneration += 1
     if (deletedImageIds.length > 0) {
       this.deletedImageIds = [...this.deletedImageIds, ...deletedImageIds]
     }
@@ -127,19 +122,35 @@ export class SharedBoardSyncEngine {
     this.setStatus("saving")
 
     try {
-      const result = await this.deps.save({
-        boardId: this.boardId,
-        state: this.currentState,
-        baseVersion: this.cloudVersion,
-        deletedImageIds: this.deletedImageIds,
-      })
+      const sentState = this.currentState
+      const generationAtStart = this.editGeneration
+      const sentDeleted = [...this.deletedImageIds]
+      const baseVersion = this.cloudVersion
+
+      const result = await this.saveWithAutomaticMerge(
+        sentState,
+        baseVersion,
+        sentDeleted
+      )
 
       if (this.isDestroyed()) return
 
       if (result.ok) {
         this.cloudVersion = result.version
-        this.deletedImageIds = []
-        this.setStatus("saved")
+        const sent = new Set(sentDeleted)
+        this.deletedImageIds = this.deletedImageIds.filter(
+          (id) => !sent.has(id)
+        )
+
+        if (this.editGeneration === generationAtStart) {
+          this.currentState = result.state
+          this.setStatus("saved", result.state)
+        } else {
+          const adopted = mergeWorkspaceStates(this.currentState, result.state)
+          this.currentState = adopted
+          this.setStatus("saved", adopted)
+          this.scheduleFlush()
+        }
       } else if (result.reason === "conflict") {
         this.conflict = {
           cloudVersion: result.cloudVersion,
@@ -172,6 +183,40 @@ export class SharedBoardSyncEngine {
     }
   }
 
+  private async saveWithAutomaticMerge(
+    state: MarkxState,
+    baseVersion: number,
+    deletedImageIds: string[],
+    attempt = 0
+  ): Promise<SharedBoardSaveResult> {
+    const result = await this.deps.save({
+      boardId: this.boardId,
+      state,
+      baseVersion,
+      deletedImageIds,
+    })
+    if (result.ok || result.reason !== "conflict" || attempt >= 2) {
+      return result
+    }
+
+    const localBase = this.currentState ?? state
+    const merged = mergeWorkspaceStates(localBase, result.cloudState)
+    this.currentState = merged
+    this.cloudVersion = result.cloudVersion
+
+    return this.saveWithAutomaticMerge(
+      merged,
+      result.cloudVersion,
+      deletedImageIds,
+      attempt + 1
+    )
+  }
+
+  private scheduleFlush(): void {
+    if (this.flushTimer) clearTimeout(this.flushTimer)
+    this.flushTimer = setTimeout(() => void this.sync(), SYNC_RETRY_DEBOUNCE_MS)
+  }
+
   /* ---------------------------------------------------------------- */
   /* Conflict resolution (called by the UI)                           */
   /* ---------------------------------------------------------------- */
@@ -191,7 +236,6 @@ export class SharedBoardSyncEngine {
   /** Resolve a conflict by overwriting the cloud with the local version. */
   async resolveConflictOverwriteCloud(): Promise<void> {
     const state = this.currentState
-    // Overwrite = save against the cloud's current version (force).
     const result = await this.deps.save({
       boardId: this.boardId,
       state,
@@ -202,7 +246,8 @@ export class SharedBoardSyncEngine {
       this.cloudVersion = result.version
       this.deletedImageIds = []
       this.conflict = undefined
-      this.setStatus("saved")
+      this.currentState = result.state
+      this.setStatus("saved", result.state)
     }
   }
 
@@ -273,6 +318,7 @@ export class SharedBoardSyncEngine {
   destroy(): void {
     this.destroyed = true
     if (this.debounceTimer) clearTimeout(this.debounceTimer)
+    if (this.flushTimer) clearTimeout(this.flushTimer)
     if (typeof window !== "undefined") {
       window.removeEventListener("online", this.handleOnline)
       window.removeEventListener("offline", this.handleOffline)

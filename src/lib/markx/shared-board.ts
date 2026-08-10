@@ -33,7 +33,7 @@ export type SharedBoardSnapshot = {
  * client-side sync engine can reuse the conflict-handling pattern.
  */
 export type SharedBoardSaveResult =
-  | { ok: true; version: number; updatedAt: string }
+  | { ok: true; version: number; updatedAt: string; state: MarkxState }
   | {
       ok: false
       reason: "conflict"

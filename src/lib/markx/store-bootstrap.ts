@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react"
 
 import { getAuthSession } from "@/lib/auth/session"
 import type { AuthUser } from "@/lib/auth/types"
-import { shouldImportGuest } from "./state"
 import { getLastUserId } from "./storage"
 import {
   attachEngineAndPaint,
@@ -133,8 +132,7 @@ export function useMarkxBootstrap(store: MarkxStore): {
           return
         }
 
-        const importGuest = await shouldImportGuest(user.id)
-        if (cachedEngine.hasCachedState() && !importGuest) {
+        if (cachedEngine.hasCachedState()) {
           await attachEngineAndPaint(store, cachedEngine)
           if (isCancelled()) {
             cachedEngine.destroy()
@@ -142,42 +140,6 @@ export function useMarkxBootstrap(store: MarkxStore): {
           }
           markShellReady("cache")
           refreshEngineInBackground(store, cachedEngine, isCancelled)
-          return
-        }
-
-        if (importGuest) {
-          cachedEngine.destroy()
-          const createPromise = SyncEngine.create(user.id)
-          const engine = await Promise.race([
-            createPromise,
-            new Promise<null>((resolve) =>
-              setTimeout(() => resolve(null), CLOUD_FIRST_LOAD_TIMEOUT_MS)
-            ),
-          ])
-          if (isCancelled()) {
-            engine?.destroy()
-            return
-          }
-          if (!engine) {
-            console.warn(
-              `[markx init] SyncEngine.create timed out after ${CLOUD_FIRST_LOAD_TIMEOUT_MS}ms — falling back to guest`
-            )
-            void createPromise
-              .then((lateEngine) => lateEngine.destroy())
-              .catch((err) =>
-                console.error("[markx init] late guest import failed", err)
-              )
-            await store.hydrate()
-            if (isCancelled()) return
-            markShellReady("guest-import-timeout")
-            return
-          }
-          await attachEngineAndPaint(store, engine)
-          if (isCancelled()) {
-            engine.destroy()
-            return
-          }
-          markShellReady("guest-import")
           return
         }
 

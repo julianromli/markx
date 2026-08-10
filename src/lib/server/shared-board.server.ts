@@ -8,6 +8,10 @@ import {
   sharedBoards,
   workspaces,
 } from "@/lib/db/schema"
+import {
+  filterDeletedImageIdsForState,
+  mergeWorkspaceStates,
+} from "@/lib/markx/merge-workspace"
 import type { MarkxState } from "@/lib/markx/types"
 import type {
   SharedBoardAccess,
@@ -19,6 +23,7 @@ import type {
   SharedBoardSnapshot,
   SharedWithMeBoard,
 } from "@/lib/markx/shared-board"
+import { softDeleteAssetRows } from "@/lib/server/assets.server"
 import {
   assertWorkspaceEntityLimit,
   getEntitlementsForUser,
@@ -46,6 +51,34 @@ function extractSlice(state: MarkxState, folderId: string): MarkxState {
     images: state.images.filter((i) => i.folderId === folderId),
     hasOnboarded: true,
     zCounter: state.zCounter,
+  }
+}
+
+function applySliceToOwner(
+  ownerState: MarkxState,
+  folderId: string,
+  slice: MarkxState
+): MarkxState {
+  return {
+    folders: ownerState.folders.map((f) =>
+      f.id === folderId
+        ? (slice.folders.find((sf) => sf.id === folderId) ?? f)
+        : f
+    ),
+    bookmarks: [
+      ...ownerState.bookmarks.filter((b) => b.folderId !== folderId),
+      ...slice.bookmarks,
+    ],
+    notes: [
+      ...ownerState.notes.filter((n) => n.folderId !== folderId),
+      ...slice.notes,
+    ],
+    images: [
+      ...ownerState.images.filter((i) => i.folderId !== folderId),
+      ...slice.images,
+    ],
+    hasOnboarded: ownerState.hasOnboarded,
+    zCounter: Math.max(ownerState.zCounter, slice.zCounter),
   }
 }
 
@@ -316,69 +349,46 @@ export async function saveSharedBoardForUser(
       }
     }
 
-    if (board.version !== input.baseVersion) {
-      const slice = await loadBoardSlice(board.id)
-      return slice
-        ? {
-            ok: false,
-            reason: "conflict",
-            cloudVersion: board.version,
-            cloudState: slice.slice,
-            cloudUpdatedAt: slice.updatedAt,
-          }
-        : { ok: false, reason: "error", message: "Board not found" }
-    }
+    const entitlements = await getEntitlementsForUser(board.ownerUserId)
 
-    const entitlements = await getEntitlementsForUser(
-      board.ownerUserId,
-      input.state
-    )
-    const limit = assertWorkspaceEntityLimit(entitlements, input.state)
-    if (!limit.ok) {
-      return {
-        ok: false,
-        reason: "entity_limit",
-        entityCount: limit.count,
-        limit: limit.limit,
-        message: `Free plan is limited to ${limit.limit} items. Upgrade to Pro or remove items.`,
+    const outcome = await db.transaction(async (tx) => {
+      const lockedBoardRows = await tx
+        .select()
+        .from(sharedBoards)
+        .where(eq(sharedBoards.id, input.boardId))
+        .limit(1)
+        .for("update")
+      const lockedBoard = lockedBoardRows.at(0)
+      if (!lockedBoard) return { kind: "not_found" as const }
+
+      const wsRows = await tx
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.userId, lockedBoard.ownerUserId))
+        .limit(1)
+        .for("update")
+      const workspace = wsRows.at(0)
+      if (!workspace) return { kind: "not_found" as const }
+
+      const ownerState = parseWorkspaceState(workspace.state)
+      const folderId = lockedBoard.folderId
+      const cloudSlice = extractSlice(ownerState, folderId)
+      const sliceToWrite =
+        lockedBoard.version === input.baseVersion
+          ? input.state
+          : mergeWorkspaceStates(input.state, cloudSlice)
+
+      const newState = applySliceToOwner(ownerState, folderId, sliceToWrite)
+      const limit = assertWorkspaceEntityLimit(entitlements, newState)
+      if (!limit.ok) {
+        return {
+          kind: "entity_limit" as const,
+          entityCount: limit.count,
+          limit: limit.limit,
+        }
       }
-    }
 
-    const wsRows = await db
-      .select()
-      .from(workspaces)
-      .where(eq(workspaces.userId, board.ownerUserId))
-      .limit(1)
-    const workspace = wsRows.at(0)
-    if (!workspace) {
-      return { ok: false, reason: "error", message: "Workspace not found" }
-    }
-    const ownerState = parseWorkspaceState(workspace.state)
-    const folderId = board.folderId
-    const newState: MarkxState = {
-      folders: ownerState.folders.map((f) =>
-        f.id === folderId
-          ? (input.state.folders.find((sf) => sf.id === folderId) ?? f)
-          : f
-      ),
-      bookmarks: [
-        ...ownerState.bookmarks.filter((b) => b.folderId !== folderId),
-        ...input.state.bookmarks,
-      ],
-      notes: [
-        ...ownerState.notes.filter((n) => n.folderId !== folderId),
-        ...input.state.notes,
-      ],
-      images: [
-        ...ownerState.images.filter((i) => i.folderId !== folderId),
-        ...input.state.images,
-      ],
-      hasOnboarded: ownerState.hasOnboarded,
-      zCounter: Math.max(ownerState.zCounter, input.state.zCounter),
-    }
-
-    const updated = await db.transaction(async (tx) => {
-      const rows = await tx
+      const wsUpdated = await tx
         .update(workspaces)
         .set({
           state: newState,
@@ -387,36 +397,77 @@ export async function saveSharedBoardForUser(
         })
         .where(
           and(
-            eq(workspaces.userId, board.ownerUserId),
+            eq(workspaces.userId, lockedBoard.ownerUserId),
             eq(workspaces.version, workspace.version)
           )
         )
         .returning({ version: workspaces.version })
-      if (rows.length === 0) return null
-      await tx
+
+      if (wsUpdated.length === 0) return { kind: "race" as const }
+
+      const boardUpdated = await tx
         .update(sharedBoards)
-        .set({ version: board.version + 1, updatedAt: new Date() })
-        .where(eq(sharedBoards.id, input.boardId))
-      return rows[0]
+        .set({
+          version: lockedBoard.version + 1,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(sharedBoards.id, input.boardId),
+            eq(sharedBoards.version, lockedBoard.version)
+          )
+        )
+        .returning({
+          version: sharedBoards.version,
+          updatedAt: sharedBoards.updatedAt,
+        })
+
+      if (boardUpdated.length === 0) return { kind: "race" as const }
+
+      await softDeleteAssetRows(
+        tx,
+        lockedBoard.ownerUserId,
+        filterDeletedImageIdsForState(input.deletedImageIds, newState)
+      )
+
+      return {
+        kind: "saved" as const,
+        version: boardUpdated[0].version,
+        updatedAt: boardUpdated[0].updatedAt,
+        state: sliceToWrite,
+      }
     })
 
-    if (!updated) {
-      const slice = await loadBoardSlice(board.id)
+    if (outcome.kind === "not_found") {
+      return { ok: false, reason: "error", message: "Board not found" }
+    }
+    if (outcome.kind === "entity_limit") {
+      return {
+        ok: false,
+        reason: "entity_limit",
+        entityCount: outcome.entityCount,
+        limit: outcome.limit,
+        message: `Free plan is limited to ${outcome.limit} items. Upgrade to Pro or remove items.`,
+      }
+    }
+    if (outcome.kind === "race") {
+      const slice = await loadBoardSlice(input.boardId)
       return slice
         ? {
             ok: false,
             reason: "conflict",
-            cloudVersion: board.version,
+            cloudVersion: slice.board.version,
             cloudState: slice.slice,
             cloudUpdatedAt: slice.updatedAt,
           }
-        : { ok: false, reason: "error", message: "Workspace not found" }
+        : { ok: false, reason: "error", message: "Board not found" }
     }
 
     return {
       ok: true,
-      version: board.version + 1,
-      updatedAt: new Date().toISOString(),
+      version: outcome.version,
+      updatedAt: outcome.updatedAt.toISOString(),
+      state: outcome.state,
     }
   })
 }
@@ -605,6 +656,7 @@ export async function duplicateSharedBoardToWorkspaceForUser(
       ok: true,
       version: updated.version,
       updatedAt: updated.updatedAt.toISOString(),
+      state: newState,
     }
   })
 }

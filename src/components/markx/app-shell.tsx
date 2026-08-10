@@ -22,6 +22,7 @@ import homeIcon from "@/assets/markx/header/home.svg"
 import pixelFolder from "@/assets/markx/pixel-folder.svg"
 import { HeaderAuth } from "@/components/markx/header-auth"
 import { HelpDialog } from "@/components/markx/help-dialog"
+import { StaleWorkspaceBanner } from "@/components/markx/stale-workspace-banner"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -459,7 +460,9 @@ export function AppShell({
         </button>
       </aside>
 
-      <main className="relative col-start-1 row-start-2 min-h-0 min-w-0 md:col-start-2">
+      <main className="relative col-start-1 row-start-2 flex min-h-0 min-w-0 flex-col md:col-start-2">
+        <StaleWorkspaceBanner />
+        <div className="relative min-h-0 min-w-0 flex-1">
         {typeof zoomPercent === "number" &&
         onZoomPreset &&
         onZoomFit ? (
@@ -507,6 +510,7 @@ export function AppShell({
           </div>
         ) : null}
         {children}
+        </div>
       </main>
 
       {/* Mobile tool drawer */}

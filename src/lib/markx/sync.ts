@@ -1,7 +1,6 @@
 import type { SaveResult, WorkspaceSnapshot } from "@/lib/server/workspace"
 import { blobToDataUrl, dataUrlToBlob } from "@/lib/data-url"
 import { createEmptyState } from "@/lib/markx/state"
-import { mergeWorkspaceStates } from "@/lib/markx/merge-workspace"
 import {
   addDeletedImageIds,
   clearDeletedImageIds,
@@ -27,10 +26,9 @@ import type { PendingAsset } from "@/lib/markx/storage"
 import {
   SYNC_RETRY_DEBOUNCE_MS,
   SYNC_STATE_DEBOUNCE_MS,
+  SYNC_VERSION_POLL_MS,
 } from "@/lib/markx/sync-timings"
 import type { MarkxState } from "@/lib/markx/types"
-
-export { mergeWorkspaceStates } from "@/lib/markx/merge-workspace"
 
 /**
  * Sync status shown in the header.
@@ -39,7 +37,7 @@ export { mergeWorkspaceStates } from "@/lib/markx/merge-workspace"
  * - `saved`    — all changes persisted to cloud; nothing pending.
  * - `saving`   — a save is in flight.
  * - `offline`  — navigator is offline; changes are queued locally.
- * - `conflict` — the cloud version moved ahead; user must choose.
+ * - `conflict` — legacy status kept for store API compat (LWW no longer sets it).
  */
 export type SyncStatus =
   "idle" | "saved" | "saving" | "offline" | "conflict" | "error"
@@ -59,6 +57,8 @@ type SyncListener = (
 
 export type WorkspaceSyncDependency = {
   load: () => Promise<WorkspaceSnapshot | null>
+  /** Cheap poll: workspace version only, or null if no row. */
+  getVersion: () => Promise<number | null>
   save: (input: {
     state: MarkxState
     baseVersion: number
@@ -118,6 +118,10 @@ const defaultSyncEngineDependencies: SyncEngineDependencies = {
       const { loadWorkspace } = await import("@/lib/server/workspace")
       return loadWorkspace()
     },
+    async getVersion() {
+      const { getWorkspaceVersion } = await import("@/lib/server/workspace")
+      return getWorkspaceVersion()
+    },
     async save(input) {
       const { saveWorkspace } = await import("@/lib/server/workspace")
       return saveWorkspace({ data: input })
@@ -165,39 +169,22 @@ const defaultSyncEngineDependencies: SyncEngineDependencies = {
 }
 
 /**
- * Whether a cloud snapshot should be ignored in favor of keeping this
- * tab's unsent local edits (or an unresolved conflict).
+ * SyncEngine orchestrates local ↔ cloud sync for one logged-in user.
+ * It is created on login and destroyed on sign-out.
  *
- * Shared IndexedDB `pendingSnapshot` from another tab must not block
- * cloud adopt — online idle tabs always take the server snapshot.
- */
-export function shouldKeepLocalAfterCloudRefresh(opts: {
-  localEditsSinceLoad: boolean
-  hasDebouncedEdit: boolean
-  status: SyncStatus
-}): boolean {
-  return (
-    opts.localEditsSinceLoad ||
-    opts.hasDebouncedEdit ||
-    opts.status === "conflict"
-  )
-}
-
-/**
- * SyncEngine orchestrates the local ↔ cloud sync for a single logged-in
- * user. It is created on login and destroyed on sign-out.
+ * Personal sync uses last-writer-wins (LWW): optimistic saves, and on
+ * version conflict the engine overwrites the cloud with the local state
+ * instead of opening a conflict dialog. When another device moves the
+ * cloud version ahead, a stale banner can prompt a full reload.
  *
  * Responsibilities:
  *  1. Hydrate from the per-user IndexedDB cache for instant revisit paint.
- *  2. Refresh from the cloud in the background (or await on first login).
- *     Online idle tabs always adopt the server snapshot (cloud-first);
- *     shared IndexedDB pending from another tab does not block adopt.
- *  3. Debounce local state changes and push coalesced snapshots to the
- *     cloud with optimistic version control.
+ *  2. Full-load from the cloud on bootstrap / first load (always adopt).
+ *  3. Debounce local edits and push coalesced snapshots; LWW overwrite
+ *     on optimistic-version conflict.
  *  4. Queue writes when offline and flush them on reconnect.
- *  5. Surface mid-session conflicts to the UI so the user can choose
- *     "use cloud" or "overwrite cloud". Guest-vs-cloud at login is
- *     silent cloud-wins (no dialog).
+ *  5. Cheap version poll while visible; surface a dismissible stale banner
+ *     when remote version is ahead (Reload adopts cloud via reloadFromCloud).
  *  6. Upload queued image assets to R2.
  */
 export class SyncEngine {
@@ -215,13 +202,20 @@ export class SyncEngine {
   private destroyed = false
   /** True when IndexedDB already had a per-user snapshot for this user. */
   private hadCachedState = false
-  /** True after the user edits locally (debounce scheduled) during init refresh. */
+  /**
+   * True after the user edits locally until a clean save/reload adopts cloud.
+   * Kept for reload/save bookkeeping (LWW no longer branches on it).
+   */
   private localEditsSinceLoad = false
   /**
    * Bumped only by {@link onStateChange} so an in-flight save can detect
-   * mid-save user edits without treating merge-retry updates as edits.
+   * mid-save user edits.
    */
   private editGeneration = 0
+  /** Cloud version is ahead of this tab's last confirmed version. */
+  private stale = false
+  /** User dismissed the stale banner until remote moves ahead again. */
+  private staleBannerDismissed = false
   private dependencies: SyncEngineDependencies
 
   private constructor(userId: string, dependencies: SyncEngineDependencies) {
@@ -278,6 +272,30 @@ export class SyncEngine {
     return this.userId
   }
 
+  isStale(): boolean {
+    return this.stale
+  }
+
+  /** Stale and the user has not dismissed the banner. */
+  isStaleBannerVisible(): boolean {
+    return this.stale && !this.staleBannerDismissed
+  }
+
+  dismissStaleBanner(): void {
+    if (!this.stale || this.staleBannerDismissed) return
+    this.staleBannerDismissed = true
+    this.emitStatus()
+  }
+
+  private clearStale(notify = true): void {
+    const wasVisible = this.isStaleBannerVisible()
+    this.stale = false
+    this.staleBannerDismissed = false
+    if (notify && wasVisible) {
+      this.emitStatus()
+    }
+  }
+
   private async initFromCache(): Promise<void> {
     this.cloudVersion = await this.dependencies.storage.getCloudVersion(
       this.userId
@@ -315,18 +333,46 @@ export class SyncEngine {
   }
 
   /**
-   * Fetch the workspace from the cloud and update the local cache.
-   *
-   * Returns the cloud (or merged) state when the UI should adopt it, or
-   * `null` when the existing local/cache state should be kept (network
-   * failure, no snapshot).
+   * Cheap version probe: if remote is ahead, mark stale (and re-show a
+   * dismissed banner). Does not load the full snapshot.
+   */
+  async checkRemoteVersion(): Promise<void> {
+    if (this.isDestroyed()) return
+    if (this.cloudVersion <= 0) return
+
+    try {
+      const remote = await this.dependencies.workspace.getVersion()
+      if (this.isDestroyed() || remote === null) return
+
+      const wasVisible = this.isStaleBannerVisible()
+
+      if (remote > this.cloudVersion) {
+        this.stale = true
+        if (this.staleBannerDismissed) {
+          this.staleBannerDismissed = false
+        }
+      } else if (remote === this.cloudVersion) {
+        this.stale = false
+        this.staleBannerDismissed = false
+      }
+
+      if (this.isStaleBannerVisible() !== wasVisible) {
+        this.emitStatus()
+      }
+    } catch (err) {
+      console.error("[markx sync] checkRemoteVersion failed", err)
+    }
+  }
+
+  /**
+   * Always full-load the workspace from the cloud and adopt it.
+   * Used by {@link SyncEngine.create} bootstrap and first load.
    */
   async refreshFromCloud(): Promise<MarkxState | null> {
     if (this.isDestroyed()) return null
 
     try {
       console.info("[markx sync] loading workspace from cloud")
-      console.info("[markx sync] calling loadWorkspace server fn")
       const snapshot = await this.dependencies.workspace.load()
       if (this.isDestroyed()) return null
       console.info(
@@ -339,77 +385,60 @@ export class SyncEngine {
         return null
       }
 
-      const previousCloudVersion = this.cloudVersion
-
-      if (
-        shouldKeepLocalAfterCloudRefresh({
-          localEditsSinceLoad: this.localEditsSinceLoad,
-          hasDebouncedEdit: this.debounceTimer !== null,
-          status: this.status,
-        })
-      ) {
-        if (this.status === "conflict") {
-          console.info(
-            "[markx sync] keeping local state after cloud refresh (unresolved conflict)"
-          )
-          return null
-        }
-
-        // Remote moved ahead while this tab has unsent edits: merge by id
-        // (cloud wins on same id), then push the union.
-        if (snapshot.version > previousCloudVersion) {
-          const local = this.currentState
-          if (!local) return null
-
-          const merged = mergeWorkspaceStates(local, snapshot.state)
-          this.cloudVersion = snapshot.version
-          await this.dependencies.storage.setCloudVersion(
-            this.userId,
-            snapshot.version
-          )
-          this.currentState = merged
-          await this.dependencies.storage.saveUserState(this.userId, merged)
-          await this.dependencies.storage.setPendingSnapshot(
-            this.userId,
-            merged
-          )
-          await this.finalizeFirstLoginBootstrap()
-          if (this.online) {
-            void this.sync()
-          }
-          this.setStatus(this.online ? "saving" : "offline", merged)
-          return merged
-        }
-
-        console.info(
-          "[markx sync] keeping local state after cloud refresh (pending local edits)"
-        )
-        await this.finalizeFirstLoginBootstrap()
-        if (this.online) {
-          void this.sync()
-        } else {
-          this.setStatus("offline")
-        }
-        return null
-      }
-
-      // Online idle (or no unsent edits): cloud is source of truth.
-      this.cloudVersion = snapshot.version
-      await this.dependencies.storage.setCloudVersion(
-        this.userId,
-        snapshot.version
-      )
-      this.currentState = snapshot.state
-      await this.dependencies.storage.saveUserState(this.userId, snapshot.state)
-      await this.finalizeFirstLoginBootstrap()
-      this.setStatus("saved", snapshot.state)
-      return snapshot.state
+      return await this.adoptCloudSnapshot(snapshot)
     } catch (err) {
       console.error("[markx sync] loadWorkspace failed, keeping cache", err)
       if (this.isDestroyed()) return null
       this.setStatus(this.online ? "saved" : "offline")
       return null
     }
+  }
+
+  /**
+   * Full-load + adopt for the stale banner Reload action.
+   * Clears pending local queue and treats cloud as source of truth.
+   */
+  async reloadFromCloud(): Promise<MarkxState | null> {
+    if (this.isDestroyed()) return null
+
+    await this.dependencies.storage.setPendingSnapshot(this.userId, null)
+    this.localEditsSinceLoad = false
+
+    try {
+      console.info("[markx sync] reloading workspace from cloud")
+      const snapshot = await this.dependencies.workspace.load()
+      if (this.isDestroyed()) return null
+
+      if (!snapshot) {
+        this.clearStale()
+        this.setStatus(this.online ? "saved" : "offline")
+        return null
+      }
+
+      return await this.adoptCloudSnapshot(snapshot)
+    } catch (err) {
+      console.error("[markx sync] reloadFromCloud failed", err)
+      if (this.isDestroyed()) return null
+      this.setStatus(this.online ? "saved" : "offline")
+      return null
+    }
+  }
+
+  private async adoptCloudSnapshot(
+    snapshot: WorkspaceSnapshot
+  ): Promise<MarkxState> {
+    this.cloudVersion = snapshot.version
+    await this.dependencies.storage.setCloudVersion(
+      this.userId,
+      snapshot.version
+    )
+    this.currentState = snapshot.state
+    await this.dependencies.storage.saveUserState(this.userId, snapshot.state)
+    await this.finalizeFirstLoginBootstrap()
+    this.localEditsSinceLoad = false
+    this.clearStale(false)
+    this.setStatus("saved", snapshot.state)
+    return snapshot.state
   }
 
   /**
@@ -433,12 +462,6 @@ export class SyncEngine {
       )
     }
 
-    if (this.status === "conflict") {
-      // Don't auto-sync while a conflict is unresolved; just keep caching.
-      void this.dependencies.storage.setPendingSnapshot(this.userId, state)
-      return
-    }
-
     if (!this.online) {
       void this.dependencies.storage.setPendingSnapshot(this.userId, state)
       this.setStatus("offline")
@@ -453,7 +476,8 @@ export class SyncEngine {
   }
 
   /**
-   * Push the current state to the cloud with optimistic version control.
+   * Push the current state to the cloud. On optimistic conflict, overwrite
+   * with the local state (last-writer-wins). Never sets status `conflict`.
    */
   private async sync(): Promise<void> {
     if (this.isSyncing || this.destroyed || !this.currentState) return
@@ -470,56 +494,27 @@ export class SyncEngine {
       const deletedImageIds =
         await this.dependencies.storage.getDeletedImageIds(this.userId)
 
-      const result = await this.saveWithAutomaticMerge(
-        sentState,
+      let result = await this.dependencies.workspace.save({
+        state: sentState,
         baseVersion,
-        deletedImageIds
-      )
+        deletedImageIds,
+      })
+
+      // Last-writer-wins: conflict → overwrite with current local state.
+      if (!result.ok && result.reason === "conflict") {
+        const overwriteState = this.currentState ?? sentState
+        result = await this.dependencies.workspace.overwrite({
+          state: overwriteState,
+          deletedImageIds,
+        })
+      }
 
       if (result.ok) {
-        this.cloudVersion = result.version
-        await this.dependencies.storage.setCloudVersion(
-          this.userId,
-          result.version
+        await this.applySuccessfulSave(
+          result,
+          generationAtStart,
+          deletedImageIds
         )
-        await this.retireDeletedImageIds(deletedImageIds)
-
-        if (this.editGeneration === generationAtStart) {
-          await this.dependencies.storage.setPendingSnapshot(this.userId, null)
-          this.currentState = result.state
-          this.localEditsSinceLoad = false
-          await this.dependencies.storage.saveUserState(
-            this.userId,
-            result.state
-          )
-          this.setStatus("saved", result.state)
-        } else {
-          // User edited while the save was in flight. Keep local-only
-          // entities; server/cloud wins on the same id.
-          const live = this.currentState ?? result.state
-          const adopted = mergeWorkspaceStates(live, result.state)
-          this.currentState = adopted
-          await this.dependencies.storage.saveUserState(this.userId, adopted)
-          await this.dependencies.storage.setPendingSnapshot(
-            this.userId,
-            adopted
-          )
-          this.localEditsSinceLoad = true
-          this.setStatus("saved", adopted)
-          this.scheduleFlush()
-        }
-      } else if (result.reason === "conflict") {
-        this.conflict = {
-          cloudVersion: result.cloudVersion,
-          cloudState: result.cloudState,
-          cloudUpdatedAt: result.cloudUpdatedAt,
-        }
-        this.cloudVersion = result.cloudVersion
-        await this.dependencies.storage.setPendingSnapshot(
-          this.userId,
-          this.currentState
-        )
-        this.setStatus("conflict")
       } else if (result.reason === "entity_limit") {
         await this.dependencies.storage.setPendingSnapshot(
           this.userId,
@@ -558,6 +553,37 @@ export class SyncEngine {
     }
   }
 
+  private async applySuccessfulSave(
+    result: Extract<SaveResult, { ok: true }>,
+    generationAtStart: number,
+    deletedImageIds: string[]
+  ): Promise<void> {
+    this.cloudVersion = result.version
+    await this.dependencies.storage.setCloudVersion(
+      this.userId,
+      result.version
+    )
+    await this.retireDeletedImageIds(deletedImageIds)
+    this.clearStale(false)
+
+    if (this.editGeneration === generationAtStart) {
+      await this.dependencies.storage.setPendingSnapshot(this.userId, null)
+      this.currentState = result.state
+      this.localEditsSinceLoad = false
+      await this.dependencies.storage.saveUserState(this.userId, result.state)
+      this.setStatus("saved", result.state)
+    } else {
+      // Mid-save edits: keep local state, re-queue, and flush again.
+      await this.dependencies.storage.setPendingSnapshot(
+        this.userId,
+        this.currentState
+      )
+      this.localEditsSinceLoad = true
+      this.setStatus("saved")
+      this.scheduleFlush()
+    }
+  }
+
   /**
    * Drop only the deleted-image ids that this save attempted to flush so
    * mid-save deletions stay queued.
@@ -578,41 +604,6 @@ export class SyncEngine {
     }
   }
 
-  private async saveWithAutomaticMerge(
-    state: MarkxState,
-    baseVersion: number,
-    deletedImageIds: string[],
-    attempt = 0
-  ): Promise<SaveResult> {
-    const result = await this.dependencies.workspace.save({
-      state,
-      baseVersion,
-      deletedImageIds,
-    })
-    if (result.ok || result.reason !== "conflict" || attempt >= 2) {
-      return result
-    }
-
-    // Prefer live local state so mid-flight user adds are included in the
-    // retry merge. Do not bump editGeneration here.
-    const localBase = this.currentState ?? state
-    const merged = mergeWorkspaceStates(localBase, result.cloudState)
-    this.currentState = merged
-    this.cloudVersion = result.cloudVersion
-    await this.dependencies.storage.setCloudVersion(
-      this.userId,
-      result.cloudVersion
-    )
-    await this.dependencies.storage.setPendingSnapshot(this.userId, merged)
-
-    return this.saveWithAutomaticMerge(
-      merged,
-      result.cloudVersion,
-      deletedImageIds,
-      attempt + 1
-    )
-  }
-
   /**
    * Upload any queued image assets to R2. Called before a snapshot sync
    * so the server has the blobs by the time it records the metadata.
@@ -621,15 +612,18 @@ export class SyncEngine {
     const queue = await this.dependencies.storage.getAssetQueue(this.userId)
     if (queue.length === 0) return
 
-    const uploadedImageIds: string[] = []
-    for (const asset of queue) {
-      try {
-        const result = await this.dependencies.assets.upload(asset)
-        if (result.ok) uploadedImageIds.push(asset.imageId)
-      } catch {
-        // Keep failed uploads queued for the next sync.
-      }
-    }
+    const results = await Promise.all(
+      queue.map(async (asset) => {
+        try {
+          const result = await this.dependencies.assets.upload(asset)
+          return result.ok ? asset.imageId : null
+        } catch {
+          // Keep failed uploads queued for the next sync.
+          return null
+        }
+      })
+    )
+    const uploadedImageIds = results.filter((id): id is string => id !== null)
 
     // Remove only confirmed uploads in one transaction. Assets enqueued
     // while this flush was running remain intact.
@@ -677,7 +671,7 @@ export class SyncEngine {
   }
 
   /* ---------------------------------------------------------------- */
-  /* Conflict resolution (called by the UI)                           */
+  /* Conflict resolution (kept for store API compat)                  */
   /* ---------------------------------------------------------------- */
 
   /**
@@ -697,6 +691,7 @@ export class SyncEngine {
     this.currentState = state
     await this.dependencies.storage.saveUserState(this.userId, state)
     this.conflict = undefined
+    this.clearStale(false)
     this.setStatus("saved")
     return state
   }
@@ -726,6 +721,7 @@ export class SyncEngine {
       await this.dependencies.storage.setPendingSnapshot(this.userId, null)
       this.currentState = result.state
       this.conflict = undefined
+      this.clearStale(false)
       this.setStatus("saved", result.state)
     }
   }
@@ -756,6 +752,7 @@ export class SyncEngine {
     await this.dependencies.storage.setCloudVersion(this.userId, newVersion)
     await this.dependencies.storage.saveUserState(this.userId, newState)
     await this.dependencies.storage.setPendingSnapshot(this.userId, null)
+    this.clearStale(false)
     this.setStatus("saved", newState)
   }
 
@@ -782,15 +779,15 @@ export class SyncEngine {
       return
     }
 
-    // Flush any pending snapshot that accumulated while offline.
+    // Flush any pending snapshot that accumulated while offline (LWW).
     const pending = await this.dependencies.storage.getPendingSnapshot(
       this.userId
     )
-    if (pending && this.status !== "conflict") {
+    if (pending) {
       this.currentState = pending
       await this.sync()
     } else {
-      this.setStatus(this.status === "conflict" ? "conflict" : "saved")
+      this.setStatus("saved")
     }
   }
 
@@ -814,19 +811,19 @@ export class SyncEngine {
   private handleVisibilityChange = () => {
     if (typeof document === "undefined") return
     if (document.visibilityState !== "visible") return
-    void this.refreshFromCloud()
+    void this.checkRemoteVersion()
   }
 
   /**
-   * Poll the versioned snapshot so another device's save appears without a
-   * manual reload. Also refetch immediately when the tab becomes visible.
+   * Cheap version poll while visible. Full reload is user-driven via the
+   * stale banner ({@link reloadFromCloud}).
    */
   private startRealtimeRefresh(): void {
     if (typeof window === "undefined" || this.refreshTimer) return
     this.refreshTimer = setInterval(() => {
       if (document.visibilityState === "hidden") return
-      void this.refreshFromCloud()
-    }, 2000)
+      void this.checkRemoteVersion()
+    }, SYNC_VERSION_POLL_MS)
     document.addEventListener("visibilitychange", this.handleVisibilityChange)
   }
 
@@ -853,12 +850,17 @@ export class SyncEngine {
     }
   }
 
+  /** Notify listeners even when status is unchanged (e.g. stale banner). */
+  private emitStatus(authoritativeState?: MarkxState): void {
+    for (const listener of this.listeners) {
+      listener(this.status, this.conflict, authoritativeState)
+    }
+  }
+
   private setStatus(status: SyncStatus, authoritativeState?: MarkxState): void {
     if (this.status === status && !authoritativeState) return
     this.status = status
-    for (const listener of this.listeners) {
-      listener(status, this.conflict, authoritativeState)
-    }
+    this.emitStatus(authoritativeState)
   }
 
   /* ---------------------------------------------------------------- */
@@ -871,21 +873,18 @@ export class SyncEngine {
    */
   async flushAndDestroy(): Promise<boolean> {
     // Try one final sync.
-    if (this.currentState && this.status !== "conflict") {
+    if (this.currentState) {
       await this.sync()
     }
-    const pending = await this.dependencies.storage.getPendingSnapshot(
-      this.userId
-    )
-    const deletedImageIds = await this.dependencies.storage.getDeletedImageIds(
-      this.userId
-    )
-    const assetQueue = await this.dependencies.storage.getAssetQueue(
-      this.userId
-    )
+    const [pending, deletedImageIds, assetQueue] = await Promise.all([
+      this.dependencies.storage.getPendingSnapshot(this.userId),
+      this.dependencies.storage.getDeletedImageIds(this.userId),
+      this.dependencies.storage.getAssetQueue(this.userId),
+    ])
     const canClearCache =
       this.status === "saved" &&
       !pending &&
+      !this.localEditsSinceLoad &&
       deletedImageIds.length === 0 &&
       assetQueue.length === 0
     this.destroy()

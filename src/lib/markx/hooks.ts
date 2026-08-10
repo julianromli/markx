@@ -26,8 +26,8 @@ export function useAuthSession() {
 /**
  * React hook for the current sync status (shown in the header).
  *
- * Returns `{ status, conflict }` where `status` is one of:
- * `idle` (guest), `saved`, `saving`, `offline`, `conflict`.
+ * Returns `{ status, conflict, staleBannerVisible, engine }` where `status`
+ * is one of: `idle` (guest), `saved`, `saving`, `offline`, `conflict`, `error`.
  *
  * Also subscribes to the store so it re-renders when the sync engine is
  * attached (login) or detached (sign-out).
@@ -35,6 +35,7 @@ export function useAuthSession() {
 export function useSyncStatus(): {
   status: SyncStatus
   conflict: ConflictData | undefined
+  staleBannerVisible: boolean
   engine: SyncEngine | null
 } {
   const storeApi = useMarkxStore()
@@ -45,19 +46,33 @@ export function useSyncStatus(): {
   const [state, setState] = useState<{
     status: SyncStatus
     conflict: ConflictData | undefined
+    staleBannerVisible: boolean
   }>({
     status: engine?.getStatus() ?? "idle",
     conflict: engine?.getConflict(),
+    staleBannerVisible: engine?.isStaleBannerVisible() ?? false,
   })
 
   useEffect(() => {
     if (!engine) {
-      setState({ status: "idle", conflict: undefined })
+      setState({
+        status: "idle",
+        conflict: undefined,
+        staleBannerVisible: false,
+      })
       return
     }
-    setState({ status: engine.getStatus(), conflict: engine.getConflict() })
+    setState({
+      status: engine.getStatus(),
+      conflict: engine.getConflict(),
+      staleBannerVisible: engine.isStaleBannerVisible(),
+    })
     return engine.subscribe((status, conflict) => {
-      setState({ status, conflict })
+      setState({
+        status,
+        conflict,
+        staleBannerVisible: engine.isStaleBannerVisible(),
+      })
     })
   }, [engine])
 

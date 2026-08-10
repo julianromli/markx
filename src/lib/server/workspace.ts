@@ -3,6 +3,7 @@ import { z } from "zod"
 import { authMiddleware, requireUser } from "@/lib/auth/middleware"
 import { markxStateSchema } from "@/lib/markx/schema"
 import {
+  getWorkspaceVersionForUser,
   importGuestWorkspaceForUser,
   loadWorkspaceForUser,
   overwriteWorkspaceForUser,
@@ -26,6 +27,17 @@ export const loadWorkspace = createServerFn({ method: "GET" })
   .handler(async ({ context }): Promise<WorkspaceSnapshot | null> => {
     const user = requireUser(context)
     return loadWorkspaceForUser(user.id)
+  })
+
+/**
+ * Return only the workspace version for cheap polling. Avoids shipping
+ * the full JSONB snapshot when nothing changed.
+ */
+export const getWorkspaceVersion = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<number | null> => {
+    const user = requireUser(context)
+    return getWorkspaceVersionForUser(user.id)
   })
 
 const saveSchema = z.object({

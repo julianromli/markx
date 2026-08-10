@@ -23,12 +23,12 @@ export function refreshEngineInBackground(
 ): void {
   void (async () => {
     try {
-      const cloudState = await engine.refreshFromCloud()
-      if (cancelled() || !cloudState || store.getSyncEngine() !== engine) return
-      store.replaceState(cloudState, { persist: false })
-      console.info("[markx init] applied cloud refresh")
+      // Last-writer-wins: do not auto-adopt cloud on revisit. Only mark stale.
+      await engine.checkRemoteVersion()
+      if (cancelled() || store.getSyncEngine() !== engine) return
+      console.info("[markx init] checked remote version")
     } catch (err) {
-      console.error("[markx init] background cloud refresh failed", err)
+      console.error("[markx init] background version check failed", err)
     }
   })()
 }

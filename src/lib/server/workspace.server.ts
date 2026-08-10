@@ -4,7 +4,6 @@ import { withDb } from "@/lib/db/client"
 import { workspaces } from "@/lib/db/schema"
 import {
   filterDeletedImageIdsForState,
-  mergeWorkspaceStates,
 } from "@/lib/markx/merge-workspace"
 import { createEmptyState } from "@/lib/markx/seed"
 import type { MarkxState } from "@/lib/markx/types"
@@ -51,6 +50,24 @@ export async function loadWorkspaceForUser(
   })
 }
 
+/**
+ * Cheap poll probe: read only `version` (no JSONB state, no entitlements).
+ * Returns null when the user has no workspace row yet.
+ */
+export async function getWorkspaceVersionForUser(
+  userId: string
+): Promise<number | null> {
+  return withDb(async ({ db }) => {
+    const rows = await db
+      .select({ version: workspaces.version })
+      .from(workspaces)
+      .where(eq(workspaces.userId, userId))
+      .limit(1)
+    if (rows.length === 0) return null
+    return rows[0]!.version
+  })
+}
+
 async function enforceEntityLimitForUser(
   userId: string,
   state: MarkxState
@@ -91,11 +108,9 @@ export async function saveWorkspaceForUser(
       }
 
       const current = currentRows[0]
-      const cloudState = parseWorkspaceState(current.state)
-      const stateToWrite =
-        current.version === input.baseVersion
-          ? input.state
-          : mergeWorkspaceStates(input.state, cloudState)
+      // Last-writer-wins: always write the client's snapshot. A stale
+      // baseVersion does not merge with cloud; this save replaces it.
+      const stateToWrite = input.state
 
       const limit = assertWorkspaceEntityLimit(entitlements, stateToWrite)
       if (!limit.ok) {

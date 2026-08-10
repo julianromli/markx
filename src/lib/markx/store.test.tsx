@@ -34,6 +34,7 @@ type EngineStub = {
   getLoadedState: () => MarkxState
   hasCachedState: () => boolean
   refreshFromCloud: ReturnType<typeof vi.fn>
+  checkRemoteVersion: ReturnType<typeof vi.fn>
   destroy: ReturnType<typeof vi.fn>
   subscribe: ReturnType<typeof vi.fn>
 }
@@ -65,6 +66,7 @@ async function setupProvider(opts: {
       getLoadedState: () => opts.cachedState ?? emptyState,
       hasCachedState: () => Boolean(opts.cachedState),
       refreshFromCloud: vi.fn(async () => emptyState),
+      checkRemoteVersion: vi.fn(async () => {}),
       destroy: vi.fn(),
       subscribe: vi.fn(() => () => {}),
     } satisfies EngineStub)
@@ -194,6 +196,7 @@ describe("MarkxProvider authenticated bootstrap", () => {
       getLoadedState: () => emptyState,
       hasCachedState: () => false,
       refreshFromCloud: vi.fn(() => cloudState.promise),
+      checkRemoteVersion: vi.fn(async () => {}),
       destroy: vi.fn(),
       subscribe: vi.fn(() => () => {}),
     }
@@ -248,7 +251,7 @@ describe("MarkxProvider authenticated bootstrap", () => {
 
     expect(createFromCache).toHaveBeenCalled()
     expect(create).not.toHaveBeenCalled()
-    expect(engine.refreshFromCloud).toHaveBeenCalledTimes(1)
+    expect(engine.checkRemoteVersion).toHaveBeenCalledTimes(1)
   })
 
   it("loads cloud when authenticated cache is empty", async () => {
@@ -281,6 +284,7 @@ describe("MarkxProvider authenticated bootstrap", () => {
       getLoadedState: () => emptyState,
       hasCachedState: () => false,
       refreshFromCloud: vi.fn(() => cloudState.promise),
+      checkRemoteVersion: vi.fn(async () => {}),
       destroy: vi.fn(),
       subscribe: vi.fn(() => () => {}),
     }

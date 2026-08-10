@@ -22,6 +22,8 @@ export type MarkxStoreApi = {
   getSyncEngine: () => SyncEngine | null
   resolveConflictUseCloud: () => Promise<void>
   resolveConflictOverwriteCloud: () => Promise<void>
+  /** Soft-adopt the latest cloud workspace (stale banner Reload). */
+  reloadWorkspaceFromCloud: () => Promise<void>
 }
 
 const MarkxStoreContext = createContext<MarkxStoreApi | null>(null)
@@ -39,6 +41,12 @@ export function MarkxProvider({ children }: { children: ReactNode }) {
       getSyncEngine: store.getSyncEngine,
       resolveConflictUseCloud: store.resolveConflictUseCloud,
       resolveConflictOverwriteCloud: store.resolveConflictOverwriteCloud,
+      async reloadWorkspaceFromCloud() {
+        const engine = store.getSyncEngine()
+        if (!engine) return
+        const state = await engine.reloadFromCloud()
+        if (state) store.replaceState(state, { persist: false })
+      },
     }),
     [bootstrap.initialSyncStatus, bootstrap.retryInitialSync]
   )

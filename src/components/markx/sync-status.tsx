@@ -1,7 +1,6 @@
 import { useState } from "react"
 import { CloudSlashIcon } from "@phosphor-icons/react/dist/csr/CloudSlash"
 import { CloudWarningIcon } from "@phosphor-icons/react/dist/csr/CloudWarning"
-import { SpinnerIcon } from "@phosphor-icons/react/dist/csr/Spinner"
 import { CheckCircleIcon } from "@phosphor-icons/react/dist/csr/CheckCircle"
 
 import {
@@ -37,16 +36,16 @@ const SYNC_STATUS_CONFIG: Record<SyncStatus, SyncStatusVisual> = {
     tooltip: "",
   },
   saved: {
-    label: "Saved",
-    icon: <CheckCircleIcon className="size-3.5 text-green-600" weight="fill" />,
-    className: "text-green-700 bg-green-50",
-    tooltip: "All changes saved to the cloud",
+    label: "",
+    icon: null,
+    className: "",
+    tooltip: "",
   },
   saving: {
-    label: "Saving…",
-    icon: <SpinnerIcon className="size-3.5 animate-spin" weight="regular" />,
-    className: "text-blue-700 bg-blue-50",
-    tooltip: "Saving your changes to the cloud",
+    label: "",
+    icon: null,
+    className: "",
+    tooltip: "",
   },
   offline: {
     label: "Offline (queued)",
@@ -73,15 +72,15 @@ const SYNC_STATUS_CONFIG: Record<SyncStatus, SyncStatusVisual> = {
 /**
  * Sync status indicator shown in the header.
  *
- * Displays one of:
- * - `Saved`      — all changes synced (green check)
- * - `Saving…`    — a save is in flight (spinner)
- * - `Offline`    — navigator offline; changes queued (cloud-slash)
- * - `Conflict`   — cloud version moved ahead; user must resolve
- * - (hidden)    — guest mode (no sync engine)
+ * Autosave is silent: `saving` / `saved` show nothing. Displays only
+ * problem states:
+ * - `Offline`  — navigator offline; changes queued
+ * - `Conflict` — cloud version moved ahead; user must resolve
+ * - `Sync issue` — last sync failed
+ * - (hidden)   — guest mode, or healthy autosave
  *
- * Each state has a tooltip with more detail. Clicking the conflict
- * state opens the conflict resolution dialog (handled by the parent).
+ * Clicking the conflict state opens the conflict resolution dialog
+ * (handled by the parent).
  */
 export function SyncStatusBadge({
   onConflictClick,
@@ -90,8 +89,10 @@ export function SyncStatusBadge({
 }) {
   const { status } = useSyncStatus()
 
-  // In guest mode (no engine), show nothing.
-  if (status === "idle") return null
+  // Guest mode and healthy autosave: show nothing.
+  if (status === "idle" || status === "saving" || status === "saved") {
+    return null
+  }
 
   const c = SYNC_STATUS_CONFIG[status]
   const className = cn(

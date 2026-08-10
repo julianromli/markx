@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { mergeWorkspaceStates } from "@/lib/markx/merge-workspace"
 import { createDemoState, createEmptyState } from "@/lib/markx/seed"
 import { SyncEngine } from "@/lib/markx/sync"
 import type { SyncEngineDependencies } from "@/lib/markx/sync"
+import { SYNC_VERSION_POLL_MS } from "@/lib/markx/sync-timings"
 import type { MarkxState } from "@/lib/markx/types"
 
 function stateWithFolder(id: string): MarkxState {
@@ -41,6 +41,12 @@ function createDependencies(opts?: {
           state: cloud,
         }
   )
+  const overwrite = vi.fn(async (input: { state: MarkxState }) => ({
+    ok: true as const,
+    version: 3,
+    updatedAt: "now",
+    state: input.state,
+  }))
   const importGuest =
     opts?.importGuestImpl ??
     vi.fn(async () =>
@@ -68,14 +74,10 @@ function createDependencies(opts?: {
         version: 2,
         updatedAt: "now",
       })),
+      getVersion: vi.fn(async () => 2),
       save,
       importGuest,
-      overwrite: vi.fn(async (input) => ({
-        ok: true as const,
-        version: 3,
-        updatedAt: "now",
-        state: input.state,
-      })),
+      overwrite,
     },
     assets: {
       upload: vi.fn(async () => ({ ok: true })),
@@ -108,6 +110,7 @@ function createDependencies(opts?: {
   return {
     dependencies,
     save,
+    overwrite,
     importGuest,
     resetGuestState,
     markGuestImported,
@@ -120,7 +123,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe("SyncEngine dependency boundaries", () => {
+describe("SyncEngine last-writer-wins", () => {
   it("uses injected workspace and storage adapters", async () => {
     const { dependencies } = createDependencies()
     const engine = await SyncEngine.createFromCache("user-1", dependencies)
@@ -133,59 +136,10 @@ describe("SyncEngine dependency boundaries", () => {
     engine.destroy()
   })
 
-  it("merges remote additions into local edits on cloud refresh", async () => {
-    const local = stateWithFolder("local")
-    const cloud = stateWithFolder("cloud")
-    const { dependencies } = createDependencies({ cloud })
-    const engine = await SyncEngine.createFromCache("user-1", dependencies)
-
-    engine.onStateChange(local)
-    const refreshed = await engine.refreshFromCloud()
-
-    expect(refreshed?.folders.map((folder) => folder.id)).toEqual([
-      "cloud",
-      "local",
-    ])
-    expect(engine.getLoadedState()?.folders.map((folder) => folder.id)).toEqual(
-      ["cloud", "local"]
-    )
-    engine.destroy()
-  })
-
-  it("adopts a newer remote snapshot during realtime refresh", async () => {
-    vi.useFakeTimers()
-    const remote = stateWithFolder("remote-bookmark")
+  it("adopts cloud on explicit refreshFromCloud bootstrap", async () => {
+    const remote = stateWithFolder("remote")
     const { dependencies } = createDependencies({
       cached: stateWithFolder("local"),
-    })
-    dependencies.workspace.load = vi.fn(async () => ({
-      id: "workspace",
-      userId: "user-1",
-      state: remote,
-      version: 3,
-      updatedAt: "later",
-    }))
-
-    const engine = await SyncEngine.createFromCache("user-1", dependencies)
-    let authoritative: MarkxState | undefined
-    engine.subscribe((_status, _conflict, state) => {
-      authoritative = state
-    })
-    await vi.advanceTimersByTimeAsync(2000)
-
-    expect(engine.getLoadedState()).toBe(remote)
-    expect(authoritative).toBe(remote)
-    expect(engine.getStatus()).toBe("saved")
-    expect(dependencies.workspace.load).toHaveBeenCalledTimes(1)
-    engine.destroy()
-  })
-
-  it("adopts newer cloud state even when another tab left a shared pending snapshot", async () => {
-    const staleLocal = stateWithFolder("stale-local")
-    const remote = stateWithFolder("from-other-tab")
-    const { dependencies } = createDependencies({
-      cached: staleLocal,
-      pending: stateWithFolder("other-tab-pending"),
       cloud: remote,
     })
     dependencies.workspace.load = vi.fn(async () => ({
@@ -195,72 +149,97 @@ describe("SyncEngine dependency boundaries", () => {
       version: 5,
       updatedAt: "later",
     }))
-    dependencies.storage.getCloudVersion = vi.fn(async () => 4)
 
     const engine = await SyncEngine.createFromCache("user-1", dependencies)
-    let authoritative: MarkxState | undefined
-    engine.subscribe((_status, _conflict, state) => {
-      if (state) authoritative = state
-    })
-
     const refreshed = await engine.refreshFromCloud()
 
     expect(refreshed).toBe(remote)
-    expect(authoritative).toBe(remote)
-    expect(engine.getLoadedState()).toBe(remote)
-    expect(engine.getStatus()).toBe("saved")
+    expect(engine.getCloudVersion()).toBe(5)
+    expect(engine.isStale()).toBe(false)
     engine.destroy()
   })
 
-  it("refreshes from cloud immediately when the tab becomes visible", async () => {
-    vi.useFakeTimers()
-    const remote = stateWithFolder("visible-remote")
+  it("marks stale when remote version is ahead without loading state", async () => {
     const { dependencies } = createDependencies({
       cached: stateWithFolder("local"),
     })
-    const load = vi.fn(async () => ({
+    dependencies.storage.getCloudVersion = vi.fn(async () => 4)
+    dependencies.workspace.getVersion = vi.fn(async () => 7)
+
+    const engine = await SyncEngine.createFromCache("user-1", dependencies)
+    await engine.checkRemoteVersion()
+
+    expect(engine.isStale()).toBe(true)
+    expect(engine.isStaleBannerVisible()).toBe(true)
+    expect(dependencies.workspace.load).not.toHaveBeenCalled()
+    engine.destroy()
+  })
+
+  it("re-shows stale banner on the next version check after dismiss", async () => {
+    const { dependencies } = createDependencies()
+    dependencies.storage.getCloudVersion = vi.fn(async () => 4)
+    dependencies.workspace.getVersion = vi.fn(async () => 7)
+
+    const engine = await SyncEngine.createFromCache("user-1", dependencies)
+    await engine.checkRemoteVersion()
+    engine.dismissStaleBanner()
+    expect(engine.isStaleBannerVisible()).toBe(false)
+
+    await engine.checkRemoteVersion()
+    expect(engine.isStaleBannerVisible()).toBe(true)
+    engine.destroy()
+  })
+
+  it("reloadFromCloud adopts cloud and clears stale", async () => {
+    const remote = stateWithFolder("fresh-cloud")
+    const { dependencies } = createDependencies({
+      cached: stateWithFolder("stale-local"),
+    })
+    dependencies.storage.getCloudVersion = vi.fn(async () => 4)
+    dependencies.workspace.getVersion = vi.fn(async () => 7)
+    dependencies.workspace.load = vi.fn(async () => ({
       id: "workspace",
       userId: "user-1",
       state: remote,
-      version: 3,
+      version: 7,
       updatedAt: "later",
     }))
-    dependencies.workspace.load = load
-
-    Object.defineProperty(document, "visibilityState", {
-      configurable: true,
-      get: () => "hidden",
-    })
 
     const engine = await SyncEngine.createFromCache("user-1", dependencies)
-    await vi.advanceTimersByTimeAsync(2000)
-    expect(load).not.toHaveBeenCalled()
+    await engine.checkRemoteVersion()
+    expect(engine.isStaleBannerVisible()).toBe(true)
 
-    let visibility: DocumentVisibilityState = "visible"
-    Object.defineProperty(document, "visibilityState", {
-      configurable: true,
-      get: () => visibility,
-    })
-    document.dispatchEvent(new Event("visibilitychange"))
-    await vi.advanceTimersByTimeAsync(0)
-
-    expect(load).toHaveBeenCalledTimes(1)
-    expect(engine.getLoadedState()).toBe(remote)
+    const reloaded = await engine.reloadFromCloud()
+    expect(reloaded).toBe(remote)
+    expect(engine.isStale()).toBe(false)
+    expect(engine.getCloudVersion()).toBe(7)
     engine.destroy()
-    visibility = "visible"
   })
 
-  it("adopts server-merged state from a single save", async () => {
+  it("probes version on the poll interval without full load when unchanged", async () => {
+    vi.useFakeTimers()
+    const { dependencies } = createDependencies()
+    dependencies.storage.getCloudVersion = vi.fn(async () => 2)
+    dependencies.workspace.getVersion = vi.fn(async () => 2)
+
+    const engine = await SyncEngine.createFromCache("user-1", dependencies)
+    await vi.advanceTimersByTimeAsync(SYNC_VERSION_POLL_MS)
+
+    expect(dependencies.workspace.getVersion).toHaveBeenCalled()
+    expect(dependencies.workspace.load).not.toHaveBeenCalled()
+    expect(engine.isStale()).toBe(false)
+    engine.destroy()
+  })
+
+  it("saves local state as last writer", async () => {
     vi.useFakeTimers()
     const local = stateWithFolder("laptop-folder")
-    const cloud = stateWithFolder("mobile-folder")
-    const merged = mergeWorkspaceStates(local, cloud)
     const { dependencies, save } = createDependencies({
       saveResult: {
         ok: true,
         version: 5,
         updatedAt: "now",
-        state: merged,
+        state: local,
       },
     })
     const engine = await SyncEngine.createFromCache("user-1", dependencies)
@@ -269,15 +248,43 @@ describe("SyncEngine dependency boundaries", () => {
     await vi.advanceTimersByTimeAsync(1500)
 
     expect(engine.getStatus()).toBe("saved")
-    expect(engine.getConflict()).toBeUndefined()
-    expect(engine.getLoadedState()?.folders.map((folder) => folder.id)).toEqual(
-      ["mobile-folder", "laptop-folder"]
-    )
+    expect(engine.getLoadedState()?.folders[0]?.id).toBe("laptop-folder")
     expect(save).toHaveBeenCalledTimes(1)
+    expect(engine.isStale()).toBe(false)
     engine.destroy()
   })
 
-  it("keeps mid-save local edits when adopting server state", async () => {
+  it("overwrites cloud when save returns conflict", async () => {
+    vi.useFakeTimers()
+    const local = stateWithFolder("laptop-folder")
+    const { dependencies, save, overwrite } = createDependencies()
+    save.mockResolvedValueOnce({
+      ok: false,
+      reason: "conflict",
+      cloudVersion: 4,
+      cloudState: stateWithFolder("mobile-folder"),
+      cloudUpdatedAt: "later",
+    })
+    overwrite.mockResolvedValueOnce({
+      ok: true,
+      version: 5,
+      updatedAt: "now",
+      state: local,
+    })
+
+    const engine = await SyncEngine.createFromCache("user-1", dependencies)
+    engine.onStateChange(local)
+    await vi.advanceTimersByTimeAsync(1500)
+
+    expect(overwrite).toHaveBeenCalledTimes(1)
+    expect(engine.getStatus()).toBe("saved")
+    expect(engine.getConflict()).toBeUndefined()
+    expect(engine.getLoadedState()?.folders[0]?.id).toBe("laptop-folder")
+    expect(engine.getCloudVersion()).toBe(5)
+    engine.destroy()
+  })
+
+  it("keeps mid-save local edits without merging cloud entities", async () => {
     vi.useFakeTimers()
     const sent = stateWithFolder("sent-folder")
     const duringSave = stateWithFolder("during-folder")
@@ -299,10 +306,6 @@ describe("SyncEngine dependency boundaries", () => {
     save.mockImplementation(async () => saveGate)
 
     const engine = await SyncEngine.createFromCache("user-1", dependencies)
-    let authoritative: MarkxState | undefined
-    engine.subscribe((_status, _conflict, state) => {
-      if (state) authoritative = state
-    })
 
     engine.onStateChange(sent)
     await vi.advanceTimersByTimeAsync(1500)
@@ -318,82 +321,8 @@ describe("SyncEngine dependency boundaries", () => {
     await vi.advanceTimersByTimeAsync(0)
 
     expect(engine.getLoadedState()?.folders.map((folder) => folder.id)).toEqual(
-      ["sent-folder", "during-folder"]
+      ["during-folder"]
     )
-    expect(authoritative?.folders.map((folder) => folder.id)).toEqual([
-      "sent-folder",
-      "during-folder",
-    ])
-    engine.destroy()
-  })
-
-  it("falls back to client merge when the server still returns conflict", async () => {
-    vi.useFakeTimers()
-    const local = stateWithFolder("laptop-folder")
-    const cloud = stateWithFolder("mobile-folder")
-    const { dependencies, save } = createDependencies({
-      saveResult: {
-        ok: false,
-        reason: "conflict",
-        cloudVersion: 4,
-        cloudState: cloud,
-        cloudUpdatedAt: "later",
-      },
-    })
-    save
-      .mockResolvedValueOnce({
-        ok: false,
-        reason: "conflict",
-        cloudVersion: 4,
-        cloudState: cloud,
-        cloudUpdatedAt: "later",
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        version: 5,
-        updatedAt: "now",
-        state: mergeWorkspaceStates(local, cloud),
-      })
-    const engine = await SyncEngine.createFromCache("user-1", dependencies)
-
-    engine.onStateChange(local)
-    await vi.advanceTimersByTimeAsync(1500)
-
-    expect(engine.getStatus()).toBe("saved")
-    expect(engine.getConflict()).toBeUndefined()
-    expect(engine.getLoadedState()?.folders.map((folder) => folder.id)).toEqual(
-      ["mobile-folder", "laptop-folder"]
-    )
-    expect(save).toHaveBeenCalledTimes(2)
-    engine.destroy()
-  })
-
-  it("surfaces and resolves an injected save conflict", async () => {
-    vi.useFakeTimers()
-    const cloud = stateWithFolder("cloud-conflict")
-    const { dependencies } = createDependencies({
-      saveResult: {
-        ok: false,
-        reason: "conflict",
-        cloudVersion: 4,
-        cloudState: cloud,
-        cloudUpdatedAt: "later",
-      },
-    })
-    const engine = await SyncEngine.createFromCache("user-1", dependencies)
-    const statuses: string[] = []
-    engine.subscribe((status) => statuses.push(status))
-
-    engine.onStateChange(stateWithFolder("local"))
-    await vi.advanceTimersByTimeAsync(1500)
-
-    expect(engine.getStatus()).toBe("conflict")
-    expect(engine.getConflict()?.cloudVersion).toBe(4)
-    expect(statuses).toContain("conflict")
-
-    await engine.resolveConflictUseCloud()
-    expect(engine.getStatus()).toBe("saved")
-    expect(engine.getLoadedState()).toBe(cloud)
     engine.destroy()
   })
 

@@ -2,10 +2,7 @@ import { useState } from "react"
 
 import { AccountMenu } from "@/components/markx/account-menu"
 import { AuthDialog } from "@/components/markx/auth-dialog"
-import {
-  ConflictResolutionDialog,
-  SyncStatusBadge,
-} from "@/components/markx/sync-status"
+import { SyncStatusBadge } from "@/components/markx/sync-status"
 import { Button } from "@/components/ui/button"
 import { useAuthSession } from "@/lib/markx/hooks"
 
@@ -18,7 +15,6 @@ import { useAuthSession } from "@/lib/markx/hooks"
 export function HeaderAuth() {
   const { user, isPending } = useAuthSession()
   const [authOpen, setAuthOpen] = useState(false)
-  const [conflictOpen, setConflictOpen] = useState(false)
 
   if (isPending) {
     return null
@@ -27,12 +23,8 @@ export function HeaderAuth() {
   if (user) {
     return (
       <>
-        <SyncStatusBadge onConflictClick={() => setConflictOpen(true)} />
+        <SyncStatusBadge />
         <AccountMenu />
-        <ConflictResolutionDialog
-          open={conflictOpen}
-          onOpenChange={setConflictOpen}
-        />
       </>
     )
   }

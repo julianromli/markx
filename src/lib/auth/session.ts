@@ -1,5 +1,6 @@
 import { getAuthClient } from "@/lib/auth/client"
 import type { AuthUser } from "@/lib/auth/types"
+import { NEON_IDLE_POLL_MS } from "@/lib/neon-compute"
 
 export type AuthSessionUser = AuthUser
 
@@ -11,7 +12,8 @@ export type AuthSessionSnapshot = {
 }
 
 const SESSION_FRESH_MS = 5000
-const SESSION_POLL_MS = 10000
+/** Fallback revalidation. Longer than Neon autosuspend so idle tabs can sleep. */
+export const SESSION_POLL_MS = NEON_IDLE_POLL_MS
 const serverSnapshot: AuthSessionSnapshot = {
   user: null,
   token: null,
@@ -24,7 +26,52 @@ let inFlight: Promise<AuthSessionSnapshot> | null = null
 let activeRequestId: symbol | null = null
 let generation = 0
 let pollTimer: ReturnType<typeof setInterval> | null = null
+let browserListenersBound = false
 const listeners = new Set<() => void>()
+
+function isDocumentHidden(): boolean {
+  return (
+    typeof document !== "undefined" && document.visibilityState === "hidden"
+  )
+}
+
+function refreshIfVisible(): void {
+  if (isDocumentHidden()) return
+  void refreshAuthSession()
+}
+
+function handleVisibilityChange(): void {
+  if (typeof document === "undefined") return
+  if (document.visibilityState !== "visible") return
+  // Coalesce with the 5s freshness window; do not force a Neon Auth round-trip.
+  void getAuthSession()
+}
+
+function handleWindowFocus(): void {
+  void getAuthSession()
+}
+
+function bindBrowserSessionListeners(): void {
+  if (browserListenersBound) return
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+  }
+  if (typeof window !== "undefined") {
+    window.addEventListener("focus", handleWindowFocus)
+  }
+  browserListenersBound = true
+}
+
+function unbindBrowserSessionListeners(): void {
+  if (!browserListenersBound) return
+  if (typeof document !== "undefined") {
+    document.removeEventListener("visibilitychange", handleVisibilityChange)
+  }
+  if (typeof window !== "undefined") {
+    window.removeEventListener("focus", handleWindowFocus)
+  }
+  browserListenersBound = false
+}
 
 function publish(next: AuthSessionSnapshot): AuthSessionSnapshot {
   snapshot = next
@@ -124,16 +171,18 @@ export function subscribeAuthSession(listener: () => void): () => void {
   listeners.add(listener)
   if (listeners.size === 1) {
     void getAuthSession()
-    pollTimer = setInterval(() => {
-      void refreshAuthSession()
-    }, SESSION_POLL_MS)
+    pollTimer = setInterval(refreshIfVisible, SESSION_POLL_MS)
+    bindBrowserSessionListeners()
   }
 
   return () => {
     listeners.delete(listener)
-    if (listeners.size === 0 && pollTimer) {
-      clearInterval(pollTimer)
-      pollTimer = null
+    if (listeners.size === 0) {
+      if (pollTimer) {
+        clearInterval(pollTimer)
+        pollTimer = null
+      }
+      unbindBrowserSessionListeners()
     }
   }
 }

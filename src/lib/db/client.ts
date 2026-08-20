@@ -43,6 +43,8 @@ export async function getDb() {
     max: 5,
     // Use `prepare: false` so Hyperdrive can cache prepared statements.
     prepare: false,
+    // Close an idle socket if `sql.end()` is skipped (seconds).
+    idle_timeout: 20,
   })
 
   return { db: drizzle(sql, { schema }), sql }

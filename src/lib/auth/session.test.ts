@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const authMocks = vi.hoisted(() => ({
@@ -23,8 +25,15 @@ beforeEach(() => {
   authMocks.getSession.mockReset()
 })
 
+const visibilityDescriptor =
+  Object.getOwnPropertyDescriptor(Document.prototype, "visibilityState") ??
+  Object.getOwnPropertyDescriptor(document, "visibilityState")
+
 afterEach(() => {
   vi.useRealTimers()
+  if (visibilityDescriptor) {
+    Object.defineProperty(document, "visibilityState", visibilityDescriptor)
+  }
 })
 
 describe("shared auth session", () => {
@@ -61,10 +70,11 @@ describe("shared auth session", () => {
     })
   })
 
-  it("uses one initial lookup and polling loop for multiple subscribers", async () => {
+  it("uses one initial lookup and a long idle poll for multiple subscribers", async () => {
     vi.useFakeTimers()
     authMocks.getSession.mockResolvedValue({ data: null })
-    const { subscribeAuthSession } = await import("@/lib/auth/session")
+    const { SESSION_POLL_MS, subscribeAuthSession } =
+      await import("@/lib/auth/session")
 
     const unsubscribeFirst = subscribeAuthSession(vi.fn())
     const unsubscribeSecond = subscribeAuthSession(vi.fn())
@@ -72,13 +82,69 @@ describe("shared auth session", () => {
       expect(authMocks.getSession).toHaveBeenCalledTimes(1)
     )
 
-    await vi.advanceTimersByTimeAsync(10000)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(authMocks.getSession).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(SESSION_POLL_MS)
     expect(authMocks.getSession).toHaveBeenCalledTimes(2)
 
     unsubscribeFirst()
     unsubscribeSecond()
-    await vi.advanceTimersByTimeAsync(10000)
+    await vi.advanceTimersByTimeAsync(SESSION_POLL_MS)
     expect(authMocks.getSession).toHaveBeenCalledTimes(2)
+  })
+
+  it("skips the idle session poll while the tab is hidden", async () => {
+    vi.useFakeTimers()
+    authMocks.getSession.mockResolvedValue({ data: null })
+    const { SESSION_POLL_MS, subscribeAuthSession } =
+      await import("@/lib/auth/session")
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    })
+
+    const unsubscribe = subscribeAuthSession(vi.fn())
+    await vi.waitFor(() =>
+      expect(authMocks.getSession).toHaveBeenCalledTimes(1)
+    )
+
+    await vi.advanceTimersByTimeAsync(SESSION_POLL_MS)
+    expect(authMocks.getSession).toHaveBeenCalledTimes(1)
+
+    unsubscribe()
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    })
+  })
+
+  it("rechecks the session when the tab becomes visible", async () => {
+    vi.useFakeTimers()
+    authMocks.getSession.mockResolvedValue({ data: null })
+    const { subscribeAuthSession } = await import("@/lib/auth/session")
+
+    let visibility: DocumentVisibilityState = "hidden"
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => visibility,
+    })
+
+    const unsubscribe = subscribeAuthSession(vi.fn())
+    await vi.waitFor(() =>
+      expect(authMocks.getSession).toHaveBeenCalledTimes(1)
+    )
+
+    // Freshness window is 5s; expire it so visibility can refetch.
+    await vi.advanceTimersByTimeAsync(6_000)
+    visibility = "visible"
+    document.dispatchEvent(new Event("visibilitychange"))
+    await vi.waitFor(() =>
+      expect(authMocks.getSession).toHaveBeenCalledTimes(2)
+    )
+
+    unsubscribe()
   })
 
   it("does not republish an old in-flight user after sign-out", async () => {

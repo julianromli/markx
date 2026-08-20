@@ -559,10 +559,7 @@ export class SyncEngine {
     deletedImageIds: string[]
   ): Promise<void> {
     this.cloudVersion = result.version
-    await this.dependencies.storage.setCloudVersion(
-      this.userId,
-      result.version
-    )
+    await this.dependencies.storage.setCloudVersion(this.userId, result.version)
     await this.retireDeletedImageIds(deletedImageIds)
     this.clearStale(false)
 
@@ -597,10 +594,7 @@ export class SyncEngine {
     const remaining = current.filter((id) => !sent.has(id))
     await this.dependencies.storage.clearDeletedImageIds(this.userId)
     if (remaining.length > 0) {
-      await this.dependencies.storage.addDeletedImageIds(
-        this.userId,
-        remaining
-      )
+      await this.dependencies.storage.addDeletedImageIds(this.userId, remaining)
     }
   }
 
@@ -815,7 +809,8 @@ export class SyncEngine {
   }
 
   /**
-   * Cheap version poll while visible. Full reload is user-driven via the
+   * Version poll while visible, on an interval longer than Neon autosuspend.
+   * Returning to the tab also probes. Full reload is user-driven via the
    * stale banner ({@link reloadFromCloud}).
    */
   private startRealtimeRefresh(): void {

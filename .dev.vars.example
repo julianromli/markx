@@ -5,7 +5,10 @@
 # Neon Postgres pooler connection string.
 # `bun run dev` maps this to CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE
 # (Wrangler requires that process env var to emulate the Hyperdrive binding locally).
-# Set this to your own Neon project's pooler connection string.
+#
+# Use a Neon *development branch* pooler URL, not the production compute.
+# A long local `bun run dev` session keeps that compute awake and burns
+# the project's monthly CU-hour allowance.
 DATABASE_URL="postgresql://USER:PASSWORD@HOST-pooler.REGION.aws.neon.tech/DBNAME?sslmode=require"
 
 # Optional override for Hyperdrive local emulation. If unset, `bun run dev` uses

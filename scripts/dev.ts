@@ -45,6 +45,12 @@ if (!databaseUrl) {
   process.exit(1)
 }
 
+if (databaseUrl.includes("ep-lingering-dust-azywq1po")) {
+  console.warn(
+    "DATABASE_URL points at the production Neon endpoint. A long local session keeps production compute active and burns CU-hours. Use a Neon development branch."
+  )
+}
+
 process.env[HYPERDRIVE_ENV] ??= devVars[HYPERDRIVE_ENV] ?? databaseUrl
 
 // Ship Studio (and similar launchers) assign the port via PORT; keep 3000

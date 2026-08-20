@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm"
 
-import { withDb } from "@/lib/db/client"
+import { withDb, type Database } from "@/lib/db/client"
 import { mayarProcessedTransactions, userSubscriptions } from "@/lib/db/schema"
 import {
   FREE_TIER_ENTITY_LIMIT,
@@ -129,21 +129,28 @@ function isRecheckDue(mayarCheckedAt: Date | null): boolean {
   )
 }
 
-export async function getEntitlementsForUser(
-  userId: string,
-  state?: MarkxState | null
-): Promise<UserEntitlements> {
-  const entityCount = state != null ? countMarkxEntities(state) : null
-  const billingEnabled = await isMayarBillingEnabled()
-
-  const row = await withDb(async ({ db }) => {
-    const rows = await db
+async function loadSubscriptionRow(userId: string, db?: Database) {
+  const run = async (database: Database) => {
+    const rows = await database
       .select()
       .from(userSubscriptions)
       .where(eq(userSubscriptions.userId, userId))
       .limit(1)
     return rows.at(0) ?? null
-  })
+  }
+  if (db) return run(db)
+  return withDb(({ db: connection }) => run(connection))
+}
+
+export async function getEntitlementsForUser(
+  userId: string,
+  state?: MarkxState | null,
+  db?: Database
+): Promise<UserEntitlements> {
+  const entityCount = state != null ? countMarkxEntities(state) : null
+  const billingEnabled = await isMayarBillingEnabled()
+
+  const row = await loadSubscriptionRow(userId, db)
 
   // Verify-on-read (no webhooks): a paid Mayar transaction is the only proof
   // of Pro. Re-check at most once per MAYAR_RECHECK_INTERVAL_MS per user.
@@ -151,10 +158,10 @@ export async function getEntitlementsForUser(
     try {
       if (row.plan !== "pro" && row.mayarTransactionId) {
         const activated = await activateIfTransactionPaid(userId, row)
-        if (activated) return getEntitlementsForUser(userId, state)
+        if (activated) return getEntitlementsForUser(userId, state, db)
       } else if (isExpiredPro(row)) {
         await downgradeExpiredPro(userId)
-        return getEntitlementsForUser(userId, state)
+        return getEntitlementsForUser(userId, state, db)
       }
     } catch {
       // Mayar unreachable — serve the current row as-is.

@@ -2,9 +2,7 @@ import { and, eq, sql } from "drizzle-orm"
 
 import { withDb } from "@/lib/db/client"
 import { workspaces } from "@/lib/db/schema"
-import {
-  filterDeletedImageIdsForState,
-} from "@/lib/markx/merge-workspace"
+import { filterDeletedImageIdsForState } from "@/lib/markx/merge-workspace"
 import { createEmptyState } from "@/lib/markx/seed"
 import type { MarkxState } from "@/lib/markx/types"
 import { softDeleteAssetRows } from "@/lib/server/assets.server"
@@ -45,7 +43,11 @@ export async function loadWorkspaceForUser(
 
     if (rows.length === 0) return null
     const snapshot = toWorkspaceSnapshot(rows[0])
-    const entitlements = await getEntitlementsForUser(userId, snapshot.state)
+    const entitlements = await getEntitlementsForUser(
+      userId,
+      snapshot.state,
+      db
+    )
     return { ...snapshot, entitlements }
   })
 }

@@ -186,16 +186,47 @@ export type MarkxStore = {
   resolveConflictOverwriteCloud: () => Promise<void>
 }
 
+export type GuestMessage = { type: "guest-saved"; from: string }
+
+/** Cross-tab signal for guest mode (BroadcastChannel in the browser). */
+export type GuestChannel = {
+  post: (message: GuestMessage) => void
+  subscribe: (listener: (message: GuestMessage) => void) => () => void
+}
+
 export type MarkxStoreDependencies = {
   storage: MarkxStorage
   enrich: (input: { data: { url: string } }) => Promise<LinkMetadata>
   sweepOrphanImages: typeof sweepOrphanImageBlobs
+  channel?: GuestChannel
+}
+
+function browserGuestChannel(): GuestChannel | undefined {
+  if (
+    typeof window === "undefined" ||
+    typeof BroadcastChannel === "undefined"
+  ) {
+    return undefined
+  }
+  const channel = new BroadcastChannel("markx-guest")
+  // Do not keep a test runner's event loop alive.
+  ;(channel as unknown as { unref?: () => void }).unref?.()
+  return {
+    post: (message) => channel.postMessage(message),
+    subscribe: (listener) => {
+      const onMessage = (event: MessageEvent<GuestMessage>) =>
+        listener(event.data)
+      channel.addEventListener("message", onMessage)
+      return () => channel.removeEventListener("message", onMessage)
+    },
+  }
 }
 
 const defaultDependencies: MarkxStoreDependencies = {
   storage: localMarkxStorage,
   enrich: enrichLink,
   sweepOrphanImages: sweepOrphanImageBlobs,
+  channel: browserGuestChannel(),
 }
 
 export function createMarkxStore(
@@ -257,6 +288,22 @@ export function createMarkxStore(
   }
 
   let pendingSave: (() => void) | null = null
+  const instanceId = nanoid()
+  let hydrated = false
+
+  /**
+   * Guest mode has one IndexedDB value shared by every tab. When another tab
+   * saves, adopt its state so this tab's next save does not overwrite it.
+   * A tab with its own unsaved edits keeps them (last writer wins).
+   */
+  dependencies.channel?.subscribe((message) => {
+    if (message.type !== "guest-saved" || message.from === instanceId) return
+    if (!hydrated || syncEngine || saveTimer) return
+    void dependencies.storage.load().then((next) => {
+      if (!hydrated || syncEngine || saveTimer) return
+      replaceState(next, { persist: false })
+    })
+  })
 
   /**
    * Single save path. Logged in: every user change goes straight to the
@@ -276,7 +323,11 @@ export function createMarkxStore(
     const run = () => {
       saveTimer = null
       pendingSave = null
-      void dependencies.storage.save(state)
+      void dependencies.storage
+        .save(state)
+        .then(() =>
+          dependencies.channel?.post({ type: "guest-saved", from: instanceId })
+        )
     }
     pendingSave = run
     saveTimer = setTimeout(run, STORE_PERSIST_DEBOUNCE_MS)
@@ -350,6 +401,18 @@ export function createMarkxStore(
     state = updater(state)
     emit()
     persist(opts)
+  }
+
+  function replaceState(newState: MarkxState, opts?: { persist?: boolean }) {
+    state = settleStaleEnrichStatus(newState)
+    past = []
+    future = []
+    emit()
+    // Skip persist when applying a remote/cache snapshot so we don't
+    // immediately schedule a redundant cloud write of the same data.
+    if (opts?.persist !== false) {
+      persist()
+    }
   }
 
   const actions: MarkxActions = {
@@ -800,19 +863,10 @@ export function createMarkxStore(
       pendingDeletedImageIds.clear()
     },
     flush,
-    replaceState(newState: MarkxState, opts?: { persist?: boolean }) {
-      state = settleStaleEnrichStatus(newState)
-      past = []
-      future = []
-      emit()
-      // Skip persist when applying a remote/cache snapshot so we don't
-      // immediately schedule a redundant cloud write of the same data.
-      if (opts?.persist !== false) {
-        persist()
-      }
-    },
+    replaceState,
     async hydrate() {
       state = settleStaleEnrichStatus(await dependencies.storage.load())
+      hydrated = true
       past = []
       future = []
       emit()
@@ -821,6 +875,7 @@ export function createMarkxStore(
       void dependencies.sweepOrphanImages(referencedImageIds)
     },
     finishHydration() {
+      hydrated = true
       state = settleStaleEnrichStatus(state)
       emit()
       void actions.enrichMissingBookmarks()

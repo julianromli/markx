@@ -10,7 +10,9 @@ export async function openBoard(page: Page, path = "/"): Promise<void> {
 
 /** Contains-match: background enrich rewrites bookmark titles at runtime. */
 export function boardItem(page: Page, label: string): Locator {
-  return page.locator(`[data-board-item][aria-label*="${label}"]`).first()
+  // Escape for a quoted CSS attribute value (user text may hold " or \).
+  const value = label.replace(/["\\]/g, "\\$&")
+  return page.locator(`[data-board-item][aria-label*="${value}"]`).first()
 }
 
 export async function centerOf(locator: Locator): Promise<Point> {
@@ -113,12 +115,19 @@ export function shotPath(name: string): string {
 }
 
 /** Every visible control smaller than 44x44 CSS px. */
-export async function smallTargets(page: Page): Promise<string[]> {
-  return page.evaluate(() => {
+/** Every visible control under `scope` (default: page) smaller than 44px. */
+export async function smallTargets(
+  page: Page,
+  scope?: string
+): Promise<string[]> {
+  return page.evaluate((scopeSelector) => {
+    const root: Element | Document = scopeSelector
+      ? (document.querySelector(scopeSelector) ?? document)
+      : document
     const out: string[] = []
     const selector =
       'button, a[href], [role="button"]:not([data-board-item]), [role="menuitem"], [role="menuitemradio"]'
-    for (const el of document.querySelectorAll<HTMLElement>(selector)) {
+    for (const el of root.querySelectorAll<HTMLElement>(selector)) {
       const r = el.getBoundingClientRect()
       const style = getComputedStyle(el)
       if (r.width === 0 || r.height === 0 || style.visibility === "hidden")
@@ -127,11 +136,11 @@ export async function smallTargets(page: Page): Promise<string[]> {
       if (r.width < 44 || r.height < 44) {
         const name =
           el.getAttribute("aria-label") ||
-          el.textContent?.trim().slice(0, 24) ||
+          el.textContent.trim().slice(0, 24) ||
           el.tagName
         out.push(`${name}=${Math.round(r.width)}x${Math.round(r.height)}`)
       }
     }
     return out
-  })
+  }, scope)
 }

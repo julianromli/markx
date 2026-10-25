@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test"
+import type { Page } from "@playwright/test"
 
 import {
   boardItem,
@@ -7,7 +8,7 @@ import {
   openFolderByClick,
 } from "./helpers"
 
-const activeLabel = (page: import("@playwright/test").Page) =>
+const activeLabel = (page: Page) =>
   page.evaluate(
     () =>
       document.activeElement?.getAttribute("aria-label") ??
@@ -44,6 +45,13 @@ test("MX-11 note toolbar menus work from the keyboard and have names @desktop", 
   await expect(menu.getByRole("menuitemradio", { name: "Serif" })).toBeFocused()
   await page.keyboard.press("Enter")
   await expect(menu).toHaveCount(0)
+  // The choice applied: reopen and check Serif is the checked option.
+  await toolbar.getByRole("button", { name: "Font" }).focus()
+  await page.keyboard.press("Enter")
+  await expect(
+    toolbar.getByRole("menu").getByRole("menuitemradio", { name: "Serif" })
+  ).toHaveAttribute("aria-checked", "true")
+  await page.keyboard.press("Escape")
 
   const size = toolbar.getByRole("button", { name: /Text size/ })
   await size.focus()

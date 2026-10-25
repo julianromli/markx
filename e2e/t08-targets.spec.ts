@@ -56,12 +56,15 @@ test("MX-24 phone header, Tools sheet, long-press menu, and toast targets are at
   await longPress(page, await centerOf(boardItem(page, "shadcn")), 650)
   await page.getByRole("menu").waitFor()
   await page.waitForTimeout(300)
-  expect(await smallTargets(page)).toEqual([])
+  // Scope to the menu: the bookmark's URL tooltip is not under test here.
+  expect(await smallTargets(page, '[role="menu"]')).toEqual([])
   await page.screenshot({
     path: shotPath(`mx24-long-press-menu-${test.info().project.name}`),
   })
   await page.getByRole("menuitem", { name: "Delete" }).click()
-  await page.waitForTimeout(400)
+  await expect(
+    page.locator("[data-sonner-toast]").getByRole("button", { name: "Undo" })
+  ).toBeVisible()
   const toastButtons = await page
     .locator("[data-sonner-toast] button")
     .evaluateAll((els) =>

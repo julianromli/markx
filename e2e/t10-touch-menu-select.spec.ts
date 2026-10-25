@@ -36,7 +36,7 @@ test("MX-23 phones can select several items and delete them together @phone", as
   await page.touchscreen.tap(cursor.x, cursor.y)
   await page.waitForTimeout(300)
 
-  const bar = page.getByRole("toolbar", { name: "Selection" })
+  const bar = page.getByRole("group", { name: "Selection" })
   await expect(bar).toBeVisible()
   await bar.getByRole("button", { name: "Select more" }).click()
   await page.waitForTimeout(200)

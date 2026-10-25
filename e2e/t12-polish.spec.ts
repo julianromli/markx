@@ -42,16 +42,23 @@ test("MX-31 phones see every item at first paint, and the viewport covers safe a
 }) => {
   await openBoard(page)
   const vp = page.viewportSize()!
-  const cut = await page.locator("[data-board-item]").evaluateAll(
-    (els, width) =>
-      els
+  const cut = await page
+    .locator("[data-board-item]")
+    .evaluateAll((els, { width, height }) => {
+      const headerBottom =
+        document.querySelector("header")?.getBoundingClientRect().bottom ?? 0
+      return els
         .filter((e) => {
           const r = e.getBoundingClientRect()
-          return r.left < 0 || r.right > width
+          return (
+            r.left < 0 ||
+            r.right > width ||
+            r.top < headerBottom ||
+            r.bottom > height
+          )
         })
-        .map((e) => e.getAttribute("aria-label")),
-    vp.width
-  )
+        .map((e) => e.getAttribute("aria-label"))
+    }, vp)
   await page.screenshot({
     path: shotPath(`mx31-first-paint-${test.info().project.name}`),
   })
@@ -86,13 +93,24 @@ test("MX-33 dialogs stay inside the visible area when the keyboard shrinks it @p
 test("MX-35 shortcut hints match the platform and are hidden on touch @desktop", async ({
   page,
 }) => {
+  // Pin a non-Apple platform so the result does not depend on the host OS.
+  await page.addInitScript(() => {
+    Object.defineProperty(Navigator.prototype, "platform", {
+      configurable: true,
+      get: () => "Linux x86_64",
+    })
+    Object.defineProperty(Navigator.prototype, "userAgent", {
+      configurable: true,
+      get: () => "Mozilla/5.0 (X11; Linux x86_64) Chrome/141.0",
+    })
+  })
   await openBoard(page, "/folder/folder-ai")
   await page.keyboard.press("Shift")
   await boardItem(page, "OpenAI").focus()
   await page.keyboard.press("Delete")
   await page.waitForTimeout(400)
   const text = await page.locator(".workspace-empty-state").innerText()
-  // Playwright's Chromium reports Linux, so the hint must say Ctrl.
+  // The platform is pinned to Linux above, so the hint must say Ctrl.
   expect(text).toContain("Ctrl+V")
   expect(text).not.toContain("⌘")
 })

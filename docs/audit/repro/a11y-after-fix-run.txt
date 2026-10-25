@@ -1,0 +1,9 @@
+== axe phone /
+== axe phone /folder/folder-vibe-coding
+== axe desktop /
+== axe desktop /folder/folder-vibe-coding
+phone tab order: Tools@4,2,44x44 -> Back@48,2,44x44 -> More@289,2,44x44 -> Sign inSign in to sa@337,2,71x44 -> Zoom 47%@329,60,71x44 -> Cursor, The AI code editor, bookmark@24,301,224x118 -> Select more@150,782,44x44 -> Rename@198,782,44x44 -> Move@246,782,44x44 -> Delete@294,782,44x44 -> Done@342,782,57x44 -> Home/Vibe CodingVibe@0,0,412x839 -> Tools@4,2,44x44 -> Back@48,2,44x44
+focus after Tools sheet Escape: Tools
+long-press attempts until the menu stayed open: 1
+long-press menu items: Add bookmark=180x44, New note=180x44, Open=180x44, Rename=180x44, Move to…=180x44, Reset size=180x44, Delete=180x44
+toast buttons: [ 'Undo=69x44' ]

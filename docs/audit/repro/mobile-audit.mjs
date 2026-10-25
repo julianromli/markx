@@ -39,8 +39,12 @@ function report(id, reproduced, detail) {
   )
 }
 
+const openContexts = new Set()
+
 async function open(device, path = "/") {
   const context = await browser.newContext({ ...device })
+  openContexts.add(context)
+  context.on("close", () => openContexts.delete(context))
   const page = await context.newPage()
   page.on("pageerror", (e) => console.log(`  [pageerror] ${e.message}`))
   await page.goto(BASE + path, { waitUntil: "load" })
@@ -156,6 +160,12 @@ const checks = {
     await page.keyboard.press("Enter")
     await page.waitForTimeout(200)
     const enterOpened = await page.locator(".toolbar-dropdown-in").count()
+    // Close the Enter menu and refocus the trigger, then test Space alone.
+    if (enterOpened) {
+      await page.keyboard.press("Escape")
+      await page.waitForTimeout(200)
+    }
+    await triggers.nth(1).focus()
     await page.keyboard.press("Space")
     await page.waitForTimeout(200)
     const spaceOpened = await page.locator(".toolbar-dropdown-in").count()
@@ -393,7 +403,10 @@ const checks = {
     const fa = await folder.boundingBox()
     report(
       "MX-21",
-      Math.abs(after.y - (before.y + 120)) > 20,
+      // Part a: the note must follow the finger. Part b: a cancelled folder
+      // drag must revert. Either failing reproduces MX-21.
+      Math.abs(after.y - (before.y + 120)) > 20 ||
+        Math.abs(fa.y - fb.y) > 5,
       `note dragged down 120px: box (${Math.round(before.x)},${Math.round(before.y)}) -> (${Math.round(after.x)},${Math.round(after.y)}); events=${events.join(" ")} | folder drag then touchcancel: y ${Math.round(fb.y)} -> ${Math.round(fa.y)} (expected revert)`
     )
     await context.close()
@@ -588,7 +601,11 @@ const checks = {
     await page.waitForTimeout(300)
     const after = await card.boundingBox()
     const resized = Math.abs(after.width - box.width) > 3 || Math.abs(after.height - box.height) > 3
-    const handle = await card.locator(".cursor-se-resize").boundingBox()
+    // Touch now hides the handle on unselected cards (the MX-30 fix).
+    const handle = (await card.locator(".cursor-se-resize").boundingBox()) ?? {
+      width: 0,
+      height: 0,
+    }
     report(
       "MX-30",
       resized,
@@ -638,15 +655,22 @@ const checks = {
     const junk = await page
       .locator("[data-board-item]")
       .evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")).filter((l) => l.includes("%20")))
+    // After the MX-06 fix the first dialog stays open with an inline error.
+    if (await page.getByRole("dialog").count()) {
+      await page.keyboard.press("Escape")
+      await page.waitForTimeout(300)
+    }
     await addLink("https://")
     const stillOpen = (await page.getByRole("dialog").count()) > 0
-    const dialogText = stillOpen ? await page.getByRole("dialog").innerText() : ""
+    const shownError = stillOpen
+      ? (await page.getByRole("dialog").getByRole("alert").count()) > 0
+      : false
     await page.waitForTimeout(400)
     await shot(page, "mx06-add-link-invalid-input")
     report(
       "MX-06",
-      junk.length > 0 || (stillOpen && !/invalid|error/i.test(dialogText)),
-      `"my reading list" created=${JSON.stringify(junk)}; "https://" leaves dialog open=${stillOpen} with error text=${/invalid|error/i.test(dialogText)}; page errors=${JSON.stringify(errors)}`
+      junk.length > 0 || (stillOpen && !shownError) || errors.length > 0,
+      `"my reading list" created=${JSON.stringify(junk)}; "https://" leaves dialog open=${stillOpen} with an inline error=${shownError}; page errors=${JSON.stringify(errors)}`
     )
     await context.close()
   },
@@ -705,6 +729,10 @@ for (const [id, run] of Object.entries(checks)) {
   } catch (err) {
     console.log(`${id}: ERROR :: ${err.message.split("\n")[0]}`)
     results.push({ id, reproduced: null, detail: err.message })
+  } finally {
+    // A check that throws must not leak its browser context.
+    for (const context of [...openContexts]) await context.close()
   }
 }
 await browser.close()
+if (results.some((r) => r.reproduced === null)) process.exitCode = 1

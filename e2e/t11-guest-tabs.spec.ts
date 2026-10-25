@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 
-import { boardLabels, openBoard } from "./helpers"
+import { boardItem, boardLabels, openBoard } from "./helpers"
 
 test("MX-29 two guest tabs keep each other's work @desktop", async ({
   context,
@@ -15,15 +15,17 @@ test("MX-29 two guest tabs keep each other's work @desktop", async ({
     await page.keyboard.press("Control+n")
     await page.getByRole("dialog").getByRole("textbox").fill(name)
     await page.keyboard.press("Enter")
-    await page.waitForTimeout(600)
+    await expect(boardItem(page, name)).toHaveCount(1)
   }
   await newFolder(a, "From tab A")
+  // Tab B must adopt tab A's save before it writes its own.
+  await expect(boardItem(b, "From tab A")).toHaveCount(1)
   await newFolder(b, "From tab B")
+  await expect(boardItem(a, "From tab B")).toHaveCount(1)
 
   await a.reload({ waitUntil: "load" })
   await a.locator("[data-board-item]").first().waitFor()
-  await a.waitForTimeout(300)
-  const labels = (await boardLabels(a)).join("|")
-  expect(labels).toContain("From tab A")
-  expect(labels).toContain("From tab B")
+  await expect
+    .poll(async () => (await boardLabels(a)).join("|"))
+    .toMatch(/From tab A[\s\S]*From tab B|From tab B[\s\S]*From tab A/)
 })

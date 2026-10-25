@@ -3,7 +3,7 @@
 - Date: 2026-10-25
 - Base commit: `ac024f0` (main)
 - Scope: folder, note, bookmark, and image logic; sync and persistence; touch interaction; accessibility. Mobile first.
-- Type: audit only. This branch changes no product code.
+- Type: the audit itself changed no product code (audit branch, PR #8). The fixes came later on `julianromli/markx-audit-fixes-9d7d` (PR #9); see "Fix status" at the end.
 
 ## How this audit was done
 
@@ -439,11 +439,11 @@ Each ticket is a thin end-to-end slice with its repro as the regression test.
 
 ## Fix status
 
-All fixes are on branch `julianromli/markx-audit-fixes-9d7d`, one commit per ticket (T1 to T12, each commit message lists its MX ids). Every test below was red before its fix and green after.
+All fixes are on branch `julianromli/markx-audit-fixes-9d7d`, one commit per ticket (T1 to T12, each commit message lists its MX ids). Every test below was red before its fix and green after, except the MX-34 browser test: Chromium and WebKit already ended note editing on a blank tap before the fix, so that test is a guard, and MX-34 still needs a real iPhone.
 
 - Unit tests run with `bun run test` (277 tests).
 - Browser tests run with `bun run test:e2e` against `bun run dev` (77 tests on Pixel 7, iPhone 14 in Chromium, iPhone 14 in WebKit, iPad, and desktop). Last run: `docs/audit/repro/e2e-final-run.txt`.
-- The original audit script rerun against the fixed app: `docs/audit/repro/after-fix-audit-run.txt`. Every check prints NOT REPRODUCED except three, which are expected: MX-23 (that check only tests a blank-space drag outside select mode, which still pans by design), MX-28 (it counts rules in the dev server's stale CSS; the production build has none), and MX-06 (the old script expects the dialog to close on bad input; it now stays open with an inline error).
+- The original audit script rerun against the fixed app: `docs/audit/repro/after-fix-audit-run.txt`. Every check prints NOT REPRODUCED except two, which are expected: MX-23 (that check only tests a blank-space drag outside select mode, which still pans by design; multi-select now goes through select mode) and MX-28 (it counts ungated `:hover` rules that exist in CSS; the three left are vendor rules that match no element, which `e2e/t12-polish.spec.ts` MX-28 verifies). The accessibility scan rerun is `docs/audit/repro/a11y-after-fix-run.txt` (no axe violations).
 - After screenshots: `docs/audit/img/fixed/`. Before screenshots stay in `docs/audit/img/`.
 
 | ID | Fix status | Tests (file: name) |

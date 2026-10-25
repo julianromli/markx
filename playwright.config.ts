@@ -13,6 +13,7 @@ import { defineConfig, devices } from "@playwright/test"
  */
 export default defineConfig({
   testDir: "e2e",
+  globalSetup: "./e2e/global-setup.ts",
   fullyParallel: false,
   workers: 1,
   retries: 0,
@@ -20,7 +21,7 @@ export default defineConfig({
   reporter: [["list"]],
   use: {
     baseURL: process.env.MARKX_URL ?? "http://localhost:3000",
-    trace: "off",
+    trace: "retain-on-failure",
   },
   webServer: process.env.MARKX_URL
     ? undefined

@@ -40,7 +40,7 @@ test("toast one delete shows exactly one Undo toast and no selection toolbar beh
   await expect(
     page.locator('[data-board-item][aria-pressed="true"]')
   ).toHaveCount(0)
-  await expect(page.getByRole("toolbar", { name: "Selection" })).toHaveCount(0)
+  await expect(page.getByRole("group", { name: "Selection" })).toHaveCount(0)
 
   const toast = toasts(page).first()
   const undo = toast.getByRole("button", { name: "Undo" })
@@ -94,7 +94,7 @@ test("toast stays above the phone Selection toolbar @phone", async ({
   const at = await centerOf(boardItem(page, "Cursor"))
   await page.touchscreen.tap(at.x, at.y)
   await page.waitForTimeout(300)
-  const bar = page.getByRole("toolbar", { name: "Selection" })
+  const bar = page.getByRole("group", { name: "Selection" })
   await expect(bar).toBeVisible()
 
   // Paste something that is not a link: shows a toast while the bar is up.

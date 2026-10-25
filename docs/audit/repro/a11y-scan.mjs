@@ -8,7 +8,9 @@
  */
 import { chromium, devices } from "playwright"
 import { readFileSync } from "node:fs"
-const axe = readFileSync(new URL("./node_modules/axe-core/axe.min.js", import.meta.url), "utf8")
+import { createRequire } from "node:module"
+// Node resolution finds axe-core in the repo root (or a parent) node_modules.
+const axe = readFileSync(createRequire(import.meta.url).resolve("axe-core/axe.min.js"), "utf8")
 const BASE = process.env.MARKX_URL ?? "http://localhost:3000"
 const b = await chromium.launch()
 for (const [name, dev] of [["phone", devices["Pixel 7"]], ["desktop", {viewport:{width:1280,height:800}}]]) {

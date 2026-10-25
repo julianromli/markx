@@ -161,7 +161,11 @@ test("MX-06 Add link rejects text that is not a URL with a visible message @desk
     await page.keyboard.press("Enter")
     await page.waitForTimeout(300)
     await expect(dialog.getByRole("alert")).toBeVisible()
-    await page.screenshot({ path: shotPath("mx06-add-link-error") })
+    await page.screenshot({
+      path: shotPath(
+        `mx06-add-link-error-${text === "https://" ? "scheme-only" : "plain-text"}`
+      ),
+    })
     await page.keyboard.press("Escape")
     await page.waitForTimeout(300)
   }

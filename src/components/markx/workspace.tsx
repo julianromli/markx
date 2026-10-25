@@ -8,6 +8,15 @@ import { Board } from "@/components/markx/board"
 import type { BoardApi, BoardItemModel } from "@/components/markx/board"
 import type { Folder } from "@/lib/markx/types"
 import { AppShell } from "@/components/markx/app-shell"
+import { MobileSelectionBar } from "@/components/markx/mobile-selection-bar"
+import { useCoarsePointer } from "@/hooks/use-coarse-pointer"
+import { useIsMobile } from "@/hooks/use-mobile"
+import type { SearchResult } from "@/components/markx/search-dialog"
+import {
+  requestItemFocus,
+  takeItemFocusRequest,
+} from "@/lib/markx/focus-request"
+import { shortcutLabel } from "@/lib/platform"
 import type { CreateAction } from "@/components/markx/app-shell"
 import {
   AddLinkDialog,
@@ -37,14 +46,23 @@ import {
   findEmptySlot,
   getBoardItemRect,
 } from "@/lib/markx/geometry"
-import { countBookmarksInFolder } from "@/lib/markx/state"
+import {
+  clampIntoView,
+  contentsOfFolders,
+  describeContents,
+  describeContentsSentence,
+  folderContents,
+  hasContents,
+  moveTargets,
+  openIntent,
+} from "@/lib/markx/board-items"
 import {
   classifyItemIds,
-  countItemsInFolders,
-  folderHasItems,
   selectWorkspaceItems,
 } from "@/lib/markx/workspace-items"
 import { cn } from "@/lib/utils"
+
+const UNDO_TOAST_ID = "markx-undo"
 
 type WorkspaceProps = { mode: "home" } | { mode: "folder"; folderId: string }
 
@@ -61,11 +79,50 @@ export function Workspace(props: WorkspaceProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const selectedIdsRef = useRef(selectedIds)
+  selectedIdsRef.current = selectedIds
+
+  /**
+   * Dialogs here open from state, not from a trigger, so Base UI has no
+   * element to return focus to. Remember where focus was and give it back
+   * on close; fall back to the selected item, then the board's tab stop.
+   */
+  const returnFocusRef = useRef<HTMLElement | null>(null)
+  const rememberFocus = useCallback(() => {
+    const active = document.activeElement
+    returnFocusRef.current =
+      active instanceof HTMLElement &&
+      active !== document.body &&
+      !active.closest('[role="menu"]')
+        ? active
+        : null
+  }, [])
+  const dialogFinalFocus = useCallback((): HTMLElement | boolean => {
+    const remembered = returnFocusRef.current
+    returnFocusRef.current = null
+    if (remembered?.isConnected && !remembered.hasAttribute("data-leaving")) {
+      return remembered
+    }
+    const selectedId = [...selectedIdsRef.current][0]
+    const selectedEl = selectedId
+      ? document.querySelector<HTMLElement>(
+          `[data-board-item="${CSS.escape(selectedId)}"]:not([data-leaving])`
+        )
+      : null
+    return (
+      selectedEl ??
+      document.querySelector<HTMLElement>(
+        '[data-board-item][tabindex="0"]:not([data-leaving])'
+      ) ??
+      true
+    )
+  }, [])
   const [renameOpen, setRenameOpen] = useState(false)
   const [newFolderOpen, setNewFolderOpen] = useState(false)
   const [linkOpen, setLinkOpen] = useState(false)
   const [moveOpen, setMoveOpen] = useState(false)
   const [confirmFolderOpen, setConfirmFolderOpen] = useState(false)
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([])
   const [shareOpen, setShareOpen] = useState(false)
   const [shareFolder, setShareFolder] = useState<Folder | null>(null)
   const [emptyStateMounted, setEmptyStateMounted] = useState(
@@ -74,16 +131,18 @@ export function Workspace(props: WorkspaceProps) {
   const [emptyStateLeaving, setEmptyStateLeaving] = useState(false)
   const emptyStateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // folderId → boardId for the owner's shared boards (drives "shared" badges + dialog mode).
-  const [sharedBoardByFolder, setSharedBoardByFolder] = useState<Map<string, string>>(
-    new Map()
-  )
+  const [sharedBoardByFolder, setSharedBoardByFolder] = useState<
+    Map<string, string>
+  >(new Map())
 
   useEffect(() => {
     let cancelled = false
     listMySharedBoards()
       .then((rows) => {
         if (cancelled) return
-        setSharedBoardByFolder(new Map(rows.map((r) => [r.folderId, r.boardId])))
+        setSharedBoardByFolder(
+          new Map(rows.map((r) => [r.folderId, r.boardId]))
+        )
       })
       .catch(() => {
         // Ignore — badges are decorative.
@@ -105,6 +164,8 @@ export function Workspace(props: WorkspaceProps) {
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
   const [trashArmed, setTrashArmed] = useState(false)
   const [itemMoveDragging, setItemMoveDragging] = useState(false)
+  const [touchSelectMode, setTouchSelectMode] = useState(false)
+  const isMobile = useIsMobile()
 
   const folder =
     props.mode === "folder"
@@ -114,6 +175,48 @@ export function Workspace(props: WorkspaceProps) {
   const items: BoardItemModel[] = useMemo(
     () => selectWorkspaceItems(state, props),
     [props, state]
+  )
+
+  // Search may navigate here to show one item: select and center it.
+  useEffect(() => {
+    const id = takeItemFocusRequest((candidate) =>
+      items.some((item) => item.id === candidate)
+    )
+    if (!id) return
+    setSelectedIds(new Set([id]))
+    requestAnimationFrame(() => boardApiRef.current?.centerOn(id))
+  }, [items])
+
+  const handleSearchSelect = useCallback(
+    (result: SearchResult) => {
+      if (result.kind === "folder") {
+        void navigate({
+          to: "/folder/$folderId",
+          params: { folderId: result.id },
+        })
+        return
+      }
+      requestItemFocus(result.id)
+      const here =
+        result.location.mode === props.mode &&
+        (result.location.mode === "home" ||
+          (props.mode === "folder" &&
+            result.location.folderId === props.folderId))
+      if (here) {
+        const id = takeItemFocusRequest(() => true)
+        if (!id) return
+        setSelectedIds(new Set([id]))
+        boardApiRef.current?.centerOn(id)
+        return
+      }
+      if (result.location.mode === "home") void navigate({ to: "/" })
+      else
+        void navigate({
+          to: "/folder/$folderId",
+          params: { folderId: result.location.folderId },
+        })
+    },
+    [navigate, props]
   )
 
   useEffect(() => {
@@ -145,117 +248,160 @@ export function Workspace(props: WorkspaceProps) {
     }
   }, [emptyStateMounted, items.length])
 
-  // Folder tiles show a bookmark count; computed once per bookmarks change so
-  // memoized board items get a primitive prop instead of the whole array.
-  const folderBookmarkCounts = useMemo(() => {
-    const counts = new Map<string, number>()
+  // Folder tiles show what they contain; computed once per state change so
+  // memoized board items get a primitive prop instead of the whole state.
+  const folderContentLabels = useMemo(() => {
+    const labels = new Map<string, string>()
     if (props.mode === "home") {
-      for (const bookmark of state.bookmarks) {
-        counts.set(bookmark.folderId, (counts.get(bookmark.folderId) ?? 0) + 1)
+      for (const f of state.folders) {
+        labels.set(f.id, describeContents(folderContents(state, f.id)))
       }
     }
-    return counts
-  }, [state.bookmarks, props.mode])
+    return labels
+  }, [state, props.mode])
 
   const exitNoteEdit = useCallback(() => setEditingNoteId(null), [])
+  const commitNote = useCallback(
+    (id: string, content: string, session: string) =>
+      actions.updateNoteContent(id, content, { session }),
+    [actions]
+  )
+
+  // Bubble phase: the note editor saves its draft in the capture phase first.
+  useEffect(() => {
+    const flush = () => storeApi.flush({ unloading: true })
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flush()
+    }
+    document.addEventListener("visibilitychange", onVisibility)
+    window.addEventListener("pagehide", flush)
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility)
+      window.removeEventListener("pagehide", flush)
+    }
+  }, [storeApi])
+
+  /**
+   * A press on empty canvas ends note editing. iOS Safari does not blur a
+   * contenteditable when you tap a non-focusable element, so do it here.
+   */
+  const handleBlankPress = useCallback(() => {
+    if (editingNoteId == null) return
+    const active = document.activeElement
+    if (active instanceof HTMLElement && active.isContentEditable) active.blur()
+    setEditingNoteId(null)
+  }, [editingNoteId])
 
   const selectedItems = items.filter((i) => selectedIds.has(i.id))
 
   const openItem = useCallback(
     (id: string) => {
-      const note = state.notes.find((n) => n.id === id)
-      if (note) {
-        setEditingNoteId(id)
-        setSelectedIds(new Set([id]))
-        actions.raiseZ([id])
-        return
+      const intent = openIntent(state, id)
+      switch (intent.type) {
+        case "edit-note":
+          setEditingNoteId(id)
+          setSelectedIds(new Set([id]))
+          actions.raiseZ([id])
+          return
+        case "open-folder":
+          void navigate({
+            to: "/folder/$folderId",
+            params: { folderId: intent.folderId },
+          })
+          return
+        case "open-url":
+          window.open(intent.url, "_blank", "noopener,noreferrer")
+          return
+        case "none":
+          return
       }
-
-      if (props.mode === "home") {
-        void navigate({ to: "/folder/$folderId", params: { folderId: id } })
-        return
-      }
-      const bookmark = state.bookmarks.find((b) => b.id === id)
-      if (bookmark) window.open(bookmark.url, "_blank", "noopener,noreferrer")
     },
-    [actions, navigate, props.mode, state.bookmarks, state.notes]
+    [actions, navigate, state]
+  )
+
+  /** Toast with an Undo that reverts exactly this step, if still latest. */
+  const toastWithUndo = useCallback(
+    (message: string) => {
+      const entry = actions.lastEntryId()
+      // One Undo toast at a time: only the latest step can be undone, so a
+      // new delete or move replaces the previous toast instead of stacking.
+      toast(message, {
+        id: UNDO_TOAST_ID,
+        action: {
+          label: "Undo",
+          onClick: () => {
+            if (!actions.undoEntry(entry)) {
+              toast("Newer changes came after this. Use Undo to step back.")
+            }
+          },
+        },
+      })
+    },
+    [actions]
+  )
+
+  const performDelete = useCallback(
+    (ids: string[]) => {
+      const counts = actions.deleteItems(ids)
+      const total =
+        counts.folders + counts.bookmarks + counts.notes + counts.images
+      if (total === 0) return
+      if (editingNoteId && ids.includes(editingNoteId)) setEditingNoteId(null)
+      setSelectedIds(new Set())
+      const message =
+        ids.length > 1
+          ? "Deleted"
+          : counts.folders > 0
+            ? "Folder deleted"
+            : counts.bookmarks > 0
+              ? "Bookmark deleted"
+              : counts.notes > 0
+                ? "Note deleted"
+                : "Image deleted"
+      toastWithUndo(message)
+    },
+    [actions, editingNoteId, toastWithUndo]
   )
 
   const deleteSelection = useCallback(
     (ids: string[]) => {
       if (ids.length === 0) return
-
-      const { folderIds, bookmarkIds, noteIds, imageIds } = classifyItemIds(
-        state,
-        ids
-      )
-
-      if (props.mode === "home") {
-        const nonempty = folderIds.filter((id) => folderHasItems(state, id))
-        if (nonempty.length > 0) {
-          setConfirmFolderOpen(true)
-          return
-        }
-        if (folderIds.length > 0) {
-          actions.deleteFolders(folderIds)
-        }
-        if (noteIds.length > 0) {
-          actions.deleteNotes(noteIds)
-        }
-        if (imageIds.length > 0) {
-          actions.deleteImages(imageIds)
-        }
-        if (editingNoteId && noteIds.includes(editingNoteId)) {
-          setEditingNoteId(null)
-        }
-        setSelectedIds(new Set())
-        toast(
-          ids.length === 1
-            ? folderIds.length > 0
-              ? "Folder deleted"
-              : noteIds.length > 0
-                ? "Note deleted"
-                : "Image deleted"
-            : "Deleted"
-        )
+      const { folderIds } = classifyItemIds(state, ids)
+      if (hasContents(contentsOfFolders(state, folderIds))) {
+        // Confirm deletes exactly these ids, even if the selection changes.
+        setPendingDeleteIds(ids)
+        rememberFocus()
+        setConfirmFolderOpen(true)
         return
       }
-
-      if (bookmarkIds.length > 0) {
-        const removed = actions.deleteBookmarks(bookmarkIds)
-        toast("Bookmark deleted", {
-          action: {
-            label: "Undo",
-            onClick: () => actions.restoreBookmarks(removed),
-          },
-        })
-      }
-      if (noteIds.length > 0) {
-        actions.deleteNotes(noteIds)
-        if (bookmarkIds.length === 0 && imageIds.length === 0) {
-          toast("Note deleted")
-        }
-      }
-      if (imageIds.length > 0) {
-        actions.deleteImages(imageIds)
-        if (bookmarkIds.length === 0 && noteIds.length === 0) {
-          toast("Image deleted")
-        }
-      }
-      if (editingNoteId && noteIds.includes(editingNoteId)) {
-        setEditingNoteId(null)
-      }
-      setSelectedIds(new Set())
+      performDelete(ids)
     },
-    [actions, editingNoteId, props.mode, state]
+    [performDelete, rememberFocus, state]
   )
 
+  const pendingClassified = classifyItemIds(state, pendingDeleteIds)
+  const pendingFolderIds = pendingClassified.folderIds
+  const pendingOtherCount =
+    pendingClassified.bookmarkIds.length +
+    pendingClassified.noteIds.length +
+    pendingClassified.imageIds.length
+
   const confirmDeleteFolders = () => {
-    const { folderIds } = classifyItemIds(state, [...selectedIds])
-    actions.deleteFolders(folderIds)
-    setSelectedIds(new Set())
-    toast("Folder deleted")
+    performDelete(pendingDeleteIds)
+    setPendingDeleteIds([])
   }
+
+  /** Context-menu creation: keep the new item inside the visible area. */
+  const pointInView = useCallback(
+    (
+      point: { x: number; y: number },
+      size: { width: number; height: number }
+    ) => {
+      const bounds = boardApiRef.current?.getViewBounds()
+      return bounds ? clampIntoView(point, size, bounds) : point
+    },
+    []
+  )
 
   /**
    * Where to drop an item the user did not point at. Resolved at the moment of
@@ -289,15 +435,20 @@ export function Workspace(props: WorkspaceProps) {
   const openNewFolderDialog = useCallback(
     (point?: { x: number; y: number }) => {
       pendingCreateRef.current = point ?? null
+      rememberFocus()
       setNewFolderOpen(true)
     },
-    []
+    [rememberFocus]
   )
 
-  const openAddLinkDialog = useCallback((point?: { x: number; y: number }) => {
-    pendingCreateRef.current = point ?? null
-    setLinkOpen(true)
-  }, [])
+  const openAddLinkDialog = useCallback(
+    (point?: { x: number; y: number }) => {
+      pendingCreateRef.current = point ?? null
+      rememberFocus()
+      setLinkOpen(true)
+    },
+    [rememberFocus]
+  )
 
   /**
    * Sidebar buttons create in one click: no armed tool, no follow-up canvas
@@ -382,17 +533,29 @@ export function Workspace(props: WorkspaceProps) {
     [actions, activeFolderId, ingestImage]
   )
 
+  // Shortcut hints only where a keyboard is likely, with the OS modifier.
+  const coarsePointer = useCoarsePointer()
+  const toolsPlace = isMobile ? "Tools" : "the sidebar"
+  const emptyStateHint =
+    props.mode === "home"
+      ? coarsePointer
+        ? `Add a folder or note from ${toolsPlace}`
+        : `Press ${shortcutLabel("N")} for a new folder, or add a note from ${toolsPlace}`
+      : coarsePointer
+        ? `Add a link or note from ${toolsPlace}`
+        : `Add a note from ${toolsPlace}, or paste a URL (${shortcutLabel("V")})`
+
   const selectedNotes = selectedItems.filter((item) => item.kind === "note")
 
   const getItemLabel = useCallback(
     (item: BoardItemModel): string => {
       switch (item.kind) {
-        case "folder": {
-          const count = countBookmarksInFolder(state.bookmarks, item.data.id)
-          return `${item.data.name}, folder, ${count} ${count === 1 ? "bookmark" : "bookmarks"}`
-        }
+        case "folder":
+          return `${item.data.name}, ${describeContents(folderContents(state, item.data.id))}, folder`
         case "bookmark":
-          return `${item.data.title}, bookmark`
+          return item.data.description
+            ? `${item.data.title}, ${item.data.description}, bookmark`
+            : `${item.data.title}, bookmark`
         case "note": {
           const excerpt = item.data.content
             .replace(/<[^>]*>/g, " ")
@@ -405,7 +568,7 @@ export function Workspace(props: WorkspaceProps) {
           return "Image"
       }
     },
-    [state.bookmarks]
+    [state]
   )
 
   const selectedItem = selectedItems.at(0)
@@ -419,6 +582,9 @@ export function Workspace(props: WorkspaceProps) {
     selectedItem != null &&
     selectedItem.kind !== "note" &&
     selectedItem.kind !== "image"
+
+  const moveOptions = moveTargets(state, [...selectedIds], props)
+  const canMoveSelection = moveOptions.home || moveOptions.folders.length > 0
 
   const renameTarget = (() => {
     const id = contextTargetId ?? [...selectedIds][0]
@@ -447,6 +613,10 @@ export function Workspace(props: WorkspaceProps) {
         point.x,
         point.y
       )
+      if (!bookmark) {
+        toast("That does not look like a link")
+        return
+      }
       setSelectedIds(new Set([bookmark.id]))
     },
     onDeleteSelection: deleteSelection,
@@ -454,6 +624,7 @@ export function Workspace(props: WorkspaceProps) {
     onRedo: actions.redo,
     onRename: (id) => {
       setContextTargetId(id)
+      rememberFocus()
       setRenameOpen(true)
     },
     onResetInteraction: () => {
@@ -507,6 +678,7 @@ export function Workspace(props: WorkspaceProps) {
           : undefined
       }
       shared={!!folder && sharedBoardByFolder.has(folder.id)}
+      onSearchSelect={handleSearchSelect}
     >
       <ContextMenu>
         <ContextMenuTrigger className="block h-full">
@@ -525,8 +697,11 @@ export function Workspace(props: WorkspaceProps) {
               onItemMoveDragChange={setItemMoveDragging}
               onZoomChange={setZoomPercent}
               onContextPoint={setContextPoint}
+              onBlankPress={handleBlankPress}
+              touchSelectMode={touchSelectMode}
               onRenameItem={(id) => {
                 setContextTargetId(id)
+                rememberFocus()
                 setRenameOpen(true)
               }}
               getItemLabel={getItemLabel}
@@ -539,15 +714,14 @@ export function Workspace(props: WorkspaceProps) {
                   interacting={dragging}
                   editing={editingNoteId === item.id}
                   shared={
-                    item.kind === "folder" &&
-                    sharedBoardByFolder.has(item.id)
+                    item.kind === "folder" && sharedBoardByFolder.has(item.id)
                   }
-                  folderBookmarkCount={
+                  folderContentsLabel={
                     item.kind === "folder"
-                      ? (folderBookmarkCounts.get(item.id) ?? 0)
+                      ? folderContentLabels.get(item.id)
                       : undefined
                   }
-                  onCommitNote={actions.updateNoteContent}
+                  onCommitNote={commitNote}
                   onExitNoteEdit={exitNoteEdit}
                   onNoteStyleChange={actions.setNoteStyle}
                 />
@@ -562,14 +736,23 @@ export function Workspace(props: WorkspaceProps) {
           selectedNotes={selectedNotes}
           selectedOpenable={selectedOpenable}
           selectedRenamable={selectedRenamable}
-          onCreateFolder={(point) => openNewFolderDialog(point)}
-          onCreateBookmark={(point) => openAddLinkDialog(point)}
-          onCreateNote={createNoteAt}
+          canMove={canMoveSelection}
+          onCreateFolder={(point) =>
+            openNewFolderDialog(pointInView(point, FOLDER_SIZE))
+          }
+          onCreateBookmark={(point) =>
+            openAddLinkDialog(pointInView(point, BOOKMARK_SIZE))
+          }
+          onCreateNote={(point) => createNoteAt(pointInView(point, NOTE_SIZE))}
           onDelete={deleteSelection}
-          onMove={() => setMoveOpen(true)}
+          onMove={() => {
+            rememberFocus()
+            setMoveOpen(true)
+          }}
           onOpen={openItem}
           onRename={(id) => {
             setContextTargetId(id)
+            rememberFocus()
             setRenameOpen(true)
           }}
           onShare={(id) => {
@@ -585,6 +768,39 @@ export function Workspace(props: WorkspaceProps) {
           }}
         />
       </ContextMenu>
+
+      {isMobile &&
+      !initialSyncBlocked &&
+      !itemMoveDragging &&
+      editingNoteId == null &&
+      (touchSelectMode || selectedIds.size > 0) ? (
+        <MobileSelectionBar
+          count={selectedIds.size}
+          selectMode={touchSelectMode}
+          canRename={selectedRenamable}
+          canMove={canMoveSelection}
+          onToggleSelectMode={() => setTouchSelectMode((on) => !on)}
+          onRename={() => {
+            const id = [...selectedIds][0]
+            if (!id) return
+            setContextTargetId(id)
+            rememberFocus()
+            setRenameOpen(true)
+          }}
+          onMove={() => {
+            rememberFocus()
+            setMoveOpen(true)
+          }}
+          onDelete={() => {
+            deleteSelection([...selectedIds])
+            setTouchSelectMode(false)
+          }}
+          onDone={() => {
+            setTouchSelectMode(false)
+            setSelectedIds(new Set())
+          }}
+        />
+      ) : null}
 
       {initialSyncBlocked ? (
         <div
@@ -623,10 +839,11 @@ export function Workspace(props: WorkspaceProps) {
                 ? "Create a folder or note"
                 : "Add a link or note"}
             </p>
-            <p className="mt-1 text-[13px] text-pretty text-ink-muted">
-              {props.mode === "home"
-                ? "Press ⌘N for a new folder, or add a note from the sidebar"
-                : "Add a note from the sidebar, or paste a URL (⌘V)"}
+            <p
+              className="mt-1 text-[13px] text-pretty text-ink-muted"
+              suppressHydrationWarning
+            >
+              {emptyStateHint}
             </p>
             <Button
               className="mt-4"
@@ -652,6 +869,7 @@ export function Workspace(props: WorkspaceProps) {
       ) : null}
 
       <RenameDialog
+        finalFocus={dialogFinalFocus}
         open={newFolderOpen}
         title="New folder"
         initialValue=""
@@ -670,6 +888,7 @@ export function Workspace(props: WorkspaceProps) {
       />
 
       <RenameDialog
+        finalFocus={dialogFinalFocus}
         open={renameOpen}
         title={
           renameTarget?.kind === "bookmark"
@@ -688,6 +907,7 @@ export function Workspace(props: WorkspaceProps) {
       />
 
       <AddLinkDialog
+        finalFocus={dialogFinalFocus}
         open={linkOpen}
         onOpenChange={(open) => {
           setLinkOpen(open)
@@ -702,6 +922,7 @@ export function Workspace(props: WorkspaceProps) {
             point.x,
             point.y
           )
+          if (!bookmark) return
           setSelectedIds(new Set([bookmark.id]))
           actions.raiseZ([bookmark.id])
           pendingCreateRef.current = null
@@ -709,27 +930,38 @@ export function Workspace(props: WorkspaceProps) {
       />
 
       <MoveToDialog
+        finalFocus={dialogFinalFocus}
         open={moveOpen}
-        folders={state.folders.filter((f) =>
-          props.mode === "folder" ? f.id !== props.folderId : true
-        )}
+        home={moveOptions.home}
+        folders={moveOptions.folders}
         onOpenChange={setMoveOpen}
-        onSubmit={(folderId) => {
-          actions.moveBookmarks([...selectedIds], folderId)
+        onSubmit={(target) => {
+          const { moved, skipped } = actions.moveItems([...selectedIds], target)
+          if (moved === 0) return
           setSelectedIds(new Set())
-          toast("Moved")
+          setTouchSelectMode(false)
+          toastWithUndo(
+            skipped > 0
+              ? `Moved ${moved} of ${moved + skipped} items`
+              : moved === 1
+                ? "Moved"
+                : `Moved ${moved} items`
+          )
         }}
       />
 
       <ConfirmDeleteFolderDialog
+        finalFocus={dialogFinalFocus}
         open={confirmFolderOpen}
-        count={countItemsInFolders(
-          state,
-          selectedItems.flatMap((item) =>
-            item.kind === "folder" ? [item.id] : []
-          )
+        contents={describeContentsSentence(
+          contentsOfFolders(state, pendingFolderIds)
         )}
-        onOpenChange={setConfirmFolderOpen}
+        folderCount={pendingFolderIds.length}
+        otherCount={pendingOtherCount}
+        onOpenChange={(open) => {
+          setConfirmFolderOpen(open)
+          if (!open) setPendingDeleteIds([])
+        }}
         onConfirm={confirmDeleteFolders}
       />
 
@@ -740,7 +972,9 @@ export function Workspace(props: WorkspaceProps) {
           folder={shareFolder}
           initialBoardId={sharedBoardByFolder.get(shareFolder.id) ?? null}
           onShared={(result) => {
-            setSharedBoardByFolder((prev) => new Map(prev).set(shareFolder.id, result.boardId))
+            setSharedBoardByFolder((prev) =>
+              new Map(prev).set(shareFolder.id, result.boardId)
+            )
           }}
           onUnshared={() => {
             setSharedBoardByFolder((prev) => {

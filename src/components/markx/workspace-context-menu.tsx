@@ -24,6 +24,8 @@ type WorkspaceContextMenuProps = {
   selectedNotes: Extract<BoardItemModel, { kind: "note" }>[]
   selectedOpenable: boolean
   selectedRenamable: boolean
+  /** The selection has somewhere to move to (see board-items.ts). */
+  canMove: boolean
   onCreateFolder: (point: { x: number; y: number }) => void
   onCreateBookmark: (point: { x: number; y: number }) => void
   onCreateNote: (point: { x: number; y: number }) => void
@@ -46,6 +48,7 @@ export function WorkspaceContextMenu({
   selectedNotes,
   selectedOpenable,
   selectedRenamable,
+  canMove,
   onCreateFolder,
   onCreateBookmark,
   onCreateNote,
@@ -129,12 +132,10 @@ export function WorkspaceContextMenu({
           Share
         </ContextMenuItem>
       ) : null}
-      {mode === "folder" ? (
-        <ContextMenuItem disabled={ids.length === 0} onClick={onMove}>
-          <ArrowBendUpRightIcon weight="regular" />
-          Move to…
-        </ContextMenuItem>
-      ) : null}
+      <ContextMenuItem disabled={!canMove} onClick={onMove}>
+        <ArrowBendUpRightIcon weight="regular" />
+        Move to…
+      </ContextMenuItem>
       <ContextMenuItem
         disabled={ids.length === 0}
         onClick={() => onResetSizes(ids)}

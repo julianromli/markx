@@ -455,3 +455,52 @@ export function findEmptySlot(
     if (!blocked) return { x: candidate.x, y: candidate.y }
   }
 }
+
+/**
+ * First paint on a phone: fit every item, but never zoom in past `maxZoom`
+ * (small boards would otherwise open huge).
+ */
+export function cameraFitContentAtMost(
+  items: readonly BoardItemModel[],
+  viewport: Pick<DOMRect, "width" | "height">,
+  maxZoom: number,
+  padding = 24
+): Camera {
+  const fit = cameraFitContent(items, viewport, padding)
+  return fit.zoom > maxZoom
+    ? cameraZoomAroundViewportCenter(fit, maxZoom, viewport)
+    : fit
+}
+
+/** Keep the zoom; put the center of `rect` (board units) at the view center. */
+export function cameraCenterOn(
+  camera: Camera,
+  rect: Rect,
+  viewport: Pick<DOMRect, "width" | "height">
+): Camera {
+  return {
+    ...camera,
+    x: viewport.width / 2 - (rect.x + rect.width / 2) * camera.zoom,
+    y: viewport.height / 2 - (rect.y + rect.height / 2) * camera.zoom,
+  }
+}
+
+/**
+ * Pan vertically so `rect` (board units) sits inside the visible band
+ * [visibleTop, visibleBottom] (viewport px), e.g. above a virtual keyboard.
+ * The top edge wins when the item is taller than the band.
+ */
+export function cameraToReveal(
+  camera: Camera,
+  rect: Rect,
+  visibleTop: number,
+  visibleBottom: number,
+  margin = 12
+): Camera {
+  const top = camera.y + rect.y * camera.zoom
+  const bottom = top + rect.height * camera.zoom
+  let dy = 0
+  if (bottom > visibleBottom - margin) dy = visibleBottom - margin - bottom
+  if (top + dy < visibleTop + margin) dy = visibleTop + margin - top
+  return dy === 0 ? camera : { ...camera, y: camera.y + dy }
+}

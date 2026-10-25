@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest"
 
-import {
-  classifyItemIds,
-  countItemsInFolders,
-  folderHasItems,
-  selectWorkspaceItems,
-} from "./workspace-items"
+import { contentsOfFolders, hasContents } from "./board-items"
+import { classifyItemIds, selectWorkspaceItems } from "./workspace-items"
 import type { MarkxState } from "./types"
 
 const state: MarkxState = {
@@ -100,8 +96,12 @@ describe("workspace item helpers", () => {
   })
 
   it("detects and counts folder contents across item types", () => {
-    expect(folderHasItems(state, "f1")).toBe(true)
-    expect(folderHasItems(state, "f2")).toBe(false)
-    expect(countItemsInFolders(state, ["f1"])).toBe(3)
+    expect(hasContents(contentsOfFolders(state, ["f1"]))).toBe(true)
+    expect(hasContents(contentsOfFolders(state, ["f2"]))).toBe(false)
+    expect(contentsOfFolders(state, ["f1"])).toEqual({
+      bookmarks: 1,
+      notes: 1,
+      images: 1,
+    })
   })
 })

@@ -364,3 +364,55 @@ describe("findNearestInDirection", () => {
     expect(findNearestInDirection(grid, "missing", "right")).toBeNull()
   })
 })
+
+describe("audit fixes: camera helpers", () => {
+  it("MX-31 first paint on a phone fits all items without zooming past the cap", async () => {
+    const { cameraFitContentAtMost } = await import("./geometry")
+    const folders = [
+      {
+        id: "a",
+        kind: "folder" as const,
+        data: { id: "a", name: "A", x: 320, y: 360, z: 1 },
+      },
+      {
+        id: "b",
+        kind: "folder" as const,
+        data: { id: "b", name: "B", x: 780, y: 180, z: 2 },
+      },
+    ]
+    const vp = { width: 390, height: 664 }
+    const cam = cameraFitContentAtMost(folders, vp, 0.5)
+    expect(cam.zoom).toBeLessThanOrEqual(0.5)
+    for (const item of folders) {
+      const r = getBoardItemRect(item)
+      expect(cam.x + r.x * cam.zoom).toBeGreaterThanOrEqual(0)
+      expect(cam.x + (r.x + r.width) * cam.zoom).toBeLessThanOrEqual(vp.width)
+      expect(cam.y + r.y * cam.zoom).toBeGreaterThanOrEqual(0)
+      expect(cam.y + (r.y + r.height) * cam.zoom).toBeLessThanOrEqual(vp.height)
+    }
+  })
+
+  it("MX-33 cameraToReveal lifts an item above a keyboard band", async () => {
+    const { cameraToReveal } = await import("./geometry")
+    const cam = { x: 0, y: 0, zoom: 0.5 }
+    const rect = { x: 0, y: 1000, width: 300, height: 300 }
+    const next = cameraToReveal(cam, rect, 0, 300)
+    const top = next.y + rect.y * next.zoom
+    const bottom = top + rect.height * next.zoom
+    expect(bottom).toBeLessThanOrEqual(300)
+    expect(top).toBeGreaterThanOrEqual(0)
+    expect(
+      cameraToReveal(cam, { x: 0, y: 100, width: 50, height: 50 }, 0, 300)
+    ).toBe(cam)
+  })
+
+  it("cameraCenterOn centers an item at the current zoom", async () => {
+    const { cameraCenterOn } = await import("./geometry")
+    const next = cameraCenterOn(
+      { x: 0, y: 0, zoom: 2 },
+      { x: 100, y: 100, width: 50, height: 50 },
+      { width: 400, height: 400 }
+    )
+    expect(next).toEqual({ x: 200 - 125 * 2, y: 200 - 125 * 2, zoom: 2 })
+  })
+})

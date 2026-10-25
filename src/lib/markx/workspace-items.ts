@@ -59,30 +59,6 @@ export function classifyItemIds(
   }
 }
 
-export function folderHasItems(state: MarkxState, folderId: string): boolean {
-  return (
-    state.bookmarks.some((item) => item.folderId === folderId) ||
-    state.notes.some((item) => item.folderId === folderId) ||
-    state.images.some((item) => item.folderId === folderId)
-  )
-}
-
-export function countItemsInFolders(
-  state: MarkxState,
-  folderIds: readonly string[]
-): number {
-  const selected = new Set(folderIds)
-  return (
-    state.bookmarks.filter((item) => selected.has(item.folderId)).length +
-    state.notes.filter(
-      (item) => item.folderId != null && selected.has(item.folderId)
-    ).length +
-    state.images.filter(
-      (item) => item.folderId != null && selected.has(item.folderId)
-    ).length
-  )
-}
-
 function idOf(item: { id: string }): string {
   return item.id
 }

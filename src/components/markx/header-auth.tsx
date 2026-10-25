@@ -31,7 +31,11 @@ export function HeaderAuth() {
 
   return (
     <>
-      <Button size="sm" onClick={() => setAuthOpen(true)}>
+      <Button
+        size="sm"
+        className="pointer-coarse:h-11"
+        onClick={() => setAuthOpen(true)}
+      >
         <span className="md:hidden">Sign in</span>
         <span className="hidden md:inline">Sign in to save</span>
       </Button>

@@ -79,7 +79,21 @@ interface MarkxDB extends DBSchema {
   }
 }
 
-async function openMarkxDatabase(): Promise<IDBPDatabase<MarkxDB>> {
+let dbPromise: Promise<IDBPDatabase<MarkxDB>> | null = null
+
+/**
+ * One shared connection. Opening per call made every write wait for an
+ * async open, so a save started on page hide could lose the race to unload.
+ */
+function openMarkxDatabase(): Promise<IDBPDatabase<MarkxDB>> {
+  dbPromise ??= openMarkxDatabaseUncached().catch((err: unknown) => {
+    dbPromise = null
+    throw err
+  })
+  return dbPromise
+}
+
+async function openMarkxDatabaseUncached(): Promise<IDBPDatabase<MarkxDB>> {
   const db = await openDB<MarkxDB>(DB_NAME, DB_VERSION, {
     upgrade(database, oldVersion) {
       if (oldVersion < 1) {
@@ -98,8 +112,51 @@ async function openMarkxDatabase(): Promise<IDBPDatabase<MarkxDB>> {
   })
   db.onversionchange = () => {
     db.close()
+    dbPromise = null
   }
   return db
+}
+
+const GUEST_BACKUP_KEY = "markx:guest-state-backup"
+
+/**
+ * Synchronous last-chance copy of the guest state, written on page hide.
+ * IndexedDB writes are async and can be cut off by unload; the next load
+ * adopts this copy and moves it into IndexedDB.
+ */
+export function writeGuestBackup(state: MarkxState): void {
+  try {
+    localStorage.setItem(GUEST_BACKUP_KEY, JSON.stringify(state))
+  } catch {
+    // Storage full or disabled: IndexedDB save is still in flight.
+  }
+}
+
+/** Reads the backup without removing it; see {@link clearGuestBackup}. */
+export function readGuestBackup(): MarkxState | null {
+  try {
+    const raw = localStorage.getItem(GUEST_BACKUP_KEY)
+    return raw ? (JSON.parse(raw) as MarkxState) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Drop the backup once IndexedDB holds the same state (or unconditionally
+ * with no argument). A newer hide-time backup must survive an older save.
+ */
+export function clearGuestBackup(savedState?: MarkxState): void {
+  try {
+    if (
+      savedState === undefined ||
+      localStorage.getItem(GUEST_BACKUP_KEY) === JSON.stringify(savedState)
+    ) {
+      localStorage.removeItem(GUEST_BACKUP_KEY)
+    }
+  } catch {
+    // Storage disabled.
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -115,6 +172,14 @@ export async function loadState(): Promise<MarkxState> {
     return createDemoState()
   }
   const db = await openMarkxDatabase()
+  const backup = readGuestBackup()
+  if (backup) {
+    const restored = normalizeStoredState(backup)
+    await db.put("meta", restored, GUEST_STATE_KEY)
+    // Only now is the backup's content safe in IndexedDB.
+    clearGuestBackup()
+    return restored
+  }
   const existing = await db.get("meta", GUEST_STATE_KEY)
   if (existing) {
     return normalizeStoredState(existing)
@@ -131,6 +196,7 @@ export async function saveState(state: MarkxState): Promise<void> {
   if (typeof indexedDB === "undefined") return
   const db = await openMarkxDatabase()
   await db.put("meta", state, GUEST_STATE_KEY)
+  clearGuestBackup(state)
 }
 
 /**
@@ -142,6 +208,8 @@ export async function saveState(state: MarkxState): Promise<void> {
  */
 export async function resetGuestState(): Promise<MarkxState> {
   const demo = createDemoState()
+  // Guest edits are discarded on login; an unload copy must not return.
+  clearGuestBackup()
   if (typeof indexedDB === "undefined") return demo
   const db = await openMarkxDatabase()
   await db.put("meta", demo, GUEST_STATE_KEY)
@@ -397,9 +465,12 @@ export async function clearLastUserId(): Promise<void> {
 export type MarkxStorage = {
   load: () => Promise<MarkxState>
   save: (state: MarkxState) => Promise<void>
+  /** Synchronous backup for page unload (optional). */
+  saveBackup?: (state: MarkxState) => void
 }
 
 export const localMarkxStorage: MarkxStorage = {
   load: loadState,
   save: saveState,
+  saveBackup: writeGuestBackup,
 }

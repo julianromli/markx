@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router"
 import type { CSSProperties, ReactNode, RefObject } from "react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import { ArrowClockwiseIcon } from "@phosphor-icons/react/dist/csr/ArrowClockwise"
@@ -22,6 +22,12 @@ import homeIcon from "@/assets/markx/header/home.svg"
 import pixelFolder from "@/assets/markx/pixel-folder.svg"
 import { HeaderAuth } from "@/components/markx/header-auth"
 import { HelpDialog } from "@/components/markx/help-dialog"
+import { SearchDialog } from "@/components/markx/search-dialog"
+import type { SearchResult } from "@/components/markx/search-dialog"
+import {
+  isEditableEventTarget,
+  isOverlayActive,
+} from "@/components/markx/use-workspace-global-events"
 import { StaleWorkspaceBanner } from "@/components/markx/stale-workspace-banner"
 import {
   DropdownMenu,
@@ -77,6 +83,8 @@ type AppShellProps = {
   onShare?: () => void
   /** Whether the current folder is already shared (drives the icon state). */
   shared?: boolean
+  /** Called with the result picked in the Search dialog. */
+  onSearchSelect?: (result: SearchResult) => void
   children: ReactNode
 }
 
@@ -121,6 +129,7 @@ export function AppShell({
   onZoomFit,
   onShare,
   shared,
+  onSearchSelect,
   children,
 }: AppShellProps) {
   const actions = useMarkxActions()
@@ -128,6 +137,21 @@ export function AppShell({
   const [helpOpen, setHelpOpen] = useState(false)
   const [toolsOpen, setToolsOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+
+  // Cmd/Ctrl+K opens Search, except while typing or inside another dialog.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "k")
+        return
+      if (isEditableEventTarget(event.target) || isOverlayActive(event.target))
+        return
+      event.preventDefault()
+      setSearchOpen(true)
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [])
 
   const crumbs: BreadcrumbItem[] =
     breadcrumb && breadcrumb.length > 0
@@ -176,7 +200,7 @@ export function AppShell({
       className="markx-shell grid h-svh grid-cols-1 grid-rows-[auto_minmax(0,1fr)] bg-canvas antialiased md:grid-cols-[63px_minmax(0,1fr)]"
       style={{ "--rail-pad": "21.5px" } as CSSProperties}
     >
-      <header className="relative z-30 col-span-full bg-white shadow-[0_1px_1px_rgba(51,61,78,0.2)]">
+      <header className="relative z-30 col-span-full bg-white pt-[env(safe-area-inset-top)] shadow-[0_1px_1px_rgba(51,61,78,0.2)]">
         <div className="relative flex h-12 w-full items-center justify-between gap-1">
           <div className="relative z-10 flex h-12 min-w-0 flex-1 items-center pl-[max(0.25rem,env(safe-area-inset-left))] md:pl-0">
             <button
@@ -264,7 +288,7 @@ export function AppShell({
                         <Link
                           to={crumb.to}
                           className={cn(
-                            "flex h-8 max-w-full items-center gap-1.5 rounded-[3px] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.04] active:scale-[0.96] md:h-7",
+                            "flex h-8 max-w-full items-center gap-1.5 rounded-[3px] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.04] active:scale-[0.96] md:h-7 pointer-coarse:h-11 pointer-coarse:md:h-11",
                             index === 0
                               ? "px-1.5 md:pr-[7px] md:pl-0"
                               : "px-1.5 md:px-[7px]"
@@ -292,7 +316,8 @@ export function AppShell({
             </nav>
           </div>
 
-          <div className="pointer-events-none absolute inset-0 hidden items-center justify-center px-4 md:flex">
+          {/* Visually hidden on phones, but always the page heading. */}
+          <div className="pointer-events-none absolute inset-0 items-center justify-center px-4 max-md:sr-only md:flex">
             <h1 className="max-w-[45vw] truncate text-center text-[19.8px] font-bold tracking-[-0.18px] text-balance text-ink/80">
               {centerTitle}
             </h1>
@@ -303,8 +328,8 @@ export function AppShell({
             {typeof zoomPercent === "number" && onZoomPreset && onZoomFit ? (
               <DropdownMenu>
                 <DropdownMenuTrigger
-                  className="mr-1 hidden h-8 items-center gap-0.5 rounded-md px-2 text-[12px] leading-none text-ink/80 transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] outline-none hover:bg-black/[0.04] focus-visible:ring-2 focus-visible:ring-black/10 active:scale-[0.96] md:flex"
-                  aria-label="Zoom"
+                  aria-label={`Zoom ${zoomPercent}%`}
+                  className="mr-1 hidden h-8 items-center gap-0.5 rounded-md px-2 text-[12px] leading-none text-ink/80 transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] outline-none hover:bg-black/[0.04] focus-visible:ring-2 focus-visible:ring-black/10 active:scale-[0.96] md:flex pointer-coarse:h-11"
                 >
                   <span className="min-w-[2rem] text-right tabular-nums">
                     {zoomPercent}%
@@ -405,8 +430,19 @@ export function AppShell({
                 icon={
                   <MagnifyingGlassIcon className="size-5" weight="regular" />
                 }
+                onClick={() => setSearchOpen(true)}
               />
             </div>
+
+            <button
+              type="button"
+              aria-label="Undo"
+              disabled={!canUndo}
+              onClick={() => actions.undo()}
+              className="flex size-11 shrink-0 items-center justify-center text-ink/80 transition-[background-color,transform,opacity] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.03] active:scale-[0.96] disabled:opacity-30 md:hidden"
+            >
+              <ArrowCounterClockwiseIcon className="size-5" weight="regular" />
+            </button>
 
             <button
               type="button"
@@ -461,53 +497,51 @@ export function AppShell({
       <main className="relative col-start-1 row-start-2 flex min-h-0 min-w-0 flex-col md:col-start-2">
         <StaleWorkspaceBanner />
         <div className="relative min-h-0 min-w-0 flex-1">
-        {typeof zoomPercent === "number" &&
-        onZoomPreset &&
-        onZoomFit ? (
-          <div className="pointer-events-none absolute top-3 right-3 z-20 md:hidden">
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                className="pointer-events-auto flex h-11 items-center gap-1 rounded-xl border border-black/10 bg-white/90 px-3 text-[13px] font-medium text-ink/80 shadow-sm backdrop-blur-xl transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] outline-none hover:bg-white focus-visible:ring-2 focus-visible:ring-black/10 active:scale-[0.96]"
-                aria-label="Zoom"
-              >
-                <span className="tabular-nums" suppressHydrationWarning>
-                  {zoomPercent}%
-                </span>
-                <CaretDownIcon className="size-[14px]" weight="bold" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-[9.5rem]">
-                <DropdownMenuRadioGroup
-                  value={
-                    (ZOOM_PRESET_PERCENTS as readonly number[]).includes(
-                      zoomPercent
-                    )
-                      ? String(zoomPercent)
-                      : undefined
-                  }
-                  onValueChange={(value) => {
-                    const percent = Number(value)
-                    if (Number.isFinite(percent)) onZoomPreset(percent)
-                  }}
+          {typeof zoomPercent === "number" && onZoomPreset && onZoomFit ? (
+            <div className="pointer-events-none absolute top-3 right-3 z-20 md:hidden">
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  className="pointer-events-auto flex h-11 items-center gap-1 rounded-xl border border-black/10 bg-white/90 px-3 text-[13px] font-medium text-ink/80 shadow-sm backdrop-blur-xl transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] outline-none hover:bg-white focus-visible:ring-2 focus-visible:ring-black/10 active:scale-[0.96]"
+                  aria-label={`Zoom ${zoomPercent}%`}
                 >
-                  {ZOOM_PRESET_PERCENTS.map((percent) => (
-                    <DropdownMenuRadioItem
-                      key={percent}
-                      value={String(percent)}
-                      className="tabular-nums"
-                    >
-                      {percent}%
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => onZoomFit()}>
-                  Fit
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        ) : null}
-        {children}
+                  <span className="tabular-nums" suppressHydrationWarning>
+                    {zoomPercent}%
+                  </span>
+                  <CaretDownIcon className="size-[14px]" weight="bold" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-[9.5rem]">
+                  <DropdownMenuRadioGroup
+                    value={
+                      (ZOOM_PRESET_PERCENTS as readonly number[]).includes(
+                        zoomPercent
+                      )
+                        ? String(zoomPercent)
+                        : undefined
+                    }
+                    onValueChange={(value) => {
+                      const percent = Number(value)
+                      if (Number.isFinite(percent)) onZoomPreset(percent)
+                    }}
+                  >
+                    {ZOOM_PRESET_PERCENTS.map((percent) => (
+                      <DropdownMenuRadioItem
+                        key={percent}
+                        value={String(percent)}
+                        className="tabular-nums"
+                      >
+                        {percent}%
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => onZoomFit()}>
+                    Fit
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          ) : null}
+          {children}
         </div>
       </main>
 
@@ -527,7 +561,7 @@ export function AppShell({
         </SheetContent>
       </Sheet>
 
-      {/* Mobile overflow menu (Help / Search) */}
+      {/* Mobile overflow menu (Undo / Redo / Share / Help / Search) */}
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
         <SheetContent
           side="bottom"
@@ -537,6 +571,26 @@ export function AppShell({
           <SheetHeader className="sr-only">
             <SheetTitle>More</SheetTitle>
           </SheetHeader>
+          <MoreMenuItem
+            label="Undo"
+            disabled={!canUndo}
+            icon={
+              <ArrowCounterClockwiseIcon className="size-5" weight="regular" />
+            }
+            onClick={() => {
+              setMoreOpen(false)
+              actions.undo()
+            }}
+          />
+          <MoreMenuItem
+            label="Redo"
+            disabled={!canRedo}
+            icon={<ArrowClockwiseIcon className="size-5" weight="regular" />}
+            onClick={() => {
+              setMoreOpen(false)
+              actions.redo()
+            }}
+          />
           {onShare ? (
             <MoreMenuItem
               label="Share"
@@ -563,12 +617,22 @@ export function AppShell({
           <MoreMenuItem
             label="Search"
             icon={<MagnifyingGlassIcon className="size-5" weight="regular" />}
-            onClick={() => setMoreOpen(false)}
+            onClick={() => {
+              setMoreOpen(false)
+              setSearchOpen(true)
+            }}
           />
         </SheetContent>
       </Sheet>
 
       <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
+      {searchOpen ? (
+        <SearchDialog
+          open={searchOpen}
+          onOpenChange={setSearchOpen}
+          onSelect={(result) => onSearchSelect?.(result)}
+        />
+      ) : null}
     </div>
   )
 }
@@ -592,7 +656,7 @@ function HeaderIconButton({
       onClick={onClick}
       className={cn(
         // Match AccountMenu trigger: compact rounded chip, not a full-height strip.
-        "flex items-center rounded-md p-1.5 text-ink/80 transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] outline-none active:scale-[0.96] disabled:pointer-events-none disabled:opacity-20 disabled:active:scale-100",
+        "flex items-center justify-center rounded-md p-1.5 text-ink/80 transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] outline-none active:scale-[0.96] disabled:pointer-events-none disabled:opacity-20 disabled:active:scale-100 pointer-coarse:min-h-11 pointer-coarse:min-w-11",
         !disabled &&
           "hover:bg-black/[0.04] focus-visible:ring-2 focus-visible:ring-black/10"
       )}
@@ -655,17 +719,20 @@ function ToolButton({
 function MoreMenuItem({
   label,
   icon,
+  disabled,
   onClick,
 }: {
   label: string
   icon: ReactNode
+  disabled?: boolean
   onClick?: () => void
 }) {
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={onClick}
-      className="flex w-full items-center gap-3 rounded-xl px-4 py-3.5 text-left text-[15px] font-medium text-ink/80 transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.04] active:scale-[0.99]"
+      className="flex w-full items-center gap-3 rounded-xl px-4 py-3.5 text-left text-[15px] font-medium text-ink/80 transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.04] active:scale-[0.99] disabled:opacity-40"
     >
       <span className="text-black/55">{icon}</span>
       {label}

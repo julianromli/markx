@@ -1,0 +1,24 @@
+     × MX-01 a user edit reaches the sync engine even when an enrich result lands inside the 120ms persist debounce 8ms
+     × MX-02 a successful cloud save keeps the local undo history 5ms
+     × MX-03 an edit made while a cloud save is in flight is not reverted when the save returns 3ms
+     × MX-04 moveBookmarks gives each moved bookmark its own position 1ms
+     × MX-05 toast Undo after Cmd+Z does not duplicate a deleted bookmark 1ms
+     × MX-05b toast Undo does not restore a bookmark into a folder that no longer exists 1ms
+     × MX-06 createBookmark does not throw on an input that is not a valid URL 1ms
+     × MX-07 redo of a bookmark created while enrich was pending does not leave a stuck loading shimmer 1ms
+     × MX-08 a plain tap (raiseZ) does not schedule a cloud save 2ms
+     × MX-09 on mobile at minimum zoom a minimum-size note still has a move area outside the resize zone 1ms
+     × MX-09b on mobile at the default 50% zoom the resize zone covers less than a quarter of a minimum-size note 0ms
+⎯⎯⎯⎯⎯⎯ Failed Tests 11 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected "vi.fn()" to be called at least once
+AssertionError: expected false to be true // Object.is equality
+AssertionError: expected [ 'A' ] to deeply equal [ 'A', 'B' ]
+AssertionError: expected 1 to be 2 // Object.is equality
+AssertionError: expected [ { …(9) }, { …(9) } ] to have a length of 1 but got 2
+AssertionError: expected [ { …(9) } ] to have a length of +0 but got 1
+AssertionError: expected [Function] to not throw an error but 'TypeError: Invalid URL' was thrown
+AssertionError: expected 'pending' not to be 'pending' // Object.is equality
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+AssertionError: expected true to be false // Object.is equality
+AssertionError: expected 0.4033333333333333 to be less than 0.25
+      Tests  11 failed (11)

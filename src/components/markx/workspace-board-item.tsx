@@ -15,11 +15,13 @@ type WorkspaceBoardItemProps = {
   interacting?: boolean
   /** True while this item's note editor is open. */
   editing: boolean
-  /** Bookmark count shown on folder tiles (home board only). */
-  folderBookmarkCount?: number
+  /** Contents label shown on folder tiles (home board only). */
+  folderContentsLabel?: string
   /** Show the "shared" badge on a folder tile. */
   shared?: boolean
-  onCommitNote: (id: string, content: string) => void
+  /** Read-only board (shared view): notes scroll, nothing is dragged. */
+  readOnly?: boolean
+  onCommitNote: (id: string, content: string, session: string) => void
   onExitNoteEdit: () => void
   onNoteStyleChange: (
     id: string,
@@ -39,8 +41,9 @@ export const WorkspaceBoardItem = memo(
     selected,
     interacting = false,
     editing,
-    folderBookmarkCount = 0,
+    folderContentsLabel = "Empty",
     shared = false,
+    readOnly = false,
     onCommitNote,
     onExitNoteEdit,
     onNoteStyleChange,
@@ -49,7 +52,7 @@ export const WorkspaceBoardItem = memo(
       return (
         <FolderIcon
           name={item.data.name}
-          count={folderBookmarkCount}
+          contents={folderContentsLabel}
           selected={selected}
           shared={shared}
         />
@@ -61,7 +64,10 @@ export const WorkspaceBoardItem = memo(
           note={item.data}
           selected={selected}
           editing={editing}
-          onCommit={(content) => onCommitNote(item.id, content)}
+          scrollable={readOnly}
+          onCommit={(content, session) =>
+            onCommitNote(item.id, content, session)
+          }
           onExitEdit={onExitNoteEdit}
           onStyleChange={(style) => onNoteStyleChange(item.id, style)}
         />
@@ -84,7 +90,9 @@ export const WorkspaceBoardItem = memo(
     prev.selected === next.selected &&
     prev.interacting === next.interacting &&
     prev.editing === next.editing &&
-    prev.folderBookmarkCount === next.folderBookmarkCount &&
+    prev.shared === next.shared &&
+    prev.readOnly === next.readOnly &&
+    prev.folderContentsLabel === next.folderContentsLabel &&
     prev.onCommitNote === next.onCommitNote &&
     prev.onExitNoteEdit === next.onExitNoteEdit &&
     prev.onNoteStyleChange === next.onNoteStyleChange

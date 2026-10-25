@@ -21,3 +21,7 @@ todos.json
 
 # Local research artifacts (Firecrawl output, not part of the app)
 .firecrawl/
+
+# Playwright
+test-results/
+playwright-report/

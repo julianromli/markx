@@ -1,0 +1,23 @@
+MX-10: REPRODUCED :: toolbar buttons on Pixel 7: =24x16, Aa=24x16, Medium=39x16, Bold=16x16, Italic=16x16, Underline=16x16
+MX-11: REPRODUCED :: dropdown trigger names=["","Aa","Medium"]; menu open after Enter=false, after Space=false
+MX-12: REPRODUCED :: note labels after reload: ["Empty note"]
+MX-13: REPRODUCED :: finger released at x=24,y=779; dock pill spans x=145..267; armed=true; bookmark exists after drop=false; toast=["Bookmark deleted\nUndo"]
+MX-14: REPRODUCED :: visible Undo buttons=0; More sheet items=["Help","Search","Close"]
+MX-15: REPRODUCED :: toast=["Moved"]; note still in source=true; target items=["AI Coding Agent for Building Ambitious Software | Cursor, bookmark","OpenAI | Research & Deployment, bookmark"]
+MX-16: REPRODUCED :: Linear bookmark exists after Backspace in dialog=false
+MX-17: REPRODUCED :: folder tile text="Vibe Coding |  | 3 bookmarks"; dialog="Delete folder?  This folder contains 4 bookmarks. Deleting it will remove those bookmarks too.  Cancel Delete"; folder deleted=true; selected home note still exists=true
+MX-20: REPRODUCED :: url after double-click on image=/folder/fdl9K_1CpqlrkMwDKNs7C
+MX-21: REPRODUCED :: note dragged down 120px: box (167,405) -> (-75,-75); events=pointerdown@242,480 pointercancel@0,0 | folder drag then touchcancel: y 252 -> 402 (expected revert)
+MX-22: REPRODUCED :: [{"hold":700,"during":true,"afterLift":true},{"hold":1500,"during":true,"afterLift":false}]
+MX-23: REPRODUCED :: blank drag panned=240px; marquee shown=false; items selected=0. No other multi-select path on touch.
+MX-24: REPRODUCED :: phone folder view: Sign inSign in to save=71x32 | phone tools sheet: Sign inSign in to save=71x32 | iPad (touch, desktop layout): Zoom=64x32, Undo=30x30, Redo=30x30, Help=32x32, Search=32x32, Sign inSign in to save=123x32
+MX-26: REPRODUCED :: after Search click: dialogs=0, search inputs=0
+MX-27: REPRODUCED :: focus after rename dialog Escape=BODY; focus after keyboard Delete=BODY
+MX-28: REPRODUCED :: ungated :hover rules=7 [".\\[\\&\\>\\[data-slot\\=bubble-content\\]\\:is\\(button\\,a\\)\\:hover\\]\\:bg-\\[oklch\\(from",".\\[\\&\\>\\[data-slot\\=bubble-content\\]\\:is\\(button\\,a\\)\\:hover\\]\\:bg-muted > [data",".\\[\\&\\>\\[data-slot\\=bubble-content\\]\\:is\\(button\\,a\\)\\:hover\\]\\:text-foreground ",".dark\\:\\[\\&\\>\\[data-slot\\=bubble-content\\]\\:is\\(button\\,a\\)\\:hover\\]\\:bg-\\[oklch",".\\[\\&\\>a\\:hover\\]\\:text-primary > a:hover","[data-sonner-toast][data-styled=\"true\"]:hover [data-close-button]:hover","[data-sonner-toaster][data-sonner-theme=\"dark\"] [data-sonner-toast] [data-close-"]
+MX-29: REPRODUCED :: after reload: tab A folder kept=false, tab B folder kept=true
+MX-30: REPRODUCED :: visible handle=16x16px; card 240x126 -> 180x206 (resized=true, moved=0,0)
+MX-31: REPRODUCED :: items cut off at first paint=["AI, folder, 1 bookmark"]; viewport meta="width=device-width, initial-scale=1"
+  [pageerror] Failed to construct 'URL': Invalid URL
+MX-06: REPRODUCED :: "my reading list" created=["my%20reading%20list, bookmark"]; "https://" leaves dialog open=false with error text=false; page errors=["Failed to construct 'URL': Invalid URL"]
+MX-37: REPRODUCED :: new note visible area=16%
+MX-32: NOT REPRODUCED :: first board item reached by Tab={"label":"AI Coding Agent for Building Ambitious Software | Cursor, bookmark","tabs":12}; Shift+F10 opens menu=true at 449,301

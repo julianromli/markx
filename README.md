@@ -23,6 +23,9 @@ bun run build    # production build
 bun run preview  # preview the build
 bun run typecheck
 bun run test
+npx playwright install chromium webkit  # once, browser binaries
+bun run test:e2e # Playwright phone, tablet, and desktop flows; starts
+                 # `bun run dev` itself (needs .dev.vars) unless MARKX_URL is set
 ```
 
 ## Adding shadcn components

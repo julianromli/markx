@@ -4,7 +4,8 @@ import { cn } from "@/lib/utils"
 
 type FolderIconProps = {
   name: string
-  count: number
+  /** What the folder holds, e.g. "3 bookmarks, 1 note". */
+  contents: string
   selected?: boolean
   /** Show a small "shared" badge at the folder's top-right corner. */
   shared?: boolean
@@ -13,7 +14,7 @@ type FolderIconProps = {
 
 export function FolderIcon({
   name,
-  count,
+  contents,
   selected,
   shared,
   className,
@@ -42,7 +43,7 @@ export function FolderIcon({
         {shared ? (
           <span
             aria-label="Shared board"
-            className="absolute -right-1 -top-1 flex size-6 items-center justify-center rounded-full bg-white shadow-sm outline outline-1 outline-black/10"
+            className="absolute -top-1 -right-1 flex size-6 items-center justify-center rounded-full bg-white shadow-sm outline outline-1 outline-black/10"
           >
             <ShareNetworkIcon className="size-3.5 text-ink" weight="fill" />
           </span>
@@ -52,8 +53,10 @@ export function FolderIcon({
         <p className="truncate text-[20px] leading-7 font-semibold tracking-[-0.02em] text-balance text-ink/80">
           {name}
         </p>
+        {/* axe's label-in-name check joins visible text without spaces;
+            a real space keeps "Name 3 bookmarks" readable as words. */}{" "}
         <p className="mt-0.5 text-[16px] leading-[1.05] text-ink-muted tabular-nums">
-          {count} {count === 1 ? "bookmark" : "bookmarks"}
+          {contents}
         </p>
       </div>
     </div>

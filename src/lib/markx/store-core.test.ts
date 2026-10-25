@@ -54,7 +54,7 @@ describe("createMarkxStore", () => {
       "https://youtu.be/dQw4w9WgXcQ",
       10,
       20
-    )
+    )!
 
     expect(bookmark.imageUrl).toBe(
       "https://img.youtube.com/vi/dQw4w9WgXcQ/hqdefault.jpg"
@@ -193,7 +193,9 @@ describe("createMarkxStore", () => {
       expect(
         created
           .getState()
-          .bookmarks.every((b) => b.imageUrl === "https://img.example.com/x.png")
+          .bookmarks.every(
+            (b) => b.imageUrl === "https://img.example.com/x.png"
+          )
       ).toBe(true)
     } finally {
       vi.useRealTimers()

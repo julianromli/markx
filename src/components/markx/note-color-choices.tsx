@@ -30,8 +30,8 @@ export function NoteColorChoices({
           className={cn(
             "rounded-full transition-transform active:scale-95 hover-fine:hover:scale-105",
             size === "large"
-              ? "size-9 border border-black/10"
-              : "size-7 border-2",
+              ? "size-9 border border-black/10 pointer-coarse:size-11"
+              : "size-7 border-2 pointer-coarse:size-11",
             size === "small" &&
               (selected === color ? "border-ink" : "border-black/15")
           )}

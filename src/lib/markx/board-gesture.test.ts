@@ -1,0 +1,394 @@
+import { describe, expect, it } from "vitest"
+
+import { BoardGesture, resizeZoneSize } from "./board-gesture"
+import { MIN_NOTE_SIZE, MIN_ZOOM } from "./geometry"
+import type {
+  GestureContext,
+  GestureEffect,
+  PointerInput,
+} from "./board-gesture"
+import type { BoardItemModel } from "./geometry"
+
+const note: BoardItemModel = {
+  id: "n1",
+  kind: "note",
+  data: {
+    id: "n1",
+    folderId: null,
+    content: "",
+    color: "yellow",
+    font: "sans",
+    fontSize: "m",
+    x: 100,
+    y: 100,
+    z: 1,
+  },
+}
+
+const folder: BoardItemModel = {
+  id: "f1",
+  kind: "folder",
+  data: { id: "f1", name: "F", x: 600, y: 100, z: 2 },
+}
+
+function ctx(over: Partial<GestureContext> = {}): GestureContext {
+  return {
+    items: [note, folder],
+    selectedIds: new Set(),
+    camera: { x: 0, y: 0, zoom: 1 },
+    viewport: { left: 0, top: 0, width: 1000, height: 800 },
+    coarse: false,
+    mobileDock: false,
+    trashRect: null,
+    dockRect: null,
+    ...over,
+  }
+}
+
+function input(over: Partial<PointerInput>): PointerInput {
+  return {
+    pointerId: 1,
+    pointerType: "touch",
+    button: 0,
+    x: 0,
+    y: 0,
+    time: 0,
+    ...over,
+  }
+}
+
+/** Ids of the last select effect, sorted (Set equality is loose in expect). */
+function selection(effects: GestureEffect[]): string[] | null {
+  const select = effects.filter((e) => e.type === "select").at(-1)
+  return select && "ids" in select ? [...select.ids].sort() : null
+}
+
+/** Size of the map in the last liveOffsets/liveResize effect, or -1. */
+function lastSize(
+  effects: GestureEffect[],
+  type: "liveOffsets" | "liveResize"
+): number {
+  const effect = effects.filter((e) => e.type === type).at(-1)
+  if (!effect) return -1
+  return "offsets" in effect
+    ? effect.offsets.size
+    : "resize" in effect
+      ? effect.resize.size
+      : -1
+}
+
+function sortIds(ids: string[]): string[] {
+  return [...ids].sort()
+}
+
+function types(effects: GestureEffect[]): string[] {
+  return effects.map((e) => e.type)
+}
+
+describe("BoardGesture", () => {
+  it("MX-21 a pointercancel during an item drag reverts and never commits", () => {
+    const g = new BoardGesture()
+    g.pointerDown(input({ x: 150, y: 150 }), ctx())
+    g.pointerMove(input({ x: 150, y: 200 }), ctx())
+    expect(g.mode).toBe("move")
+
+    // Chromium reports cancel coordinates as 0,0.
+    const effects = g.pointerCancel(input({ x: 0, y: 0 }))
+
+    expect(types(effects)).not.toContain("commitMove")
+    expect(types(effects)).not.toContain("trashDrop")
+    expect(lastSize(effects, "liveOffsets")).toBe(0)
+    expect(types(effects)).toContain("moveEnd")
+    expect(g.mode).toBeNull()
+  })
+
+  it("MX-21 a pointercancel during a resize drops the live size", () => {
+    const g = new BoardGesture()
+    const c = ctx({ selectedIds: new Set(["n1"]) })
+    g.pointerDown(input({ x: 395, y: 395, pointerType: "mouse" }), c)
+    expect(g.mode).toBe("resize")
+    g.pointerMove(input({ x: 450, y: 450, pointerType: "mouse" }), c)
+    const effects = g.pointerCancel(input({}))
+    expect(types(effects)).not.toContain("commitResize")
+    expect(lastSize(effects, "liveResize")).toBe(0)
+  })
+
+  it("MX-21 a pointercancel during a pan restores the original camera", () => {
+    const g = new BoardGesture()
+    g.pointerDown(input({ x: 900, y: 700 }), ctx())
+    g.pointerMove(input({ x: 800, y: 600 }), ctx())
+    const effects = g.pointerCancel(input({}))
+    expect(effects).toContainEqual({
+      type: "camera",
+      camera: { x: 0, y: 0, zoom: 1 },
+    })
+  })
+
+  it("commits an item move on pointerup", () => {
+    const g = new BoardGesture()
+    g.pointerDown(input({ x: 150, y: 150 }), ctx())
+    g.pointerMove(input({ x: 150, y: 200 }), ctx())
+    const effects = g.pointerUp(input({ x: 150, y: 250 }), ctx())
+    expect(effects).toContainEqual({
+      type: "commitMove",
+      updates: [{ id: "n1", x: 100, y: 200 }],
+    })
+  })
+
+  it("drops on the trash instead of moving when released over it", () => {
+    const g = new BoardGesture()
+    const c = ctx({ trashRect: { left: 0, top: 700, right: 60, bottom: 800 } })
+    g.pointerDown(input({ x: 150, y: 150 }), c)
+    const armed = g.pointerMove(input({ x: 30, y: 750 }), c)
+    expect(armed).toContainEqual({ type: "trashArmed", armed: true })
+    const effects = g.pointerUp(input({ x: 30, y: 750 }), c)
+    expect(effects).toContainEqual({ type: "trashDrop", ids: ["n1"] })
+    expect(types(effects)).not.toContain("commitMove")
+  })
+
+  it("a second finger turns a drag into a two-finger pan without committing", () => {
+    const g = new BoardGesture()
+    g.pointerDown(input({ x: 150, y: 150 }), ctx())
+    g.pointerMove(input({ x: 150, y: 200 }), ctx())
+    const effects = g.pointerDown(
+      input({ pointerId: 2, x: 300, y: 300 }),
+      ctx()
+    )
+    expect(types(effects)).not.toContain("commitMove")
+    expect(g.mode).toBe("touchPan")
+  })
+
+  it("opens an item on a double press", () => {
+    const g = new BoardGesture()
+    g.pointerDown(input({ x: 150, y: 150, time: 0 }), ctx())
+    g.pointerUp(input({ x: 150, y: 150, time: 50 }), ctx())
+    const effects = g.pointerDown(input({ x: 150, y: 150, time: 200 }), ctx())
+    expect(effects).toEqual([{ type: "open", id: "n1" }])
+  })
+
+  it("reports a press on empty canvas", () => {
+    const g = new BoardGesture()
+    const effects = g.pointerDown(input({ x: 900, y: 700 }), ctx())
+    expect(types(effects)).toContain("blankPress")
+  })
+
+  describe("MX-13 delete dock", () => {
+    const dock = { left: 400, top: 700, right: 560, bottom: 770 }
+    const phone = () => ctx({ mobileDock: true, dockRect: dock })
+
+    it("does not delete when the item only passes over the dock", () => {
+      const g = new BoardGesture()
+      g.pointerDown(input({ x: 150, y: 150, time: 0 }), phone())
+      g.pointerMove(input({ x: 480, y: 735, time: 20 }), phone())
+      const effects = g.pointerUp(input({ x: 480, y: 735, time: 60 }), phone())
+      expect(types(effects)).not.toContain("trashDrop")
+      expect(types(effects)).toContain("commitMove")
+    })
+
+    it("arms after a short dwell on the dock and then deletes on release", () => {
+      const g = new BoardGesture()
+      g.pointerDown(input({ x: 150, y: 150, time: 0 }), phone())
+      const over = g.pointerMove(input({ x: 480, y: 735, time: 20 }), phone())
+      expect(over).not.toContainEqual({ type: "trashArmed", armed: true })
+      expect(over).toContainEqual({
+        type: "armLater",
+        delayMs: expect.any(Number),
+      })
+      expect(g.tick(400, phone())).toContainEqual({
+        type: "trashArmed",
+        armed: true,
+      })
+      const effects = g.pointerUp(input({ x: 480, y: 735, time: 420 }), phone())
+      expect(effects).toContainEqual({ type: "trashDrop", ids: ["n1"] })
+    })
+
+    it("disarms when the finger leaves the dock", () => {
+      const g = new BoardGesture()
+      g.pointerDown(input({ x: 150, y: 150, time: 0 }), phone())
+      g.pointerMove(input({ x: 480, y: 735, time: 20 }), phone())
+      g.tick(400, phone())
+      const away = g.pointerMove(input({ x: 30, y: 740, time: 450 }), phone())
+      expect(away).toContainEqual({ type: "trashArmed", armed: false })
+      const effects = g.pointerUp(input({ x: 30, y: 740, time: 470 }), phone())
+      expect(types(effects)).not.toContain("trashDrop")
+    })
+  })
+
+  describe("MX-30 resize zone on touch", () => {
+    it("a corner press on an unselected card moves it instead of resizing", () => {
+      const g = new BoardGesture()
+      const c = ctx({ coarse: true })
+      g.pointerDown(input({ x: 390, y: 390 }), c)
+      expect(g.mode).toBe("pending")
+    })
+
+    it("a corner press on a selected card resizes it", () => {
+      const g = new BoardGesture()
+      const c = ctx({ coarse: true, selectedIds: new Set(["n1"]) })
+      g.pointerDown(input({ x: 390, y: 390 }), c)
+      expect(g.mode).toBe("resize")
+    })
+
+    it("MX-09 at minimum zoom a minimum-size note still has a move area", () => {
+      const minNote = { ...MIN_NOTE_SIZE }
+      const zone = resizeZoneSize(minNote, true, MIN_ZOOM)
+      expect(zone.width).toBeLessThan(minNote.width - 10)
+      expect(zone.height).toBeLessThan(minNote.height - 10)
+    })
+
+    it("MX-09b the zone covers less than a quarter of a minimum-size note at any zoom", () => {
+      for (const zoom of [MIN_ZOOM, 0.5, 1, 2]) {
+        const zone = resizeZoneSize(MIN_NOTE_SIZE, true, zoom)
+        const ratio =
+          (zone.width * zone.height) /
+          (MIN_NOTE_SIZE.width * MIN_NOTE_SIZE.height)
+        expect(ratio).toBeLessThan(0.25)
+      }
+    })
+
+    it("keeps the small desktop zone for fine pointers", () => {
+      expect(resizeZoneSize({ width: 480, height: 252 }, false, 0.5)).toEqual({
+        width: 20,
+        height: 20,
+      })
+    })
+  })
+
+  describe("MX-23 touch select mode", () => {
+    const sel = (ids: string[]) =>
+      ctx({ touchSelectMode: true, selectedIds: new Set(ids) })
+
+    it("a tap adds an item to the selection", () => {
+      const g = new BoardGesture()
+      const effects = g.pointerDown(input({ x: 650, y: 150 }), sel(["n1"]))
+      expect(selection(effects)).toEqual(sortIds(["n1", "f1"]))
+    })
+
+    it("a tap on a selected item removes it", () => {
+      const g = new BoardGesture()
+      g.pointerDown(input({ x: 150, y: 150 }), sel(["n1", "f1"]))
+      const effects = g.pointerUp(input({ x: 150, y: 150 }), sel(["n1", "f1"]))
+      expect(selection(effects)).toEqual(sortIds(["f1"]))
+    })
+
+    it("dragging a selected item still moves the whole selection", () => {
+      const g = new BoardGesture()
+      g.pointerDown(input({ x: 150, y: 150 }), sel(["n1", "f1"]))
+      g.pointerMove(input({ x: 150, y: 200 }), sel(["n1", "f1"]))
+      const effects = g.pointerUp(input({ x: 150, y: 200 }), sel(["n1", "f1"]))
+      const commit = effects.find((e) => e.type === "commitMove")
+      expect(commit && "updates" in commit ? commit.updates.length : 0).toBe(2)
+    })
+
+    it("a drag on blank space draws an additive marquee instead of panning", () => {
+      const g = new BoardGesture()
+      g.pointerDown(input({ x: 50, y: 50 }), sel(["f1"]))
+      expect(g.mode).toBe("marquee")
+      const effects = g.pointerMove(input({ x: 200, y: 200 }), sel(["f1"]))
+      expect(selection(effects)).toEqual(sortIds(["f1", "n1"]))
+    })
+  })
+
+  it("Shift-drag on blank space adds to the selection", () => {
+    const g = new BoardGesture()
+    const c = ctx({ selectedIds: new Set(["f1"]) })
+    g.pointerDown(
+      input({ x: 50, y: 50, pointerType: "mouse", shiftKey: true }),
+      c
+    )
+    const effects = g.pointerMove(
+      input({ x: 200, y: 200, pointerType: "mouse", shiftKey: true }),
+      c
+    )
+    const select = effects.find((e) => e.type === "select")
+    expect(select && "ids" in select ? [...select.ids].sort() : []).toEqual([
+      "f1",
+      "n1",
+    ])
+  })
+
+  it("a second finger during a one-finger pan keeps the panned camera", () => {
+    const g = new BoardGesture()
+    g.pointerDown(input({ x: 900, y: 700 }), ctx())
+    g.pointerMove(input({ x: 800, y: 600 }), ctx())
+    const effects = g.pointerDown(
+      input({ pointerId: 2, x: 500, y: 500 }),
+      ctx({ camera: { x: -100, y: -100, zoom: 1 } })
+    )
+    expect(effects.some((e) => e.type === "camera")).toBe(false)
+    expect(g.mode).toBe("touchPan")
+  })
+
+  it("trackPointer keeps a resting finger's position for a later pinch", () => {
+    const g = new BoardGesture()
+    const c = ctx({ editingId: "n1" })
+    g.pointerDown(input({ x: 150, y: 150 }), c) // on the edited note: no drag
+    expect(g.mode).toBeNull()
+    g.trackPointer({ pointerId: 1, x: 300, y: 300 })
+    g.pointerDown(input({ pointerId: 2, x: 500, y: 300 }), c)
+    // The resting finger moves 2px. With a stale start of (150,150) the
+    // centroid would jump about 75px on this first move.
+    const effects = g.pointerMove(input({ pointerId: 1, x: 302, y: 300 }), c)
+    const cam = effects.find((e) => e.type === "camera")
+    const moved = cam && "camera" in cam ? cam.camera : { x: 999, y: 999 }
+    // Allow the small pinch-zoom shift; a stale start jumps ~75px.
+    expect(Math.abs(moved.x)).toBeLessThan(20)
+    expect(Math.abs(moved.y)).toBeLessThan(20)
+    expect(g.mode).toBe("touchPan")
+  })
+
+  it("on a read-only board an item press pans instead of dragging the item", () => {
+    const g = new BoardGesture()
+    const c = ctx({ readOnly: true })
+    const down = g.pointerDown(input({ x: 150, y: 150 }), c)
+    expect(types(down)).not.toContain("select")
+    expect(g.mode).toBe("pan")
+    const move = g.pointerMove(input({ x: 150, y: 250 }), c)
+    expect(move).toEqual([
+      { type: "camera", camera: { x: 0, y: 100, zoom: 1 } },
+    ])
+    const up = g.pointerUp(input({ x: 150, y: 250 }), c)
+    expect(types(up)).not.toContain("commitMove")
+    expect(types(up)).not.toContain("liveOffsets")
+  })
+
+  it("on a read-only board a double press still opens the item", () => {
+    const g = new BoardGesture()
+    const c = ctx({ readOnly: true })
+    g.pointerDown(input({ x: 150, y: 150, time: 0 }), c)
+    g.pointerUp(input({ x: 150, y: 150, time: 40 }), c)
+    expect(g.pointerDown(input({ x: 150, y: 150, time: 200 }), c)).toEqual([
+      { type: "open", id: "n1" },
+    ])
+  })
+
+  it("on a read-only board a mouse drag on blank space pans without a marquee", () => {
+    const g = new BoardGesture()
+    const c = ctx({ readOnly: true })
+    const down = g.pointerDown(
+      input({ x: 900, y: 700, pointerType: "mouse" }),
+      c
+    )
+    expect(types(down)).not.toContain("select")
+    expect(types(down)).not.toContain("marquee")
+    const move = g.pointerMove(
+      input({ x: 850, y: 650, pointerType: "mouse" }),
+      c
+    )
+    expect(move).toEqual([
+      { type: "camera", camera: { x: -50, y: -50, zoom: 1 } },
+    ])
+  })
+
+  it("a press that turned into a pan or drag does not count toward a double press", () => {
+    for (const readOnly of [true, false]) {
+      const g = new BoardGesture()
+      const c = ctx({ readOnly })
+      g.pointerDown(input({ x: 150, y: 150, time: 0 }), c)
+      g.pointerMove(input({ x: 150, y: 200, time: 50 }), c)
+      g.pointerUp(input({ x: 150, y: 200, time: 80 }), c)
+      const again = g.pointerDown(input({ x: 150, y: 150, time: 200 }), c)
+      expect(types(again)).not.toContain("open")
+    }
+  })
+})

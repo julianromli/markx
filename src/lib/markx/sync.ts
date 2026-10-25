@@ -471,6 +471,7 @@ export class SyncEngine {
     // Debounce the cloud write.
     if (this.debounceTimer) clearTimeout(this.debounceTimer)
     this.debounceTimer = setTimeout(() => {
+      this.debounceTimer = null
       void this.sync()
     }, SYNC_STATE_DEBOUNCE_MS)
   }
@@ -563,12 +564,12 @@ export class SyncEngine {
     await this.retireDeletedImageIds(deletedImageIds)
     this.clearStale(false)
 
+    // The ack only confirms the version. Local state stays the source of
+    // truth: the store is never handed the echoed snapshot.
     if (this.editGeneration === generationAtStart) {
       await this.dependencies.storage.setPendingSnapshot(this.userId, null)
-      this.currentState = result.state
       this.localEditsSinceLoad = false
-      await this.dependencies.storage.saveUserState(this.userId, result.state)
-      this.setStatus("saved", result.state)
+      this.setStatus("saved")
     } else {
       // Mid-save edits: keep local state, re-queue, and flush again.
       await this.dependencies.storage.setPendingSnapshot(
@@ -713,10 +714,9 @@ export class SyncEngine {
       )
       await this.dependencies.storage.clearDeletedImageIds(this.userId)
       await this.dependencies.storage.setPendingSnapshot(this.userId, null)
-      this.currentState = result.state
       this.conflict = undefined
       this.clearStale(false)
-      this.setStatus("saved", result.state)
+      this.setStatus("saved")
     }
   }
 
@@ -797,9 +797,23 @@ export class SyncEngine {
     this.setStatus("offline")
   }
 
+  /** Push a pending debounced edit now (page hide). */
+  flushPending(): void {
+    if (this.destroyed || !this.online) return
+    if (!this.debounceTimer && !this.flushTimer) return
+    if (this.debounceTimer) clearTimeout(this.debounceTimer)
+    if (this.flushTimer) clearTimeout(this.flushTimer)
+    this.debounceTimer = null
+    this.flushTimer = null
+    void this.sync()
+  }
+
   private scheduleFlush(): void {
     if (this.flushTimer) clearTimeout(this.flushTimer)
-    this.flushTimer = setTimeout(() => void this.sync(), SYNC_RETRY_DEBOUNCE_MS)
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null
+      void this.sync()
+    }, SYNC_RETRY_DEBOUNCE_MS)
   }
 
   private handleVisibilityChange = () => {

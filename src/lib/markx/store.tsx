@@ -1,5 +1,10 @@
 import { nanoid } from "nanoid"
 
+import {
+  deleteItems as deleteBoardItems,
+  moveItems as moveBoardItems,
+  parseBookmarkUrl,
+} from "./board-items"
 import { enrichLink } from "./enrich"
 import { cloneState, createEmptyState, nextZ } from "./state"
 import { localMarkxStorage, sweepOrphanImageBlobs } from "./storage"
@@ -17,12 +22,42 @@ import type {
   MarkxState,
   Note,
 } from "./types"
+import type { WorkspaceLocation } from "./workspace-items"
 import { youtubeOptimisticImageUrl } from "./youtube"
 
 type Listener = () => void
 type PositionUpdate = { id: string; x: number; y: number; z?: number }
 
 const MAX_HISTORY = 50
+const ENRICH_RESULTS_LIMIT = 500
+
+/**
+ * True when `ids` already sit above every other item, in the given order.
+ * Raising them again would only rewrite and re-sync the workspace.
+ */
+function isAlreadyOnTop(state: MarkxState, ids: readonly string[]): boolean {
+  const wanted = new Set(ids)
+  let othersMax = -Infinity
+  const zById = new Map<string, number>()
+  for (const list of [
+    state.folders,
+    state.bookmarks,
+    state.notes,
+    state.images,
+  ]) {
+    for (const item of list) {
+      if (wanted.has(item.id)) zById.set(item.id, item.z)
+      else othersMax = Math.max(othersMax, item.z)
+    }
+  }
+  let previous = othersMax
+  for (const id of ids) {
+    const z = zById.get(id)
+    if (z == null || z <= previous) return false
+    previous = z
+  }
+  return true
+}
 
 function applyBookmarkMetadata(
   bookmark: Bookmark,
@@ -40,7 +75,9 @@ function applyBookmarkMetadata(
 
 /** Pending enrich flags are session-local; never resume a shimmer after reload. */
 function settleStaleEnrichStatus(state: MarkxState): MarkxState {
-  if (!state.bookmarks.some((bookmark) => bookmark.enrichStatus === "pending")) {
+  if (
+    !state.bookmarks.some((bookmark) => bookmark.enrichStatus === "pending")
+  ) {
     return state
   }
   return {
@@ -62,7 +99,15 @@ export type MarkxActions = {
   renameFolder: (id: string, name: string) => void
   deleteFolders: (ids: string[]) => void
   createNote: (x: number, y: number, folderId: string | null) => Note
-  updateNoteContent: (id: string, content: string) => void
+  /**
+   * Updates from one editing `session` (autosave drafts plus the final
+   * commit) share a single undo step. An unchanged content is a no-op.
+   */
+  updateNoteContent: (
+    id: string,
+    content: string,
+    opts?: { session?: string }
+  ) => void
   setNoteStyle: (
     id: string,
     style: Partial<Pick<Note, "color" | "font" | "fontSize">>
@@ -72,23 +117,47 @@ export type MarkxActions = {
   deleteImages: (ids: string[]) => BoardImage[]
   /**
    * Returns the optimistic bookmark synchronously so callers can select it right
-   * away. Open Graph metadata arrives later via a background patch.
+   * away. Open Graph metadata arrives later via a background patch. Returns
+   * null when `url` is not a valid http(s) link.
    */
   createBookmark: (
     folderId: string,
     url: string,
     x: number,
     y: number
-  ) => Bookmark
+  ) => Bookmark | null
   renameBookmark: (id: string, title: string) => void
   resizeItem: (
     id: string,
     rect: { x: number; width: number; height: number }
   ) => void
   resetSizes: (ids: string[]) => void
-  moveBookmarks: (ids: string[], folderId: string) => void
+  /**
+   * Move bookmarks, notes, and images to Home or a folder (see
+   * board-items.ts for what can live where). Returns what moved.
+   */
+  moveItems: (
+    ids: string[],
+    target: WorkspaceLocation
+  ) => { moved: number; skipped: number }
   deleteBookmarks: (ids: string[]) => Bookmark[]
-  restoreBookmarks: (bookmarks: Bookmark[]) => void
+  /**
+   * Delete any mix of items in one undo step. Deleting a folder also
+   * deletes everything inside it.
+   */
+  deleteItems: (ids: string[]) => {
+    folders: number
+    bookmarks: number
+    notes: number
+    images: number
+  }
+  /** Id of the latest undo step, for toast "Undo" buttons. */
+  lastEntryId: () => number | null
+  /**
+   * Undo `entryId` only if it is still the latest step. Returns false (and
+   * changes nothing) when newer changes came after it.
+   */
+  undoEntry: (entryId: number | null) => boolean
   markxOnboarded: () => void
   enrichMissingBookmarks: () => Promise<void>
 }
@@ -107,30 +176,105 @@ export type MarkxStore = {
   attachSync: (engine: SyncEngine) => void
   detachSync: () => void
   replaceState: (newState: MarkxState, opts?: { persist?: boolean }) => void
+  /**
+   * Run a pending debounced save now. `unloading` also writes the guest
+   * state synchronously, since async storage may not finish before unload.
+   */
+  flush: (opts?: { unloading?: boolean }) => void
   hydrate: () => Promise<void>
   finishHydration: () => void
   resolveConflictUseCloud: () => Promise<void>
   resolveConflictOverwriteCloud: () => Promise<void>
 }
 
+export type GuestMessage = { type: "guest-saved"; from: string }
+
+/** Cross-tab signal for guest mode (BroadcastChannel in the browser). */
+export type GuestChannel = {
+  post: (message: GuestMessage) => void
+  subscribe: (listener: (message: GuestMessage) => void) => () => void
+}
+
 export type MarkxStoreDependencies = {
   storage: MarkxStorage
   enrich: (input: { data: { url: string } }) => Promise<LinkMetadata>
   sweepOrphanImages: typeof sweepOrphanImageBlobs
+  channel?: GuestChannel
+}
+
+function browserGuestChannel(): GuestChannel | undefined {
+  if (
+    typeof window === "undefined" ||
+    typeof BroadcastChannel === "undefined"
+  ) {
+    return undefined
+  }
+  const channel = new BroadcastChannel("markx-guest")
+  // Do not keep a test runner's event loop alive.
+  ;(channel as unknown as { unref?: () => void }).unref?.()
+  return {
+    post: (message) => channel.postMessage(message),
+    subscribe: (listener) => {
+      const onMessage = (event: MessageEvent<GuestMessage>) =>
+        listener(event.data)
+      channel.addEventListener("message", onMessage)
+      return () => channel.removeEventListener("message", onMessage)
+    },
+  }
 }
 
 const defaultDependencies: MarkxStoreDependencies = {
   storage: localMarkxStorage,
   enrich: enrichLink,
   sweepOrphanImages: sweepOrphanImageBlobs,
+  channel: browserGuestChannel(),
 }
 
 export function createMarkxStore(
   dependencies: MarkxStoreDependencies = defaultDependencies
 ): MarkxStore {
   let state: MarkxState = createEmptyState()
-  let past: MarkxState[] = []
-  let future: MarkxState[] = []
+  type HistoryEntry = { id: number; snapshot: MarkxState }
+  let past: HistoryEntry[] = []
+  let future: HistoryEntry[] = []
+  let nextEntryId = 1
+
+  /**
+   * Enrich bookkeeping, so undo/redo can restore a bookmark snapshot taken
+   * while its enrich was pending without a shimmer that never ends.
+   */
+  const enrichInFlight = new Set<string>()
+  const enrichResults = new Map<string, LinkMetadata | null>()
+  /** Bounded: only recent results can matter for undo/redo snapshots. */
+  const rememberEnrich = (id: string, meta: LinkMetadata | null) => {
+    enrichResults.delete(id)
+    enrichResults.set(id, meta)
+    if (enrichResults.size > ENRICH_RESULTS_LIMIT) {
+      const oldest = enrichResults.keys().next().value
+      if (oldest !== undefined) enrichResults.delete(oldest)
+    }
+  }
+
+  const reconcileEnrich = (snapshot: MarkxState): MarkxState => {
+    if (!snapshot.bookmarks.some((b) => b.enrichStatus === "pending")) {
+      return snapshot
+    }
+    return {
+      ...snapshot,
+      bookmarks: snapshot.bookmarks.map((b) => {
+        if (b.enrichStatus !== "pending") return b
+        if (enrichResults.has(b.id)) {
+          const meta = enrichResults.get(b.id)
+          return meta
+            ? applyBookmarkMetadata(b, meta)
+            : { ...b, enrichStatus: "done" as const }
+        }
+        return enrichInFlight.has(b.id)
+          ? b
+          : { ...b, enrichStatus: "done" as const }
+      }),
+    }
+  }
   const listeners = new Set<Listener>()
   let saveTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -153,20 +297,63 @@ export function createMarkxStore(
     for (const listener of listeners) listener()
   }
 
+  let pendingSave: (() => void) | null = null
+  const instanceId = nanoid()
+  let hydrated = false
+
+  /**
+   * Guest mode has one IndexedDB value shared by every tab. When another tab
+   * saves, adopt its state so this tab's next save does not overwrite it.
+   * A tab with its own unsaved edits keeps them (last writer wins).
+   */
+  dependencies.channel?.subscribe((message) => {
+    if (message.from === instanceId) return
+    if (!hydrated || syncEngine || saveTimer) return
+    void dependencies.storage.load().then((next) => {
+      if (!hydrated || syncEngine || saveTimer) return
+      replaceState(next, { persist: false })
+    })
+  })
+
+  /**
+   * Single save path. Logged in: every user change goes straight to the
+   * sync engine, which owns the only (cloud) debounce. Guest: one local
+   * debounce to IndexedDB. Background patches (`sync: false`) are never sent
+   * to the engine and never cancel a pending user save.
+   */
   const persist = (opts?: { sync?: boolean }) => {
+    if (syncEngine) {
+      if (opts?.sync === false) return
+      const deleted = [...pendingDeletedImageIds]
+      pendingDeletedImageIds.clear()
+      syncEngine.onStateChange(state, deleted)
+      return
+    }
     if (saveTimer) clearTimeout(saveTimer)
-    saveTimer = setTimeout(() => {
-      if (syncEngine) {
-        // Metadata enrich must not mark the engine dirty (blocks cross-tab
-        // cloud adopt). User edits always sync (opts.sync !== false).
-        if (opts?.sync === false) return
-        const deleted = [...pendingDeletedImageIds]
-        pendingDeletedImageIds.clear()
-        syncEngine.onStateChange(state, deleted)
-      } else {
-        void dependencies.storage.save(state)
-      }
-    }, STORE_PERSIST_DEBOUNCE_MS)
+    const run = () => {
+      saveTimer = null
+      pendingSave = null
+      void dependencies.storage
+        .save(state)
+        .then(() =>
+          dependencies.channel?.post({ type: "guest-saved", from: instanceId })
+        )
+    }
+    pendingSave = run
+    saveTimer = setTimeout(run, STORE_PERSIST_DEBOUNCE_MS)
+  }
+
+  const flush = (opts?: { unloading?: boolean }) => {
+    if (syncEngine) {
+      syncEngine.flushPending()
+      return
+    }
+    if (saveTimer) clearTimeout(saveTimer)
+    const hadPending = pendingSave != null
+    pendingSave?.()
+    if (opts?.unloading && hadPending) {
+      dependencies.storage.saveBackup?.(state)
+    }
   }
 
   let historySnapshot: MarkxHistory = { canUndo: false, canRedo: false }
@@ -183,10 +370,33 @@ export function createMarkxStore(
     return historySnapshot
   }
 
+  /** Key of the last coalescing commit; see {@link commitCoalesced}. */
+  let coalesceKey: string | null = null
+
   /** Apply a change and push the previous snapshot onto the undo stack. */
   const commit = (updater: (prev: MarkxState) => MarkxState) => {
-    past.push(cloneState(state))
+    coalesceKey = null
+    past.push({ id: nextEntryId++, snapshot: cloneState(state) })
     if (past.length > MAX_HISTORY) past.shift()
+    future = []
+    state = updater(state)
+    emit()
+    persist()
+  }
+
+  /**
+   * Like {@link commit}, but consecutive calls with the same key extend the
+   * last undo step instead of adding one (note drafts while typing).
+   */
+  const commitCoalesced = (
+    key: string,
+    updater: (prev: MarkxState) => MarkxState
+  ) => {
+    if (coalesceKey !== key || past.length === 0) {
+      commit(updater)
+      coalesceKey = key
+      return
+    }
     future = []
     state = updater(state)
     emit()
@@ -198,32 +408,77 @@ export function createMarkxStore(
     updater: (prev: MarkxState) => MarkxState,
     opts?: { sync?: boolean }
   ) => {
+    // A history-free change between two note drafts ends the coalesced
+    // step, so Undo of the drafts cannot also revert this change.
+    coalesceKey = null
     state = updater(state)
     emit()
     persist(opts)
   }
 
+  function replaceState(newState: MarkxState, opts?: { persist?: boolean }) {
+    state = settleStaleEnrichStatus(newState)
+    past = []
+    future = []
+    emit()
+    // Skip persist when applying a remote/cache snapshot so we don't
+    // immediately schedule a redundant cloud write of the same data.
+    if (opts?.persist !== false) {
+      persist()
+    }
+  }
+
   const actions: MarkxActions = {
     undo() {
+      coalesceKey = null
       const previous = past.pop()
       if (!previous) return
-      future.push(cloneState(state))
-      state = previous
+      future.push({ id: previous.id, snapshot: cloneState(state) })
+      state = reconcileEnrich(previous.snapshot)
       emit()
       persist()
     },
 
     redo() {
+      coalesceKey = null
       const next = future.pop()
       if (!next) return
-      past.push(cloneState(state))
-      state = next
+      past.push({ id: next.id, snapshot: cloneState(state) })
+      state = reconcileEnrich(next.snapshot)
       emit()
       persist()
     },
 
+    deleteItems(ids) {
+      let counts = { folders: 0, bookmarks: 0, notes: 0, images: 0 }
+      if (ids.length === 0) return counts
+      const result = deleteBoardItems(state, ids)
+      counts = result.counts
+      if (
+        counts.folders + counts.bookmarks + counts.notes + counts.images ===
+        0
+      ) {
+        return counts
+      }
+      for (const imageId of result.removedImageIds) {
+        pendingDeletedImageIds.add(imageId)
+      }
+      commit(() => result.state)
+      return counts
+    },
+
+    lastEntryId() {
+      return past.at(-1)?.id ?? null
+    },
+
+    undoEntry(entryId) {
+      if (entryId == null || past.at(-1)?.id !== entryId) return false
+      actions.undo()
+      return true
+    },
+
     raiseZ(ids) {
-      if (ids.length === 0) return
+      if (ids.length === 0 || isAlreadyOnTop(state, ids)) return
       patch((prev) => {
         let { zCounter } = prev
         const bump = new Map<string, number>()
@@ -301,27 +556,8 @@ export function createMarkxStore(
     },
 
     deleteFolders(ids) {
-      const idSet = new Set(ids)
-      commit((prev) => {
-        // Track images that are being removed so the sync engine can
-        // soft-delete their R2 objects.
-        for (const img of prev.images) {
-          if (img.folderId != null && idSet.has(img.folderId)) {
-            pendingDeletedImageIds.add(img.imageId)
-          }
-        }
-        return {
-          ...prev,
-          folders: prev.folders.filter((f) => !idSet.has(f.id)),
-          bookmarks: prev.bookmarks.filter((b) => !idSet.has(b.folderId)),
-          notes: prev.notes.filter(
-            (n) => n.folderId == null || !idSet.has(n.folderId)
-          ),
-          images: prev.images.filter(
-            (i) => i.folderId == null || !idSet.has(i.folderId)
-          ),
-        }
-      })
+      const folderIds = new Set(state.folders.map((f) => f.id))
+      actions.deleteItems(ids.filter((id) => folderIds.has(id)))
     },
 
     createNote(x, y, folderId) {
@@ -349,11 +585,15 @@ export function createMarkxStore(
       return created
     },
 
-    updateNoteContent(id, content) {
-      commit((prev) => ({
+    updateNoteContent(id, content, opts) {
+      const current = state.notes.find((n) => n.id === id)
+      if (!current || current.content === content) return
+      const updater = (prev: MarkxState): MarkxState => ({
         ...prev,
         notes: prev.notes.map((n) => (n.id === id ? { ...n, content } : n)),
-      }))
+      })
+      if (opts?.session) commitCoalesced(`note:${id}:${opts.session}`, updater)
+      else commit(updater)
     },
 
     setNoteStyle(id, style) {
@@ -365,14 +605,8 @@ export function createMarkxStore(
 
     deleteNotes(ids) {
       const idSet = new Set(ids)
-      let removed: Note[] = []
-      commit((prev) => {
-        removed = prev.notes.filter((n) => idSet.has(n.id))
-        return {
-          ...prev,
-          notes: prev.notes.filter((n) => !idSet.has(n.id)),
-        }
-      })
+      const removed = state.notes.filter((item) => idSet.has(item.id))
+      actions.deleteItems(removed.map((item) => item.id))
       return removed
     },
 
@@ -393,28 +627,16 @@ export function createMarkxStore(
 
     deleteImages(ids) {
       const idSet = new Set(ids)
-      let removed: BoardImage[] = []
-      commit((prev) => {
-        removed = prev.images.filter((i) => idSet.has(i.id))
-        // Track for R2 soft-delete on next sync.
-        for (const img of removed) {
-          pendingDeletedImageIds.add(img.imageId)
-        }
-        return {
-          ...prev,
-          images: prev.images.filter((i) => !idSet.has(i.id)),
-        }
-      })
+      const removed = state.images.filter((item) => idSet.has(item.id))
+      actions.deleteItems(removed.map((item) => item.id))
       return removed
     },
 
     createBookmark(folderId, url, x, y) {
-      let normalized = url.trim()
-      if (!/^https?:\/\//i.test(normalized)) {
-        normalized = `https://${normalized}`
-      }
-
-      const host = new URL(normalized).hostname
+      const parsed = parseBookmarkUrl(url)
+      if (!parsed.ok) return null
+      const normalized = parsed.url
+      const host = parsed.host
       const optimisticImage = youtubeOptimisticImageUrl(normalized)
       let created!: Bookmark
       commit((prev) => {
@@ -442,9 +664,12 @@ export function createMarkxStore(
       // Enrich in the background: the card is already on the board, and waiting
       // for the scrape would delay selection and edit affordances.
       // Do not mark SyncEngine dirty — the create commit already queued a sync.
+      enrichInFlight.add(created.id)
       void (async () => {
         try {
           const meta = await dependencies.enrich({ data: { url: normalized } })
+          enrichInFlight.delete(created.id)
+          rememberEnrich(created.id, meta)
           patch(
             (prev) => ({
               ...prev,
@@ -455,6 +680,8 @@ export function createMarkxStore(
             { sync: false }
           )
         } catch {
+          enrichInFlight.delete(created.id)
+          rememberEnrich(created.id, null)
           // Keep the optimistic card, but clear the loading shimmer.
           patch(
             (prev) => ({
@@ -523,42 +750,17 @@ export function createMarkxStore(
       }))
     },
 
-    moveBookmarks(ids, folderId) {
-      const idSet = new Set(ids)
-      commit((prev) => ({
-        ...prev,
-        bookmarks: prev.bookmarks.map((b, index) =>
-          idSet.has(b.id)
-            ? {
-                ...b,
-                folderId,
-                x: 140 + (index % 5) * 24,
-                y: 140 + (index % 5) * 24,
-              }
-            : b
-        ),
-      }))
+    moveItems(ids, target) {
+      const result = moveBoardItems(state, ids, target)
+      if (result.moved > 0) commit(() => result.state)
+      return { moved: result.moved, skipped: result.skipped }
     },
 
     deleteBookmarks(ids) {
       const idSet = new Set(ids)
-      let removed: Bookmark[] = []
-      commit((prev) => {
-        removed = prev.bookmarks.filter((b) => idSet.has(b.id))
-        return {
-          ...prev,
-          bookmarks: prev.bookmarks.filter((b) => !idSet.has(b.id)),
-        }
-      })
+      const removed = state.bookmarks.filter((item) => idSet.has(item.id))
+      actions.deleteItems(removed.map((item) => item.id))
       return removed
-    },
-
-    restoreBookmarks(bookmarks) {
-      if (bookmarks.length === 0) return
-      commit((prev) => ({
-        ...prev,
-        bookmarks: [...prev.bookmarks, ...bookmarks],
-      }))
     },
 
     markxOnboarded() {
@@ -597,7 +799,7 @@ export function createMarkxStore(
       const pendingMeta = new Map<string, LinkMetadata | null>()
       let flushTimer: ReturnType<typeof setTimeout> | null = null
 
-      const flush = () => {
+      const flushEnrich = () => {
         flushTimer = null
         if (pendingMeta.size === 0) return
         const batch = new Map(pendingMeta)
@@ -624,10 +826,12 @@ export function createMarkxStore(
               data: { url: bookmark.url },
             })
             pendingMeta.set(bookmark.id, meta)
+            rememberEnrich(bookmark.id, meta)
           } catch {
             pendingMeta.set(bookmark.id, null)
+            rememberEnrich(bookmark.id, null)
           }
-          flushTimer ??= setTimeout(flush, STORE_ENRICH_BATCH_WINDOW_MS)
+          flushTimer ??= setTimeout(flushEnrich, STORE_ENRICH_BATCH_WINDOW_MS)
         })
       )
 
@@ -636,7 +840,7 @@ export function createMarkxStore(
         flushTimer = null
       }
       cancelPendingFlush()
-      flush()
+      flushEnrich()
     },
   }
 
@@ -653,9 +857,15 @@ export function createMarkxStore(
     getSyncEngine: () => syncEngine,
     attachSync(engine: SyncEngine) {
       syncUnsub?.()
+      // A debounced guest save must not run after login: it would write the
+      // account workspace into the shared guest store.
+      if (saveTimer) clearTimeout(saveTimer)
+      saveTimer = null
+      pendingSave = null
       syncEngine = engine
-      // Adopt authoritative remote state when the engine resolves a deferred
-      // first-login bootstrap (e.g. offline guest import → cloud-wins).
+      // Adopt authoritative state only for explicit cloud adopts (bootstrap
+      // load, stale-banner reload, shared-board lift). Save acks never emit
+      // state, so they cannot overwrite newer local edits or undo history.
       syncUnsub = engine.subscribe((_status, _conflict, authoritativeState) => {
         if (!authoritativeState || syncEngine !== engine) return
         state = authoritativeState
@@ -670,19 +880,11 @@ export function createMarkxStore(
       syncEngine = null
       pendingDeletedImageIds.clear()
     },
-    replaceState(newState: MarkxState, opts?: { persist?: boolean }) {
-      state = settleStaleEnrichStatus(newState)
-      past = []
-      future = []
-      emit()
-      // Skip persist when applying a remote/cache snapshot so we don't
-      // immediately schedule a redundant cloud write of the same data.
-      if (opts?.persist !== false) {
-        persist()
-      }
-    },
+    flush,
+    replaceState,
     async hydrate() {
       state = settleStaleEnrichStatus(await dependencies.storage.load())
+      hydrated = true
       past = []
       future = []
       emit()
@@ -691,6 +893,7 @@ export function createMarkxStore(
       void dependencies.sweepOrphanImages(referencedImageIds)
     },
     finishHydration() {
+      hydrated = true
       state = settleStaleEnrichStatus(state)
       emit()
       void actions.enrichMissingBookmarks()

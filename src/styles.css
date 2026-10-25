@@ -388,6 +388,17 @@
  * and layout motion. Animations that exist purely for delight collapse to a
  * single frame. Keyframe-based entrance/exit animations are neutralized.
  */
+/*
+ * Toasts follow markx motion: short, strong ease-out, transform and opacity
+ * only (Sonner animates height too, which reads as a slide-and-stretch).
+ * Sonner turns its transitions off under prefers-reduced-motion itself.
+ */
+[data-sonner-toaster] [data-sonner-toast] {
+  transition:
+    transform 200ms var(--ease-out-strong),
+    opacity 200ms var(--ease-out-strong);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

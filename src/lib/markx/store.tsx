@@ -297,7 +297,7 @@ export function createMarkxStore(
    * A tab with its own unsaved edits keeps them (last writer wins).
    */
   dependencies.channel?.subscribe((message) => {
-    if (message.type !== "guest-saved" || message.from === instanceId) return
+    if (message.from === instanceId) return
     if (!hydrated || syncEngine || saveTimer) return
     void dependencies.storage.load().then((next) => {
       if (!hydrated || syncEngine || saveTimer) return

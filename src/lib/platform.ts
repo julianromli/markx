@@ -7,7 +7,7 @@ export function isApplePlatform(
     : navigator
 ): boolean {
   if (!nav) return false
-  return /mac|iphone|ipad|ipod/i.test(nav.platform || nav.userAgent)
+  return /mac|iphone|ipad|ipod/i.test(`${nav.platform} ${nav.userAgent}`)
 }
 
 /** "⌘N" on Apple platforms, "Ctrl+N" elsewhere. */

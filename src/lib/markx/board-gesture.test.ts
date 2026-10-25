@@ -206,10 +206,10 @@ describe("BoardGesture", () => {
     })
 
     it("MX-09 at minimum zoom a minimum-size note still has a move area", () => {
-      const note = { ...MIN_NOTE_SIZE }
-      const zone = resizeZoneSize(note, true, MIN_ZOOM)
-      expect(zone.width).toBeLessThan(note.width - 10)
-      expect(zone.height).toBeLessThan(note.height - 10)
+      const minNote = { ...MIN_NOTE_SIZE }
+      const zone = resizeZoneSize(minNote, true, MIN_ZOOM)
+      expect(zone.width).toBeLessThan(minNote.width - 10)
+      expect(zone.height).toBeLessThan(minNote.height - 10)
     })
 
     it("MX-09b the zone covers less than a quarter of a minimum-size note at any zoom", () => {

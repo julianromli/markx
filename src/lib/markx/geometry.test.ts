@@ -367,9 +367,8 @@ describe("findNearestInDirection", () => {
 
 describe("audit fixes: camera helpers", () => {
   it("MX-31 first paint on a phone fits all items without zooming past the cap", async () => {
-    const { cameraFitContentAtMost, getBoardItemRect } =
-      await import("./geometry")
-    const items = [
+    const { cameraFitContentAtMost } = await import("./geometry")
+    const folders = [
       {
         id: "a",
         kind: "folder" as const,
@@ -382,9 +381,9 @@ describe("audit fixes: camera helpers", () => {
       },
     ]
     const vp = { width: 390, height: 664 }
-    const cam = cameraFitContentAtMost(items, vp, 0.5)
+    const cam = cameraFitContentAtMost(folders, vp, 0.5)
     expect(cam.zoom).toBeLessThanOrEqual(0.5)
-    for (const item of items) {
+    for (const item of folders) {
       const r = getBoardItemRect(item)
       expect(cam.x + r.x * cam.zoom).toBeGreaterThanOrEqual(0)
       expect(cam.x + (r.x + r.width) * cam.zoom).toBeLessThanOrEqual(vp.width)

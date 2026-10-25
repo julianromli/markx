@@ -8,6 +8,8 @@ import { Board } from "@/components/markx/board"
 import type { BoardApi, BoardItemModel } from "@/components/markx/board"
 import type { Folder } from "@/lib/markx/types"
 import { AppShell } from "@/components/markx/app-shell"
+import { MobileSelectionBar } from "@/components/markx/mobile-selection-bar"
+import { useIsMobile } from "@/hooks/use-mobile"
 import type { CreateAction } from "@/components/markx/app-shell"
 import {
   AddLinkDialog,
@@ -153,6 +155,8 @@ export function Workspace(props: WorkspaceProps) {
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
   const [trashArmed, setTrashArmed] = useState(false)
   const [itemMoveDragging, setItemMoveDragging] = useState(false)
+  const [touchSelectMode, setTouchSelectMode] = useState(false)
+  const isMobile = useIsMobile()
 
   const folder =
     props.mode === "folder"
@@ -618,6 +622,7 @@ export function Workspace(props: WorkspaceProps) {
               onZoomChange={setZoomPercent}
               onContextPoint={setContextPoint}
               onBlankPress={handleBlankPress}
+              touchSelectMode={touchSelectMode}
               onRenameItem={(id) => {
                 setContextTargetId(id)
                 rememberFocus()
@@ -687,6 +692,39 @@ export function Workspace(props: WorkspaceProps) {
           }}
         />
       </ContextMenu>
+
+      {isMobile &&
+      !initialSyncBlocked &&
+      !itemMoveDragging &&
+      editingNoteId == null &&
+      (touchSelectMode || selectedIds.size > 0) ? (
+        <MobileSelectionBar
+          count={selectedIds.size}
+          selectMode={touchSelectMode}
+          canRename={selectedRenamable}
+          canMove={canMoveSelection}
+          onToggleSelectMode={() => setTouchSelectMode((on) => !on)}
+          onRename={() => {
+            const id = [...selectedIds][0]
+            if (!id) return
+            setContextTargetId(id)
+            rememberFocus()
+            setRenameOpen(true)
+          }}
+          onMove={() => {
+            rememberFocus()
+            setMoveOpen(true)
+          }}
+          onDelete={() => {
+            deleteSelection([...selectedIds])
+            setTouchSelectMode(false)
+          }}
+          onDone={() => {
+            setTouchSelectMode(false)
+            setSelectedIds(new Set())
+          }}
+        />
+      ) : null}
 
       {initialSyncBlocked ? (
         <div

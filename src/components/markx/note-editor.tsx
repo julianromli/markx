@@ -179,7 +179,7 @@ export default function NoteEditor({
       frame = requestAnimationFrame(place)
       const toolbarEl = toolbarRef.current
       if (!toolbarEl) return
-      const note = container.getBoundingClientRect()
+      const noteRect = container.getBoundingClientRect()
       const bar = toolbarEl.getBoundingClientRect()
       const vv = window.visualViewport
       const viewTop = vv?.offsetTop ?? 0
@@ -187,18 +187,20 @@ export default function NoteEditor({
       const viewWidth = vv?.width ?? window.innerWidth
       const viewHeight = vv?.height ?? window.innerHeight
       const gap = 8
-      let top = isMobile ? note.bottom + gap : note.top - bar.height - 12
+      let top = isMobile
+        ? noteRect.bottom + gap
+        : noteRect.top - bar.height - 12
       if (isMobile && top + bar.height > viewTop + viewHeight - gap) {
-        top = note.top - bar.height - gap
+        top = noteRect.top - bar.height - gap
       }
-      if (!isMobile && top < viewTop + gap) top = note.bottom + gap
+      if (!isMobile && top < viewTop + gap) top = noteRect.bottom + gap
       top = Math.max(
         viewTop + gap,
         Math.min(top, viewTop + viewHeight - bar.height - gap)
       )
       let left = isMobile
-        ? note.left
-        : note.left + note.width / 2 - bar.width / 2
+        ? noteRect.left
+        : noteRect.left + noteRect.width / 2 - bar.width / 2
       left = Math.max(
         viewLeft + gap,
         Math.min(left, viewLeft + viewWidth - bar.width - gap)

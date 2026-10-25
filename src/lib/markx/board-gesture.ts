@@ -48,6 +48,11 @@ export type GestureContext = {
   mobileDock: boolean
   trashRect: ScreenRect | null
   dockRect: ScreenRect | null
+  /**
+   * Phone select mode: a tap adds or removes an item, and a one-finger drag
+   * on blank space draws a marquee instead of panning.
+   */
+  touchSelectMode?: boolean
 }
 
 export type PointerInput = {
@@ -104,6 +109,10 @@ type Drag = {
   /** When the pointer entered the phone delete dock, or null. */
   overDockSince?: number | null
   lastPointer?: Point
+  /** Marquee adds to the selection that existed when it started. */
+  baseSelection?: Set<string>
+  /** Select mode: a tap (no drag) on an already selected item deselects it. */
+  deselectOnTap?: boolean
 }
 
 const DOUBLE_CLICK_MS = 350
@@ -177,17 +186,24 @@ export class BoardGesture {
     const hit = hitTestBoardItems(ctx.items, boardPoint.x, boardPoint.y)
     const effects: GestureEffect[] = []
 
+    const selectMode = !!ctx.touchSelectMode && e.pointerType === "touch"
+
     if (!hit) {
-      if (!e.metaKey && !e.ctrlKey && !e.shiftKey) {
+      if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !selectMode) {
         effects.push({ type: "select", ids: new Set() })
       }
       effects.push({ type: "blankPress" })
       effects.push({ type: "capture", pointerIds: [e.pointerId] })
-      if (e.pointerType === "touch") {
+      if (e.pointerType === "touch" && !selectMode) {
         this.drag = { ...base, mode: "pan", startBoard: boardPoint }
         return effects
       }
-      this.drag = { ...base, mode: "marquee", startBoard: boardPoint }
+      this.drag = {
+        ...base,
+        mode: "marquee",
+        startBoard: boardPoint,
+        baseSelection: selectMode ? new Set(ctx.selectedIds) : undefined,
+      }
       effects.push({
         type: "marquee",
         rect: { x: boardPoint.x, y: boardPoint.y, width: 0, height: 0 },
@@ -235,6 +251,8 @@ export class BoardGesture {
         return effects
       }
     }
+
+    if (selectMode) return this.selectModePress(hit, e, ctx, base, boardPoint)
 
     const last = this.lastClick
     if (last && last.id === hit.id && e.time - last.time < DOUBLE_CLICK_MS) {
@@ -314,7 +332,11 @@ export class BoardGesture {
       const current = screenToBoard(e.x, e.y, ctx.camera, toViewportRect(ctx))
       const rect = normalizeRect(drag.startBoard, current)
       const additive = !!(e.metaKey || e.ctrlKey)
-      const ids = additive ? new Set(ctx.selectedIds) : new Set<string>()
+      const ids = drag.baseSelection
+        ? new Set(drag.baseSelection)
+        : additive
+          ? new Set(ctx.selectedIds)
+          : new Set<string>()
       for (const item of ctx.items) {
         if (intersects(rect, getBoardItemRect(item))) ids.add(item.id)
       }
@@ -381,6 +403,12 @@ export class BoardGesture {
 
     if (drag.pointerId !== e.pointerId) return effects
     effects.push({ type: "flush" })
+
+    if (drag.mode === "pending" && drag.deselectOnTap && drag.itemId) {
+      const ids = new Set(ctx.selectedIds)
+      ids.delete(drag.itemId)
+      effects.push({ type: "select", ids })
+    }
 
     if (drag.mode === "marquee") effects.push({ type: "marquee", rect: null })
 
@@ -528,6 +556,36 @@ export class BoardGesture {
 
   private isOverDropTarget(x: number, y: number, ctx: GestureContext): boolean {
     return inScreenRect(x, y, ctx.mobileDock ? ctx.dockRect : ctx.trashRect)
+  }
+
+  private selectModePress(
+    hit: BoardItemModel,
+    e: PointerInput,
+    ctx: GestureContext,
+    base: { pointerId: number; startScreen: Point; originCamera: Camera },
+    boardPoint: Point
+  ): GestureEffect[] {
+    const effects: GestureEffect[] = []
+    const wasSelected = ctx.selectedIds.has(hit.id)
+    const ids = new Set(ctx.selectedIds)
+    ids.add(hit.id)
+    if (!wasSelected) effects.push({ type: "select", ids })
+    this.anchorId = hit.id
+    const origins = new Map<string, Point>()
+    for (const item of ctx.items) {
+      if (ids.has(item.id))
+        origins.set(item.id, { x: item.data.x, y: item.data.y })
+    }
+    effects.push({ type: "capture", pointerIds: [e.pointerId] })
+    this.drag = {
+      ...base,
+      mode: "pending",
+      startBoard: boardPoint,
+      itemId: hit.id,
+      origins,
+      deselectOnTap: wasSelected,
+    }
+    return effects
   }
 
   private selectionForPress(

@@ -95,6 +95,8 @@ type BoardProps = {
   onContextPoint?: (point: { x: number; y: number }) => void
   /** A press on empty canvas (ends note editing, among others). */
   onBlankPress?: () => void
+  /** Phone select mode: taps toggle items, blank drags draw a marquee. */
+  touchSelectMode?: boolean
   /** Rename via keyboard (F2). Pointer rename stays on the context menu. */
   onRenameItem?: (id: string) => void
   /** Accessible name for each item, announced when it receives focus. */
@@ -128,6 +130,7 @@ export function Board({
   onContextPoint,
   onRenameItem,
   onBlankPress,
+  touchSelectMode = false,
   getItemLabel,
   editingId,
   boardApiRef,
@@ -165,6 +168,7 @@ export function Board({
     new Map()
   )
   const gestureRef = useRef(new BoardGesture())
+  const lastPointerTypeRef = useRef<string>("mouse")
   const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const selectedRef = useRef(selectedIds)
   const itemsRef = useRef(items)
@@ -558,6 +562,7 @@ export function Board({
       mobileDock: isMobile,
       trashRect: isMobile ? null : screenRectOf(trashRef.current),
       dockRect: isMobile ? screenRectOf(deleteDockHitRef.current) : null,
+      touchSelectMode,
     }
   }
 
@@ -658,6 +663,19 @@ export function Board({
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (!viewportRef.current) return
     modalityRef.current = "pointer"
+    lastPointerTypeRef.current = e.pointerType
+    if (e.pointerType === "touch") {
+      // Touch long-press opens the context menu without a native
+      // `contextmenu` event (see onContextMenu), so record the point here.
+      onContextPoint?.(
+        screenToBoard(
+          e.clientX,
+          e.clientY,
+          cameraRef.current,
+          getViewportRect()
+        )
+      )
+    }
     runEffects(
       e.currentTarget,
       gestureRef.current.pointerDown(toInput(e), gestureContext())
@@ -726,8 +744,19 @@ export function Board({
       scheduleFlush()
     }
 
+    // After a long press opens the context menu, Chromium can still treat
+    // the lift as a tap and send compat mousedown/click events, which land
+    // on the menu backdrop and close it (MX-22). Cancel that touchend.
+    const onTouchEnd = (e: TouchEvent) => {
+      if (document.querySelector('[role="menu"]')) e.preventDefault()
+    }
+
     el.addEventListener("wheel", onWheel, { passive: false })
-    return () => el.removeEventListener("wheel", onWheel)
+    el.addEventListener("touchend", onTouchEnd, { passive: false })
+    return () => {
+      el.removeEventListener("wheel", onWheel)
+      el.removeEventListener("touchend", onTouchEnd)
+    }
   }, [])
 
   const renderedItems = useMemo(() => {
@@ -764,6 +793,16 @@ export function Board({
       onPointerCancel={onPointerCancel}
       onContextMenu={(e) => {
         if (!viewportRef.current) return
+        if (lastPointerTypeRef.current === "touch") {
+          // Base UI already opens the menu from its own touch long-press
+          // timer. Its native-contextmenu path adds a "release outside
+          // closes" mouseup listener, and Chromium's compat mouseup after a
+          // long hold then closes the menu (MX-22). Keep the event away
+          // from it, and keep the browser's own menu away too.
+          e.preventDefault()
+          e.stopPropagation()
+          return
+        }
         const viewport = getViewportRect()
         const boardPoint = screenToBoard(
           e.clientX,

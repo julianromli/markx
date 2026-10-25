@@ -229,4 +229,45 @@ describe("BoardGesture", () => {
       })
     })
   })
+
+  describe("MX-23 touch select mode", () => {
+    const sel = (ids: string[]) =>
+      ctx({ touchSelectMode: true, selectedIds: new Set(ids) })
+
+    it("a tap adds an item to the selection", () => {
+      const g = new BoardGesture()
+      const effects = g.pointerDown(input({ x: 650, y: 150 }), sel(["n1"]))
+      expect(effects).toContainEqual({
+        type: "select",
+        ids: new Set(["n1", "f1"]),
+      })
+    })
+
+    it("a tap on a selected item removes it", () => {
+      const g = new BoardGesture()
+      g.pointerDown(input({ x: 150, y: 150 }), sel(["n1", "f1"]))
+      const effects = g.pointerUp(input({ x: 150, y: 150 }), sel(["n1", "f1"]))
+      expect(effects).toContainEqual({ type: "select", ids: new Set(["f1"]) })
+    })
+
+    it("dragging a selected item still moves the whole selection", () => {
+      const g = new BoardGesture()
+      g.pointerDown(input({ x: 150, y: 150 }), sel(["n1", "f1"]))
+      g.pointerMove(input({ x: 150, y: 200 }), sel(["n1", "f1"]))
+      const effects = g.pointerUp(input({ x: 150, y: 200 }), sel(["n1", "f1"]))
+      const commit = effects.find((e) => e.type === "commitMove")
+      expect(commit && "updates" in commit ? commit.updates.length : 0).toBe(2)
+    })
+
+    it("a drag on blank space draws an additive marquee instead of panning", () => {
+      const g = new BoardGesture()
+      g.pointerDown(input({ x: 50, y: 50 }), sel(["f1"]))
+      expect(g.mode).toBe("marquee")
+      const effects = g.pointerMove(input({ x: 200, y: 200 }), sel(["f1"]))
+      expect(effects).toContainEqual({
+        type: "select",
+        ids: new Set(["f1", "n1"]),
+      })
+    })
+  })
 })

@@ -30,7 +30,10 @@ import {
   MAX_ZOOM,
   MIN_ZOOM,
   RESIZE_HANDLE_SIZE,
+  cameraCenterOn,
   cameraFitContent,
+  cameraFitContentAtMost,
+  cameraToReveal,
   cameraZoomAroundViewportCenter,
   findNearestInDirection,
   getBoardItemRect,
@@ -67,6 +70,8 @@ export type BoardApi = {
   setZoomPercent: (percent: number) => void
   /** Fit all board items in the viewport with padding. */
   fitToContent: () => void
+  /** Pan (keeping zoom) so the item is in the center of the view. */
+  centerOn: (id: string) => void
 }
 
 type BoardProps = {
@@ -277,6 +282,18 @@ export function Board({
         const next = cameraFitContent(itemsRef.current, rect)
         commitCamera(next)
       },
+      centerOn: (id: string) => {
+        const viewport = viewportRef.current
+        const item = itemsRef.current.find((i) => i.id === id)
+        if (!viewport || !item) return
+        commitCamera(
+          cameraCenterOn(
+            cameraRef.current,
+            getBoardItemRect(item),
+            viewport.getBoundingClientRect()
+          )
+        )
+      },
     }
   })
 
@@ -319,6 +336,45 @@ export function Board({
       hitTestBoardItems(itemsRef.current, boardX, boardY),
     []
   )
+
+  // Phones open on a fixed camera that cut items off; fit them on first
+  // paint instead, without zooming past the old 50% default.
+  const firstFitDoneRef = useRef(false)
+  useLayoutEffect(() => {
+    if (firstFitDoneRef.current) return
+    const viewport = viewportRef.current
+    if (!viewport || typeof window === "undefined") return
+    if (window.innerWidth >= 768 || items.length === 0) return
+    firstFitDoneRef.current = true
+    commitCamera(
+      cameraFitContentAtMost(items, viewport.getBoundingClientRect(), 0.5)
+    )
+  }, [commitCamera, items])
+
+  // Keep the note being edited above the virtual keyboard: when the visual
+  // viewport shrinks, pan the board so the note sits in the visible band.
+  useEffect(() => {
+    const vv = typeof window === "undefined" ? null : window.visualViewport
+    if (!editingId || !vv) return
+    const reveal = () => {
+      const viewport = viewportRef.current
+      const item = itemsRef.current.find((i) => i.id === editingId)
+      if (!viewport || !item) return
+      const rect = viewport.getBoundingClientRect()
+      const visibleBottom = vv.offsetTop + vv.height - rect.top
+      const visibleTop = Math.max(0, vv.offsetTop - rect.top)
+      const next = cameraToReveal(
+        cameraRef.current,
+        getBoardItemRect(item),
+        visibleTop,
+        Math.min(rect.height, visibleBottom)
+      )
+      if (next !== cameraRef.current) commitCamera(next)
+    }
+    reveal()
+    vv.addEventListener("resize", reveal)
+    return () => vv.removeEventListener("resize", reveal)
+  }, [commitCamera, editingId])
 
   // Any keypress implies keyboard modality until the next pointer press.
   useEffect(() => {

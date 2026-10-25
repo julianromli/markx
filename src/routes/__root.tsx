@@ -1,6 +1,9 @@
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router"
 
+import { useEffect } from "react"
+
 import { Toaster } from "@/components/ui/sonner"
+import { installVisualViewportVars } from "@/lib/visual-viewport"
 import { MarkxProvider } from "@/lib/markx/store"
 import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site-meta"
 import appCss from "../styles.css?url"
@@ -13,7 +16,7 @@ export const Route = createRootRoute({
       },
       {
         name: "viewport",
-        content: "width=device-width, initial-scale=1",
+        content: "width=device-width, initial-scale=1, viewport-fit=cover",
       },
       {
         title: SITE_NAME,
@@ -107,6 +110,7 @@ export const Route = createRootRoute({
 })
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+  useEffect(() => installVisualViewportVars(), [])
   return (
     <html lang="en" suppressHydrationWarning>
       <head>

@@ -246,7 +246,7 @@ export const BookmarkCard = memo(function BookmarkCard({
                   <div className="space-y-1">
                     <p className="text-[22px] font-semibold tracking-tight text-balance">
                       {bookmark.title}
-                    </p>
+                    </p>{" "}
                     {bookmark.description ? (
                       <p className="line-clamp-2 text-[13px] text-pretty text-white/65">
                         {bookmark.description}

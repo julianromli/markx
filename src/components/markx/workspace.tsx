@@ -9,7 +9,14 @@ import type { BoardApi, BoardItemModel } from "@/components/markx/board"
 import type { Folder } from "@/lib/markx/types"
 import { AppShell } from "@/components/markx/app-shell"
 import { MobileSelectionBar } from "@/components/markx/mobile-selection-bar"
+import { useCoarsePointer } from "@/hooks/use-coarse-pointer"
 import { useIsMobile } from "@/hooks/use-mobile"
+import type { SearchResult } from "@/components/markx/search-dialog"
+import {
+  requestItemFocus,
+  takeItemFocusRequest,
+} from "@/lib/markx/focus-request"
+import { shortcutLabel } from "@/lib/platform"
 import type { CreateAction } from "@/components/markx/app-shell"
 import {
   AddLinkDialog,
@@ -166,6 +173,48 @@ export function Workspace(props: WorkspaceProps) {
   const items: BoardItemModel[] = useMemo(
     () => selectWorkspaceItems(state, props),
     [props, state]
+  )
+
+  // Search may navigate here to show one item: select and center it.
+  useEffect(() => {
+    const id = takeItemFocusRequest((candidate) =>
+      items.some((item) => item.id === candidate)
+    )
+    if (!id) return
+    setSelectedIds(new Set([id]))
+    requestAnimationFrame(() => boardApiRef.current?.centerOn(id))
+  }, [items])
+
+  const handleSearchSelect = useCallback(
+    (result: SearchResult) => {
+      if (result.kind === "folder") {
+        void navigate({
+          to: "/folder/$folderId",
+          params: { folderId: result.id },
+        })
+        return
+      }
+      requestItemFocus(result.id)
+      const here =
+        result.location.mode === props.mode &&
+        (result.location.mode === "home" ||
+          (props.mode === "folder" &&
+            result.location.folderId === props.folderId))
+      if (here) {
+        const id = takeItemFocusRequest(() => true)
+        if (!id) return
+        setSelectedIds(new Set([id]))
+        boardApiRef.current?.centerOn(id)
+        return
+      }
+      if (result.location.mode === "home") void navigate({ to: "/" })
+      else
+        void navigate({
+          to: "/folder/$folderId",
+          params: { folderId: result.location.folderId },
+        })
+    },
+    [navigate, props]
   )
 
   useEffect(() => {
@@ -472,6 +521,18 @@ export function Workspace(props: WorkspaceProps) {
     [actions, activeFolderId, ingestImage]
   )
 
+  // Shortcut hints only where a keyboard is likely, with the OS modifier.
+  const coarsePointer = useCoarsePointer()
+  const toolsPlace = isMobile ? "Tools" : "the sidebar"
+  const emptyStateHint =
+    props.mode === "home"
+      ? coarsePointer
+        ? `Add a folder or note from ${toolsPlace}`
+        : `Press ${shortcutLabel("N")} for a new folder, or add a note from ${toolsPlace}`
+      : coarsePointer
+        ? `Add a link or note from ${toolsPlace}`
+        : `Add a note from ${toolsPlace}, or paste a URL (${shortcutLabel("V")})`
+
   const selectedNotes = selectedItems.filter((item) => item.kind === "note")
 
   const getItemLabel = useCallback(
@@ -480,7 +541,9 @@ export function Workspace(props: WorkspaceProps) {
         case "folder":
           return `${item.data.name}, ${describeContents(folderContents(state, item.data.id))}, folder`
         case "bookmark":
-          return `${item.data.title}, bookmark`
+          return item.data.description
+            ? `${item.data.title}, ${item.data.description}, bookmark`
+            : `${item.data.title}, bookmark`
         case "note": {
           const excerpt = item.data.content
             .replace(/<[^>]*>/g, " ")
@@ -603,6 +666,7 @@ export function Workspace(props: WorkspaceProps) {
           : undefined
       }
       shared={!!folder && sharedBoardByFolder.has(folder.id)}
+      onSearchSelect={handleSearchSelect}
     >
       <ContextMenu>
         <ContextMenuTrigger className="block h-full">
@@ -763,10 +827,11 @@ export function Workspace(props: WorkspaceProps) {
                 ? "Create a folder or note"
                 : "Add a link or note"}
             </p>
-            <p className="mt-1 text-[13px] text-pretty text-ink-muted">
-              {props.mode === "home"
-                ? "Press ⌘N for a new folder, or add a note from the sidebar"
-                : "Add a note from the sidebar, or paste a URL (⌘V)"}
+            <p
+              className="mt-1 text-[13px] text-pretty text-ink-muted"
+              suppressHydrationWarning
+            >
+              {emptyStateHint}
             </p>
             <Button
               className="mt-4"

@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router"
 import type { CSSProperties, ReactNode, RefObject } from "react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import { ArrowClockwiseIcon } from "@phosphor-icons/react/dist/csr/ArrowClockwise"
@@ -22,6 +22,12 @@ import homeIcon from "@/assets/markx/header/home.svg"
 import pixelFolder from "@/assets/markx/pixel-folder.svg"
 import { HeaderAuth } from "@/components/markx/header-auth"
 import { HelpDialog } from "@/components/markx/help-dialog"
+import { SearchDialog } from "@/components/markx/search-dialog"
+import type { SearchResult } from "@/components/markx/search-dialog"
+import {
+  isEditableEventTarget,
+  isOverlayActive,
+} from "@/components/markx/use-workspace-global-events"
 import { StaleWorkspaceBanner } from "@/components/markx/stale-workspace-banner"
 import {
   DropdownMenu,
@@ -77,6 +83,8 @@ type AppShellProps = {
   onShare?: () => void
   /** Whether the current folder is already shared (drives the icon state). */
   shared?: boolean
+  /** Called with the result picked in the Search dialog. */
+  onSearchSelect?: (result: SearchResult) => void
   children: ReactNode
 }
 
@@ -121,6 +129,7 @@ export function AppShell({
   onZoomFit,
   onShare,
   shared,
+  onSearchSelect,
   children,
 }: AppShellProps) {
   const actions = useMarkxActions()
@@ -128,6 +137,21 @@ export function AppShell({
   const [helpOpen, setHelpOpen] = useState(false)
   const [toolsOpen, setToolsOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+
+  // Cmd/Ctrl+K opens Search, except while typing or inside another dialog.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "k")
+        return
+      if (isEditableEventTarget(event.target) || isOverlayActive(event.target))
+        return
+      event.preventDefault()
+      setSearchOpen(true)
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [])
 
   const crumbs: BreadcrumbItem[] =
     breadcrumb && breadcrumb.length > 0
@@ -176,7 +200,7 @@ export function AppShell({
       className="markx-shell grid h-svh grid-cols-1 grid-rows-[auto_minmax(0,1fr)] bg-canvas antialiased md:grid-cols-[63px_minmax(0,1fr)]"
       style={{ "--rail-pad": "21.5px" } as CSSProperties}
     >
-      <header className="relative z-30 col-span-full bg-white shadow-[0_1px_1px_rgba(51,61,78,0.2)]">
+      <header className="relative z-30 col-span-full bg-white pt-[env(safe-area-inset-top)] shadow-[0_1px_1px_rgba(51,61,78,0.2)]">
         <div className="relative flex h-12 w-full items-center justify-between gap-1">
           <div className="relative z-10 flex h-12 min-w-0 flex-1 items-center pl-[max(0.25rem,env(safe-area-inset-left))] md:pl-0">
             <button
@@ -292,7 +316,8 @@ export function AppShell({
             </nav>
           </div>
 
-          <div className="pointer-events-none absolute inset-0 hidden items-center justify-center px-4 md:flex">
+          {/* Visually hidden on phones, but always the page heading. */}
+          <div className="pointer-events-none absolute inset-0 items-center justify-center px-4 max-md:sr-only md:flex">
             <h1 className="max-w-[45vw] truncate text-center text-[19.8px] font-bold tracking-[-0.18px] text-balance text-ink/80">
               {centerTitle}
             </h1>
@@ -303,8 +328,8 @@ export function AppShell({
             {typeof zoomPercent === "number" && onZoomPreset && onZoomFit ? (
               <DropdownMenu>
                 <DropdownMenuTrigger
+                  aria-label={`Zoom ${zoomPercent}%`}
                   className="mr-1 hidden h-8 items-center gap-0.5 rounded-md px-2 text-[12px] leading-none text-ink/80 transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] outline-none hover:bg-black/[0.04] focus-visible:ring-2 focus-visible:ring-black/10 active:scale-[0.96] md:flex pointer-coarse:h-11"
-                  aria-label="Zoom"
                 >
                   <span className="min-w-[2rem] text-right tabular-nums">
                     {zoomPercent}%
@@ -405,6 +430,7 @@ export function AppShell({
                 icon={
                   <MagnifyingGlassIcon className="size-5" weight="regular" />
                 }
+                onClick={() => setSearchOpen(true)}
               />
             </div>
 
@@ -476,7 +502,7 @@ export function AppShell({
               <DropdownMenu>
                 <DropdownMenuTrigger
                   className="pointer-events-auto flex h-11 items-center gap-1 rounded-xl border border-black/10 bg-white/90 px-3 text-[13px] font-medium text-ink/80 shadow-sm backdrop-blur-xl transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] outline-none hover:bg-white focus-visible:ring-2 focus-visible:ring-black/10 active:scale-[0.96]"
-                  aria-label="Zoom"
+                  aria-label={`Zoom ${zoomPercent}%`}
                 >
                   <span className="tabular-nums" suppressHydrationWarning>
                     {zoomPercent}%
@@ -591,12 +617,22 @@ export function AppShell({
           <MoreMenuItem
             label="Search"
             icon={<MagnifyingGlassIcon className="size-5" weight="regular" />}
-            onClick={() => setMoreOpen(false)}
+            onClick={() => {
+              setMoreOpen(false)
+              setSearchOpen(true)
+            }}
           />
         </SheetContent>
       </Sheet>
 
       <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
+      {searchOpen ? (
+        <SearchDialog
+          open={searchOpen}
+          onOpenChange={setSearchOpen}
+          onSelect={(result) => onSearchSelect?.(result)}
+        />
+      ) : null}
     </div>
   )
 }

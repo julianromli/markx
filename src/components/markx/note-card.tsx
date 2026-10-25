@@ -81,8 +81,13 @@ export function NoteCard({
         )}
         style={{ backgroundColor: NOTE_COLORS[note.color] }}
       >
+        {/* Scrollable only while editing: a native scroller would let the
+            browser claim touch drags and cancel the board gesture. */}
         <div
-          className="min-h-0 flex-1 overflow-y-auto leading-snug text-ink"
+          className={cn(
+            "min-h-0 flex-1 leading-snug text-ink",
+            editing ? "overflow-y-auto" : "overflow-hidden"
+          )}
           style={{ fontFamily, fontSize }}
         >
           {editing ? (

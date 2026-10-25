@@ -14,29 +14,24 @@ import type {
 
 import { DeleteDock } from "@/components/markx/delete-dock"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { pointInElement, vibrateDeleteFeedback } from "@/lib/markx/delete-dock"
+import { vibrateDeleteFeedback } from "@/lib/markx/delete-dock"
 import { cn } from "@/lib/utils"
+import { BoardGesture } from "@/lib/markx/board-gesture"
+import type {
+  GestureContext,
+  GestureEffect,
+  PointerInput,
+  ScreenRect,
+} from "@/lib/markx/board-gesture"
 import {
   DIRECTION_VECTORS,
-  DRAG_THRESHOLD,
   MAX_ZOOM,
-  MIN_BOOKMARK_SIZE,
-  MIN_IMAGE_SIZE,
-  MIN_NOTE_SIZE,
   MIN_ZOOM,
-  RESIZE_HANDLE_SIZE,
   cameraFitContent,
-  cameraFromTouchPinchPan,
   cameraZoomAroundViewportCenter,
-  clampBottomRightResize,
   findNearestInDirection,
   getBoardItemRect,
   hitTestBoardItems,
-  intersects,
-  isInBottomRightResizeZone,
-  normalizeRect,
-  pointerCentroid,
-  pointerDistance,
   screenToBoard,
   withLiveResize,
 } from "@/lib/markx/geometry"
@@ -95,6 +90,8 @@ type BoardProps = {
   onItemMoveDragChange?: (active: boolean) => void
   onZoomChange?: (zoomPercent: number) => void
   onContextPoint?: (point: { x: number; y: number }) => void
+  /** A press on empty canvas (ends note editing, among others). */
+  onBlankPress?: () => void
   /** Rename via keyboard (F2). Pointer rename stays on the context menu. */
   onRenameItem?: (id: string) => void
   /** Accessible name for each item, announced when it receives focus. */
@@ -102,23 +99,6 @@ type BoardProps = {
   editingId?: string
   boardApiRef?: React.RefObject<BoardApi | null>
   className?: string
-}
-
-type DragState = {
-  mode: "pan" | "marquee" | "move" | "pending" | "resize" | "touchPan"
-  pointerId: number
-  startScreen: { x: number; y: number }
-  startBoard: { x: number; y: number }
-  originCamera: Camera
-  itemId?: string
-  origins?: Map<string, { x: number; y: number }>
-  originRect?: Rect
-  minSize?: { width: number; height: number }
-  aspectRatio?: number
-  /** Last two-finger centroid (screen coords) while in touchPan. */
-  lastCentroid?: { x: number; y: number }
-  /** Last two-finger span while in touchPan. */
-  lastDistance?: number
 }
 
 type PendingGesture = {
@@ -144,6 +124,7 @@ export function Board({
   onZoomChange,
   onContextPoint,
   onRenameItem,
+  onBlankPress,
   getItemLabel,
   editingId,
   boardApiRef,
@@ -179,14 +160,9 @@ export function Board({
   const [liveResize, setLiveResize] = useState<Map<string, LiveResize>>(
     new Map()
   )
-  const dragRef = useRef<DragState | null>(null)
-  /** Active pointer screen positions for multi-touch pan/pinch. */
-  const pointersRef = useRef(new Map<number, { x: number; y: number }>())
+  const gestureRef = useRef(new BoardGesture())
   const selectedRef = useRef(selectedIds)
   const itemsRef = useRef(items)
-  const anchorIdRef = useRef<string | null>(null)
-  const lastClickRef = useRef<{ id: string; time: number } | null>(null)
-  const resizeRectRef = useRef<LiveResize | null>(null)
   /** Roving-tabindex stop for keyboard users reaching the canvas via Tab. */
   const [tabStopId, setTabStopId] = useState<string | null>(null)
   /**
@@ -206,9 +182,7 @@ export function Board({
   const previousItemsRef = useRef(items)
   const [exitingItems, setExitingItems] = useState<BoardItemModel[]>([])
   const [exitingIds, setExitingIds] = useState<Set<string>>(new Set())
-  const exitTimersRef = useRef(
-    new Map<string, ReturnType<typeof setTimeout>>()
-  )
+  const exitTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
   const exitFrameRef = useRef<number | null>(null)
 
   // Coalesce gesture previews to one React commit per frame (single write path).
@@ -354,7 +328,9 @@ export function Board({
   useLayoutEffect(() => {
     const previousItems = previousItemsRef.current
     const currentIds = new Set(items.map((item) => item.id))
-    const removedItems = previousItems.filter((item) => !currentIds.has(item.id))
+    const removedItems = previousItems.filter(
+      (item) => !currentIds.has(item.id)
+    )
     previousItemsRef.current = items
 
     setExitingItems((previous) => {
@@ -370,9 +346,7 @@ export function Board({
         : next
     })
     setExitingIds((previous) => {
-      const next = new Set(
-        [...previous].filter((id) => !currentIds.has(id))
-      )
+      const next = new Set([...previous].filter((id) => !currentIds.has(id)))
       return next.size === previous.size ? previous : next
     })
 
@@ -446,7 +420,7 @@ export function Board({
 
   const selectAndFocus = (id: string) => {
     onSelectedIdsChange(new Set([id]))
-    anchorIdRef.current = id
+    gestureRef.current.anchorId = id
     setTabStopId(id)
     // tabIndex=-1 elements accept programmatic focus, so this works before
     // the roving-tabindex rerender lands.
@@ -506,14 +480,6 @@ export function Board({
 
   const getViewportRect = () => viewportRef.current!.getBoundingClientRect()
 
-  const applySelectionFromMarquee = (rect: Rect, additive: boolean) => {
-    const next = additive ? new Set(selectedRef.current) : new Set<string>()
-    for (const item of itemsRef.current) {
-      if (intersects(rect, getBoardItemRect(item))) next.add(item.id)
-    }
-    onSelectedIdsChange(next)
-  }
-
   const releasePointer = (target: HTMLDivElement, pointerId: number) => {
     try {
       target.releasePointerCapture(pointerId)
@@ -530,412 +496,142 @@ export function Board({
     }
   }
 
-  /** Drop an in-progress one-finger gesture without committing move/resize. */
-  const abortSingleFingerGesture = () => {
-    const drag = dragRef.current
-    if (!drag || drag.mode === "touchPan") return
-
-    flushNow()
-
-    if (drag.mode === "marquee") {
-      pendingRef.current.marquee = null
-      setMarquee(null)
-    }
-    if (drag.mode === "resize") {
-      resizeRectRef.current = null
-      pendingRef.current.liveResize = new Map()
-      setLiveResize(new Map())
-    }
-    if (drag.mode === "move" || drag.mode === "pending") {
-      pendingRef.current.liveOffsets = new Map()
-      setLiveOffsets(new Map())
-      clearMoveTrashUi()
-    }
-    dragRef.current = null
+  const screenRectOf = (el: HTMLElement | null): ScreenRect | null => {
+    if (!el) return null
+    const r = el.getBoundingClientRect()
+    return { left: r.left, top: r.top, right: r.right, bottom: r.bottom }
   }
 
-  const beginTouchPan = (target: HTMLDivElement, pointerId: number) => {
-    abortSingleFingerGesture()
-    for (const id of pointersRef.current.keys()) {
-      try {
-        capturePointer(target, id)
-      } catch {
-        // pointer may already be gone
-      }
+  const gestureContext = (): GestureContext => {
+    const viewport = getViewportRect()
+    return {
+      items: itemsRef.current,
+      selectedIds: selectedRef.current,
+      editingId,
+      camera: cameraRef.current,
+      viewport: {
+        left: viewport.left,
+        top: viewport.top,
+        width: viewport.width,
+        height: viewport.height,
+      },
+      coarse: isMobile,
+      mobileDock: isMobile,
+      trashRect: isMobile ? null : screenRectOf(trashRef.current),
+      dockRect: isMobile ? screenRectOf(deleteDockHitRef.current) : null,
     }
-    const centroid = pointerCentroid(pointersRef.current.values())
-    const distance = pointerDistance(pointersRef.current.values())
-    if (!centroid || pointersRef.current.size < 2) return
-    const cam = cameraRef.current
-    dragRef.current = {
-      mode: "touchPan",
-      pointerId,
-      startScreen: { ...centroid },
-      startBoard: { x: 0, y: 0 },
-      originCamera: { ...cam },
-      lastCentroid: centroid,
-      lastDistance: distance,
+  }
+
+  const toInput = (e: ReactPointerEvent<HTMLDivElement>): PointerInput => ({
+    pointerId: e.pointerId,
+    pointerType: e.pointerType,
+    button: e.button,
+    x: e.clientX,
+    y: e.clientY,
+    time: Date.now(),
+    altKey: e.altKey,
+    metaKey: e.metaKey,
+    ctrlKey: e.ctrlKey,
+    shiftKey: e.shiftKey,
+  })
+
+  const runEffects = (target: HTMLDivElement, effects: GestureEffect[]) => {
+    for (const effect of effects) {
+      switch (effect.type) {
+        case "select":
+          selectedRef.current = effect.ids
+          onSelectedIdsChange(effect.ids)
+          break
+        case "open":
+          onOpenItem(effect.id)
+          break
+        case "raise":
+          onRaiseZ(effect.ids)
+          break
+        case "capture":
+          for (const id of effect.pointerIds) capturePointer(target, id)
+          break
+        case "release":
+          releasePointer(target, effect.pointerId)
+          break
+        case "camera":
+          cameraRef.current = effect.camera
+          pendingRef.current.camera = effect.camera
+          scheduleFlush()
+          break
+        case "marquee":
+          pendingRef.current.marquee = effect.rect
+          if (effect.rect) scheduleFlush()
+          else setMarquee(null)
+          break
+        case "liveOffsets":
+          pendingRef.current.liveOffsets = effect.offsets
+          if (effect.offsets.size > 0) scheduleFlush()
+          else setLiveOffsets(new Map())
+          break
+        case "liveResize":
+          pendingRef.current.liveResize = effect.resize
+          if (effect.resize.size > 0) scheduleFlush()
+          else setLiveResize(new Map())
+          break
+        case "moveStart":
+          setDragItemCount(effect.count)
+          onItemMoveDragChangeRef.current?.(true)
+          if (isMobile) setMoveDockOpen(true)
+          break
+        case "moveEnd":
+          clearMoveTrashUi()
+          break
+        case "trashArmed":
+          setTrashArmedState(effect.armed)
+          break
+        case "commitMove":
+          onMoveItems(effect.updates)
+          break
+        case "commitResize":
+          onResizeItem(effect.id, effect.rect)
+          break
+        case "trashDrop":
+          vibrateDeleteFeedback("commit")
+          onTrashDrop(effect.ids)
+          break
+        case "blankPress":
+          onBlankPress?.()
+          break
+        case "flush":
+          flushNow()
+          break
+      }
     }
   }
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (!viewportRef.current) return
-
     modalityRef.current = "pointer"
-    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
-
-    // Second (or later) finger: switch to two-finger pan + pinch.
-    if (pointersRef.current.size >= 2) {
-      beginTouchPan(e.currentTarget, e.pointerId)
-      return
-    }
-
-    // Ignore extra pointers if somehow already gesturing without a map entry.
-    if (dragRef.current != null) return
-
-    const cam = cameraRef.current
-    if (e.button === 1 || (e.button === 0 && e.altKey)) {
-      capturePointer(e.currentTarget, e.pointerId)
-      dragRef.current = {
-        mode: "pan",
-        pointerId: e.pointerId,
-        startScreen: { x: e.clientX, y: e.clientY },
-        startBoard: { x: 0, y: 0 },
-        originCamera: { ...cam },
-      }
-      return
-    }
-    if (e.button !== 0) return
-
-    const viewport = getViewportRect()
-    const boardPoint = screenToBoard(e.clientX, e.clientY, cam, viewport)
-    const hit = hitTest(boardPoint.x, boardPoint.y)
-
-    if (!hit) {
-      if (!e.metaKey && !e.ctrlKey && !e.shiftKey) {
-        onSelectedIdsChange(new Set())
-      }
-      capturePointer(e.currentTarget, e.pointerId)
-      if (e.pointerType === "touch") {
-        dragRef.current = {
-          mode: "pan",
-          pointerId: e.pointerId,
-          startScreen: { x: e.clientX, y: e.clientY },
-          startBoard: boardPoint,
-          originCamera: { ...cam },
-        }
-        return
-      }
-      dragRef.current = {
-        mode: "marquee",
-        pointerId: e.pointerId,
-        startScreen: { x: e.clientX, y: e.clientY },
-        startBoard: boardPoint,
-        originCamera: { ...cam },
-      }
-      setMarquee({ x: boardPoint.x, y: boardPoint.y, width: 0, height: 0 })
-      return
-    }
-
-    if (hit.id === editingId) {
-      return
-    }
-
-    if (
-      hit.kind === "bookmark" ||
-      hit.kind === "note" ||
-      hit.kind === "image"
-    ) {
-      const rect = getBoardItemRect(hit)
-      const minSize =
-        hit.kind === "note"
-          ? MIN_NOTE_SIZE
-          : hit.kind === "image"
-            ? MIN_IMAGE_SIZE
-            : MIN_BOOKMARK_SIZE
-      const aspectRatio =
-        hit.kind === "image"
-          ? hit.data.naturalWidth / hit.data.naturalHeight
-          : undefined
-      if (
-        isInBottomRightResizeZone(
-          boardPoint.x,
-          boardPoint.y,
-          rect,
-          isMobile
-            ? Math.max(RESIZE_HANDLE_SIZE, 44 / cam.zoom)
-            : RESIZE_HANDLE_SIZE
-        )
-      ) {
-        if (!selectedRef.current.has(hit.id)) {
-          onSelectedIdsChange(new Set([hit.id]))
-          anchorIdRef.current = hit.id
-        }
-        onRaiseZ([hit.id])
-        capturePointer(e.currentTarget, e.pointerId)
-        dragRef.current = {
-          mode: "resize",
-          pointerId: e.pointerId,
-          startScreen: { x: e.clientX, y: e.clientY },
-          startBoard: boardPoint,
-          originCamera: { ...cam },
-          itemId: hit.id,
-          originRect: rect,
-          minSize,
-          aspectRatio,
-        }
-        return
-      }
-    }
-
-    const now = Date.now()
-    const last = lastClickRef.current
-    if (last && last.id === hit.id && now - last.time < 350) {
-      onOpenItem(hit.id)
-      lastClickRef.current = null
-      return
-    }
-    lastClickRef.current = { id: hit.id, time: now }
-
-    const additive = e.metaKey || e.ctrlKey
-    let nextSelection: Set<string>
-
-    if (e.shiftKey && anchorIdRef.current) {
-      const anchor = itemsRef.current.find((i) => i.id === anchorIdRef.current)
-      const target = itemsRef.current.find((i) => i.id === hit.id)
-      nextSelection = new Set([hit.id])
-      if (anchor && target) {
-        const a = getBoardItemRect(anchor)
-        const b = getBoardItemRect(target)
-        const union = normalizeRect(
-          { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y) },
-          {
-            x: Math.max(a.x + a.width, b.x + b.width),
-            y: Math.max(a.y + a.height, b.y + b.height),
-          }
-        )
-        nextSelection = new Set()
-        for (const item of itemsRef.current) {
-          const r = getBoardItemRect(item)
-          const cx = r.x + r.width / 2
-          const cy = r.y + r.height / 2
-          if (
-            cx >= union.x &&
-            cx <= union.x + union.width &&
-            cy >= union.y &&
-            cy <= union.y + union.height
-          ) {
-            nextSelection.add(item.id)
-          }
-        }
-      }
-      onSelectedIdsChange(nextSelection)
-    } else if (additive) {
-      nextSelection = new Set(selectedRef.current)
-      if (nextSelection.has(hit.id)) nextSelection.delete(hit.id)
-      else nextSelection.add(hit.id)
-      onSelectedIdsChange(nextSelection)
-      anchorIdRef.current = hit.id
-    } else if (selectedRef.current.has(hit.id)) {
-      // Keep multi-selection when dragging an already-selected item
-      nextSelection = new Set(selectedRef.current)
-      anchorIdRef.current = hit.id
-    } else {
-      nextSelection = new Set([hit.id])
-      onSelectedIdsChange(nextSelection)
-      anchorIdRef.current = hit.id
-    }
-
-    onRaiseZ([...nextSelection])
-    const movingIds = new Set(nextSelection)
-    const origins = new Map<string, { x: number; y: number }>()
-    for (const item of itemsRef.current) {
-      if (movingIds.has(item.id)) {
-        origins.set(item.id, { x: item.data.x, y: item.data.y })
-      }
-    }
-
-    capturePointer(e.currentTarget, e.pointerId)
-    dragRef.current = {
-      mode: "pending",
-      pointerId: e.pointerId,
-      startScreen: { x: e.clientX, y: e.clientY },
-      startBoard: boardPoint,
-      originCamera: { ...cam },
-      itemId: hit.id,
-      origins,
-    }
+    runEffects(
+      e.currentTarget,
+      gestureRef.current.pointerDown(toInput(e), gestureContext())
+    )
   }
 
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (pointersRef.current.has(e.pointerId)) {
-      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
-    }
-
-    const drag = dragRef.current
-    if (!drag) return
-
-    if (drag.mode === "touchPan") {
-      if (pointersRef.current.size < 2) return
-      const centroid = pointerCentroid(pointersRef.current.values())
-      const distance = pointerDistance(pointersRef.current.values())
-      if (!centroid || !drag.lastCentroid) return
-
-      const viewport = getViewportRect()
-      const prev = pendingRef.current.camera ?? cameraRef.current
-      const next = cameraFromTouchPinchPan(
-        prev,
-        viewport,
-        drag.lastCentroid,
-        centroid,
-        drag.lastDistance ?? distance,
-        distance
-      )
-      drag.lastCentroid = centroid
-      drag.lastDistance = distance
-      cameraRef.current = next
-      pendingRef.current.camera = next
-      scheduleFlush()
-      return
-    }
-
-    if (drag.pointerId !== e.pointerId) return
-
-    const dx = e.clientX - drag.startScreen.x
-    const dy = e.clientY - drag.startScreen.y
-    const zoom = cameraRef.current.zoom
-
-    if (drag.mode === "pan") {
-      const next: Camera = {
-        ...drag.originCamera,
-        x: drag.originCamera.x + dx,
-        y: drag.originCamera.y + dy,
-      }
-      cameraRef.current = next
-      pendingRef.current.camera = next
-      scheduleFlush()
-      return
-    }
-
-    if (drag.mode === "marquee") {
-      const viewport = getViewportRect()
-      const current = screenToBoard(
-        e.clientX,
-        e.clientY,
-        cameraRef.current,
-        viewport
-      )
-      const rect = normalizeRect(drag.startBoard, current)
-      pendingRef.current.marquee = rect
-      scheduleFlush()
-      applySelectionFromMarquee(rect, e.metaKey || e.ctrlKey)
-      return
-    }
-
-    if (drag.mode === "resize" && drag.originRect && drag.itemId) {
-      const next = clampBottomRightResize(
-        drag.originRect,
-        dx / zoom,
-        dy / zoom,
-        drag.minSize ?? MIN_BOOKMARK_SIZE,
-        drag.aspectRatio
-      )
-      resizeRectRef.current = next
-      pendingRef.current.liveResize = new Map([[drag.itemId, next]])
-      scheduleFlush()
-      return
-    }
-
-    if (drag.mode === "pending") {
-      if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return
-      drag.mode = "move"
-      setDragItemCount(drag.origins?.size ?? 1)
-      onItemMoveDragChangeRef.current?.(true)
-      if (isMobile) {
-        setMoveDockOpen(true)
-      }
-    }
-
-    if (drag.mode === "move" && drag.origins) {
-      const boardDx = dx / zoom
-      const boardDy = dy / zoom
-      const next = new Map<string, { x: number; y: number }>()
-      for (const [id, origin] of drag.origins) {
-        next.set(id, { x: origin.x + boardDx, y: origin.y + boardDy })
-      }
-      pendingRef.current.liveOffsets = next
-      scheduleFlush()
-
-      const overTrash = isMobile
-        ? pointInElement(e.clientX, e.clientY, deleteDockHitRef.current)
-        : pointInElement(e.clientX, e.clientY, trashRef.current)
-      setTrashArmedState(Boolean(overTrash))
-    }
+    if (!viewportRef.current || gestureRef.current.mode == null) return
+    runEffects(
+      e.currentTarget,
+      gestureRef.current.pointerMove(toInput(e), gestureContext())
+    )
   }
 
   const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
-    pointersRef.current.delete(e.pointerId)
-    releasePointer(e.currentTarget, e.pointerId)
+    if (!viewportRef.current) return
+    runEffects(
+      e.currentTarget,
+      gestureRef.current.pointerUp(toInput(e), gestureContext())
+    )
+  }
 
-    const drag = dragRef.current
-    if (!drag) return
-
-    if (drag.mode === "touchPan") {
-      // Stay in touchPan until every finger lifts so the remaining finger
-      // does not accidentally start a marquee / card drag.
-      if (pointersRef.current.size === 0) {
-        flushNow()
-        dragRef.current = null
-      } else if (pointersRef.current.size >= 2) {
-        const centroid = pointerCentroid(pointersRef.current.values())
-        const distance = pointerDistance(pointersRef.current.values())
-        if (centroid) {
-          drag.lastCentroid = centroid
-          drag.lastDistance = distance
-        }
-      }
-      return
-    }
-
-    if (drag.pointerId !== e.pointerId) return
-
-    flushNow()
-
-    if (drag.mode === "marquee") {
-      setMarquee(null)
-    }
-
-    if (drag.mode === "resize" && drag.itemId) {
-      const rect = resizeRectRef.current
-      if (rect) onResizeItem(drag.itemId, rect)
-      resizeRectRef.current = null
-      setLiveResize(new Map())
-    }
-
-    if (drag.mode === "move" && drag.origins) {
-      const overTrash = isMobile
-        ? pointInElement(e.clientX, e.clientY, deleteDockHitRef.current)
-        : pointInElement(e.clientX, e.clientY, trashRef.current)
-
-      if (overTrash) {
-        vibrateDeleteFeedback("commit")
-        onTrashDrop([...drag.origins.keys()])
-      } else {
-        const zoom = cameraRef.current.zoom
-        const boardDx = (e.clientX - drag.startScreen.x) / zoom
-        const boardDy = (e.clientY - drag.startScreen.y) / zoom
-        const updates = [...drag.origins.entries()].map(([id, origin]) => ({
-          id,
-          x: origin.x + boardDx,
-          y: origin.y + boardDy,
-        }))
-        onMoveItems(updates)
-      }
-      setLiveOffsets(new Map())
-      clearMoveTrashUi()
-    }
-
-    dragRef.current = null
+  const onPointerCancel = (e: ReactPointerEvent<HTMLDivElement>) => {
+    runEffects(e.currentTarget, gestureRef.current.pointerCancel(toInput(e)))
   }
 
   useEffect(() => {
@@ -995,8 +691,8 @@ export function Board({
   const tabStop =
     tabStopId && itemIds.has(tabStopId)
       ? tabStopId
-      : anchorIdRef.current && itemIds.has(anchorIdRef.current)
-        ? anchorIdRef.current
+      : gestureRef.current.anchorId && itemIds.has(gestureRef.current.anchorId)
+        ? gestureRef.current.anchorId
         : (items[0]?.id ?? null)
 
   // Keep DOM order stable. Stacking uses `style.zIndex` (item.data.z); hit-testing
@@ -1015,7 +711,7 @@ export function Board({
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
+      onPointerCancel={onPointerCancel}
       onContextMenu={(e) => {
         if (!viewportRef.current) return
         const viewport = getViewportRect()
@@ -1030,7 +726,7 @@ export function Board({
         if (!hit) return
         if (!selectedIds.has(hit.id)) {
           onSelectedIdsChange(new Set([hit.id]))
-          anchorIdRef.current = hit.id
+          gestureRef.current.anchorId = hit.id
           onRaiseZ([hit.id])
         }
       }}
@@ -1050,8 +746,7 @@ export function Board({
           const isLeaving = exitingIds.has(item.id)
           const selected = !isLeaving && selectedIds.has(item.id)
           const dragging =
-            !isLeaving &&
-            (liveOffsets.has(item.id) || liveResize.has(item.id))
+            !isLeaving && (liveOffsets.has(item.id) || liveResize.has(item.id))
           const animateIn =
             !isLeaving &&
             seenIdsRef.current != null &&
@@ -1071,7 +766,7 @@ export function Board({
                   !selectedRef.current.has(item.id)
                 ) {
                   onSelectedIdsChange(new Set([item.id]))
-                  anchorIdRef.current = item.id
+                  gestureRef.current.anchorId = item.id
                 }
               }}
               className={cn(

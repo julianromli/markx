@@ -30,6 +30,7 @@ export function useWorkspaceGlobalEvents(
       if (
         current.blocked ||
         isEditableEventTarget(event.target) ||
+        isOverlayActive(event.target) ||
         current.editing
       ) {
         return
@@ -78,7 +79,8 @@ export function useWorkspaceGlobalEvents(
       if (
         current.blocked ||
         current.editing ||
-        isEditableEventTarget(event.target)
+        isEditableEventTarget(event.target) ||
+        isOverlayActive(event.target)
       ) {
         return
       }
@@ -112,11 +114,31 @@ export function useWorkspaceGlobalEvents(
   }, [])
 }
 
+const OVERLAY_SELECTOR =
+  '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]'
+
+/**
+ * True while a dialog, sheet, or menu owns the keyboard. Board shortcuts
+ * (Delete, Backspace, Cmd+Z, Escape) must not act on the canvas behind it.
+ */
+export function isOverlayActive(target: EventTarget | null): boolean {
+  if (target instanceof Element && target.closest(OVERLAY_SELECTOR)) {
+    return true
+  }
+  if (typeof document === "undefined") return false
+  for (const el of document.querySelectorAll(OVERLAY_SELECTOR)) {
+    if (el.closest('[hidden], [inert], [aria-hidden="true"]')) continue
+    return true
+  }
+  return false
+}
+
 export function isEditableEventTarget(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLElement &&
     (target.tagName === "INPUT" ||
       target.tagName === "TEXTAREA" ||
+      target.tagName === "SELECT" ||
       target.isContentEditable)
   )
 }

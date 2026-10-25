@@ -379,7 +379,12 @@ export function Workspace(props: WorkspaceProps) {
     [performDelete, rememberFocus, state]
   )
 
-  const pendingFolderIds = classifyItemIds(state, pendingDeleteIds).folderIds
+  const pendingClassified = classifyItemIds(state, pendingDeleteIds)
+  const pendingFolderIds = pendingClassified.folderIds
+  const pendingOtherCount =
+    pendingClassified.bookmarkIds.length +
+    pendingClassified.noteIds.length +
+    pendingClassified.imageIds.length
 
   const confirmDeleteFolders = () => {
     performDelete(pendingDeleteIds)
@@ -952,7 +957,7 @@ export function Workspace(props: WorkspaceProps) {
           contentsOfFolders(state, pendingFolderIds)
         )}
         folderCount={pendingFolderIds.length}
-        otherCount={pendingDeleteIds.length - pendingFolderIds.length}
+        otherCount={pendingOtherCount}
         onOpenChange={(open) => {
           setConfirmFolderOpen(open)
           if (!open) setPendingDeleteIds([])

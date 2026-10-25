@@ -53,6 +53,11 @@ export type GestureContext = {
    * on blank space draws a marquee instead of panning.
    */
   touchSelectMode?: boolean
+  /**
+   * View-only board: items cannot be moved, resized, or selected. A press on
+   * an item pans the board instead (a double press still opens it).
+   */
+  readOnly?: boolean
 }
 
 export type PointerInput = {
@@ -212,6 +217,17 @@ export class BoardGesture {
     }
 
     if (hit.id === ctx.editingId) return []
+
+    if (ctx.readOnly) {
+      const last = this.lastClick
+      if (last && last.id === hit.id && e.time - last.time < DOUBLE_CLICK_MS) {
+        this.lastClick = null
+        return [{ type: "open", id: hit.id }]
+      }
+      this.lastClick = { id: hit.id, time: e.time }
+      this.drag = { ...base, mode: "pan", startBoard: boardPoint }
+      return [{ type: "capture", pointerIds: [e.pointerId] }]
+    }
 
     // On touch, only a selected card shows its handle, so only a selected
     // card can be resized; a press near another card's corner moves it.

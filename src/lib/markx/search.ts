@@ -7,7 +7,9 @@ export function noteText(html: string): string {
       .trim()
   }
   const doc = new DOMParser().parseFromString(html, "text/html")
-  for (const block of doc.body.querySelectorAll("p, li, br, h1, h2, h3")) {
+  for (const block of doc.body.querySelectorAll(
+    "p, li, br, h1, h2, h3, h4, h5, h6, blockquote, hr, pre"
+  )) {
     block.append(" ")
   }
   return doc.body.textContent.replace(/\s+/g, " ").trim()

@@ -662,9 +662,11 @@ const checks = {
     }
     await addLink("https://")
     const stillOpen = (await page.getByRole("dialog").count()) > 0
-    const shownError = stillOpen
-      ? (await page.getByRole("dialog").getByRole("alert").count()) > 0
-      : false
+    const alert = page.getByRole("dialog").getByRole("alert").filter({ visible: true })
+    const shownError =
+      stillOpen && (await alert.count()) > 0
+        ? (await alert.first().innerText()).trim().length > 0
+        : false
     await page.waitForTimeout(400)
     await shot(page, "mx06-add-link-invalid-input")
     report(

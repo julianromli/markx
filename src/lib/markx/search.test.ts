@@ -16,4 +16,10 @@ describe("search helpers", () => {
     expect(filterByKeywords("note:x7Qz", "x7q", ["Shopping list"])).toBe(0)
     expect(filterByKeywords("bookmark:abc", "tom jer", ["Tom & Jerry"])).toBe(1)
   })
+
+  it("separates deeper headings and quotes from the next block", () => {
+    expect(
+      noteText("<h4>Title</h4><blockquote>Quote</blockquote><p>Body</p>")
+    ).toBe("Title Quote Body")
+  })
 })

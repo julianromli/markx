@@ -312,6 +312,7 @@ export function SharedBoardView({ snapshot, token, mode, showDuplicate = true, o
         trashRef={trashRef}
         editingId={editingNoteId ?? undefined}
         boardApiRef={boardApiRef}
+        readOnly={!editable}
       />
     </div>
   )

@@ -336,4 +336,27 @@ describe("BoardGesture", () => {
     expect(Math.abs(moved.y)).toBeLessThan(20)
     expect(g.mode).toBe("touchPan")
   })
+
+  it("on a read-only board an item press pans instead of dragging the item", () => {
+    const g = new BoardGesture()
+    const c = ctx({ readOnly: true })
+    const down = g.pointerDown(input({ x: 150, y: 150 }), c)
+    expect(types(down)).not.toContain("select")
+    expect(g.mode).toBe("pan")
+    const move = g.pointerMove(input({ x: 150, y: 250 }), c)
+    expect(types(move)).toEqual(["camera"])
+    const up = g.pointerUp(input({ x: 150, y: 250 }), c)
+    expect(types(up)).not.toContain("commitMove")
+    expect(types(up)).not.toContain("liveOffsets")
+  })
+
+  it("on a read-only board a double press still opens the item", () => {
+    const g = new BoardGesture()
+    const c = ctx({ readOnly: true })
+    g.pointerDown(input({ x: 150, y: 150, time: 0 }), c)
+    g.pointerUp(input({ x: 150, y: 150, time: 40 }), c)
+    expect(g.pointerDown(input({ x: 150, y: 150, time: 200 }), c)).toEqual([
+      { type: "open", id: "n1" },
+    ])
+  })
 })

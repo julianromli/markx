@@ -102,6 +102,8 @@ type BoardProps = {
   onBlankPress?: () => void
   /** Phone select mode: taps toggle items, blank drags draw a marquee. */
   touchSelectMode?: boolean
+  /** View-only board: no item moves, resizes, or selection; presses pan. */
+  readOnly?: boolean
   /** Rename via keyboard (F2). Pointer rename stays on the context menu. */
   onRenameItem?: (id: string) => void
   /** Accessible name for each item, announced when it receives focus. */
@@ -136,6 +138,7 @@ export function Board({
   onRenameItem,
   onBlankPress,
   touchSelectMode = false,
+  readOnly = false,
   getItemLabel,
   editingId,
   boardApiRef,
@@ -630,6 +633,7 @@ export function Board({
       trashRect: isMobile ? null : screenRectOf(trashRef.current),
       dockRect: isMobile ? screenRectOf(deleteDockHitRef.current) : null,
       touchSelectMode,
+      readOnly,
     }
   }
 

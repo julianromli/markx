@@ -175,6 +175,7 @@ export default function NoteEditor({
   useEffect(() => {
     if (!container) return
     let frame = 0
+    let lastTransform = ""
     const place = () => {
       frame = requestAnimationFrame(place)
       const toolbarEl = toolbarRef.current
@@ -205,8 +206,14 @@ export default function NoteEditor({
         viewLeft + gap,
         Math.min(left, viewLeft + viewWidth - bar.width - gap)
       )
-      toolbarEl.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`
-      toolbarEl.style.visibility = "visible"
+      // The board moves notes with CSS transforms (pan, pinch, drag), which
+      // fire no events, so this reads every frame but writes only on change.
+      const next = `translate(${Math.round(left)}px, ${Math.round(top)}px)`
+      if (next !== lastTransform) {
+        lastTransform = next
+        toolbarEl.style.transform = next
+        toolbarEl.style.visibility = "visible"
+      }
     }
     place()
     return () => cancelAnimationFrame(frame)

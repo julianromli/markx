@@ -248,6 +248,7 @@ export function SharedBoardView({ snapshot, token, mode, showDuplicate = true, o
         selected={selected}
         interacting={dragging}
         editing={editable && editingNoteId === item.id}
+        readOnly={!editable}
         onCommitNote={handleCommitNote}
         onExitNoteEdit={() => setEditingNoteId(null)}
         onNoteStyleChange={handleNoteStyleChange}

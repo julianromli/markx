@@ -379,6 +379,8 @@ export function Workspace(props: WorkspaceProps) {
     [performDelete, rememberFocus, state]
   )
 
+  const pendingFolderIds = classifyItemIds(state, pendingDeleteIds).folderIds
+
   const confirmDeleteFolders = () => {
     performDelete(pendingDeleteIds)
     setPendingDeleteIds([])
@@ -932,6 +934,7 @@ export function Workspace(props: WorkspaceProps) {
           const { moved, skipped } = actions.moveItems([...selectedIds], target)
           if (moved === 0) return
           setSelectedIds(new Set())
+          setTouchSelectMode(false)
           toastWithUndo(
             skipped > 0
               ? `Moved ${moved} of ${moved + skipped} items`
@@ -946,11 +949,10 @@ export function Workspace(props: WorkspaceProps) {
         finalFocus={dialogFinalFocus}
         open={confirmFolderOpen}
         contents={describeContentsSentence(
-          contentsOfFolders(
-            state,
-            classifyItemIds(state, pendingDeleteIds).folderIds
-          )
+          contentsOfFolders(state, pendingFolderIds)
         )}
+        folderCount={pendingFolderIds.length}
+        otherCount={pendingDeleteIds.length - pendingFolderIds.length}
         onOpenChange={(open) => {
           setConfirmFolderOpen(open)
           if (!open) setPendingDeleteIds([])

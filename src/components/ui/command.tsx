@@ -51,7 +51,7 @@ function CommandDialog({
       </DialogHeader>
       <DialogContent
         className={cn(
-          "top-[calc(var(--vv-top,0px)+var(--vv-height,100dvh)/6)] translate-y-0 overflow-hidden rounded-4xl! p-0",
+          "top-[calc(var(--vv-top,0px)+var(--vv-height,100dvh)/3)] max-h-[calc(var(--vv-height,100dvh)*2/3-1rem)] translate-y-0 overflow-hidden rounded-4xl! p-0",
           className
         )}
         showCloseButton={showCloseButton}

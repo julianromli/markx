@@ -284,6 +284,13 @@ export class BoardGesture {
     return effects
   }
 
+  /** Keep a finger's position current while no gesture is running. */
+  trackPointer(e: Pick<PointerInput, "pointerId" | "x" | "y">): void {
+    if (this.pointers.has(e.pointerId)) {
+      this.pointers.set(e.pointerId, { x: e.x, y: e.y })
+    }
+  }
+
   pointerMove(e: PointerInput, ctx: GestureContext): GestureEffect[] {
     if (this.pointers.has(e.pointerId)) {
       this.pointers.set(e.pointerId, { x: e.x, y: e.y })
@@ -331,7 +338,8 @@ export class BoardGesture {
     if (drag.mode === "marquee") {
       const current = screenToBoard(e.x, e.y, ctx.camera, toViewportRect(ctx))
       const rect = normalizeRect(drag.startBoard, current)
-      const additive = !!(e.metaKey || e.ctrlKey)
+      // Shift on press keeps the selection, so Shift-drag must add to it too.
+      const additive = !!(e.metaKey || e.ctrlKey || e.shiftKey)
       const ids = drag.baseSelection
         ? new Set(drag.baseSelection)
         : additive
@@ -470,15 +478,15 @@ export class BoardGesture {
       return effects
     }
     if (drag.pointerId !== e.pointerId) return effects
-    return [...effects, ...this.abort()]
+    return [...effects, ...this.abort({ revertCamera: true })]
   }
 
   /** Drop an in-progress one-finger gesture without committing it. */
-  private abort(): GestureEffect[] {
+  private abort({ revertCamera }: { revertCamera: boolean }): GestureEffect[] {
     const drag = this.drag
     if (!drag || drag.mode === "touchPan") return []
     const effects: GestureEffect[] = [{ type: "flush" }]
-    if (drag.mode === "pan") {
+    if (drag.mode === "pan" && revertCamera) {
       effects.push({ type: "camera", camera: drag.originCamera })
     }
     if (drag.mode === "marquee") effects.push({ type: "marquee", rect: null })
@@ -504,7 +512,9 @@ export class BoardGesture {
     pointerId: number,
     ctx: GestureContext
   ): GestureEffect[] {
-    const effects = this.abort()
+    // A second finger takes over from where a one-finger pan got to; only
+    // a real cancel reverts the camera.
+    const effects = this.abort({ revertCamera: false })
     effects.push({ type: "capture", pointerIds: [...this.pointers.keys()] })
     const centroid = pointerCentroid(this.pointers.values())
     if (!centroid || this.pointers.size < 2) return effects

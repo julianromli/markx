@@ -382,6 +382,8 @@ export function Board({
   useEffect(() => {
     const onKey = () => {
       modalityRef.current = "keyboard"
+      // A keyboard context menu (Shift+F10) must not be treated as touch.
+      lastPointerTypeRef.current = "keyboard"
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
@@ -748,7 +750,17 @@ export function Board({
   }
 
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (!viewportRef.current || gestureRef.current.mode == null) return
+    if (!viewportRef.current) return
+    if (gestureRef.current.mode == null) {
+      // No gesture: only keep finger positions fresh (a later second
+      // finger computes the pinch centroid from them).
+      gestureRef.current.trackPointer({
+        pointerId: e.pointerId,
+        x: e.clientX,
+        y: e.clientY,
+      })
+      return
+    }
     runEffects(
       e.currentTarget,
       gestureRef.current.pointerMove(toInput(e), gestureContext())
@@ -858,7 +870,11 @@ export function Board({
       onPointerCancel={onPointerCancel}
       onContextMenu={(e) => {
         if (!viewportRef.current) return
-        if (lastPointerTypeRef.current === "touch") {
+        const nativeType = (e.nativeEvent as Partial<PointerEvent>).pointerType
+        const fromTouch = nativeType
+          ? nativeType === "touch"
+          : lastPointerTypeRef.current === "touch"
+        if (fromTouch) {
           // Base UI already opens the menu from its own touch long-press
           // timer. Its native-contextmenu path adds a "release outside
           // closes" mouseup listener, and Chromium's compat mouseup after a

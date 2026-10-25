@@ -55,7 +55,7 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "fixed top-[calc(var(--vv-top,0px)+var(--vv-height,100dvh)/2)] left-1/2 z-50 grid max-h-[calc(var(--vv-height,100dvh)-1rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-6 overflow-y-auto rounded-4xl bg-popover p-6 text-sm text-popover-foreground shadow-xl ring-1 ring-foreground/5 transition-[opacity,translate,scale] duration-200 ease-[var(--ease-out-strong)] outline-none data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0 sm:max-w-md dark:ring-foreground/10",
+          "fixed top-[calc(var(--vv-top,0px)+var(--vv-height,100dvh)/2)] left-1/2 z-50 grid max-h-[calc(var(--vv-height,100dvh)-1rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-6 overflow-y-auto rounded-4xl bg-popover p-6 text-sm text-popover-foreground shadow-xl ring-1 ring-foreground/5 transition-[opacity,translate,scale] duration-200 ease-[var(--ease-out-strong)] outline-none data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0 sm:max-w-md dark:ring-foreground/10",
           instant && "transition-none",
           className
         )}

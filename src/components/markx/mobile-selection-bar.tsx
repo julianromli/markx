@@ -64,7 +64,7 @@ export function MobileSelectionBar({
 
   return (
     <div
-      role="toolbar"
+      role="group"
       aria-label="Selection"
       ref={barRef}
       className={cn(

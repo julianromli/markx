@@ -132,14 +132,30 @@ export function writeGuestBackup(state: MarkxState): void {
   }
 }
 
-function takeGuestBackup(): MarkxState | null {
+/** Reads the backup without removing it; see {@link clearGuestBackup}. */
+export function readGuestBackup(): MarkxState | null {
   try {
     const raw = localStorage.getItem(GUEST_BACKUP_KEY)
-    if (!raw) return null
-    localStorage.removeItem(GUEST_BACKUP_KEY)
-    return JSON.parse(raw) as MarkxState
+    return raw ? (JSON.parse(raw) as MarkxState) : null
   } catch {
     return null
+  }
+}
+
+/**
+ * Drop the backup once IndexedDB holds the same state (or unconditionally
+ * with no argument). A newer hide-time backup must survive an older save.
+ */
+export function clearGuestBackup(savedState?: MarkxState): void {
+  try {
+    if (
+      savedState === undefined ||
+      localStorage.getItem(GUEST_BACKUP_KEY) === JSON.stringify(savedState)
+    ) {
+      localStorage.removeItem(GUEST_BACKUP_KEY)
+    }
+  } catch {
+    // Storage disabled.
   }
 }
 
@@ -156,10 +172,12 @@ export async function loadState(): Promise<MarkxState> {
     return createDemoState()
   }
   const db = await openMarkxDatabase()
-  const backup = takeGuestBackup()
+  const backup = readGuestBackup()
   if (backup) {
     const restored = normalizeStoredState(backup)
     await db.put("meta", restored, GUEST_STATE_KEY)
+    // Only now is the backup's content safe in IndexedDB.
+    clearGuestBackup()
     return restored
   }
   const existing = await db.get("meta", GUEST_STATE_KEY)
@@ -178,6 +196,7 @@ export async function saveState(state: MarkxState): Promise<void> {
   if (typeof indexedDB === "undefined") return
   const db = await openMarkxDatabase()
   await db.put("meta", state, GUEST_STATE_KEY)
+  clearGuestBackup(state)
 }
 
 /**
@@ -189,6 +208,8 @@ export async function saveState(state: MarkxState): Promise<void> {
  */
 export async function resetGuestState(): Promise<MarkxState> {
   const demo = createDemoState()
+  // Guest edits are discarded on login; an unload copy must not return.
+  clearGuestBackup()
   if (typeof indexedDB === "undefined") return demo
   const db = await openMarkxDatabase()
   await db.put("meta", demo, GUEST_STATE_KEY)

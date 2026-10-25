@@ -29,6 +29,7 @@ type Listener = () => void
 type PositionUpdate = { id: string; x: number; y: number; z?: number }
 
 const MAX_HISTORY = 50
+const ENRICH_RESULTS_LIMIT = 500
 
 /**
  * True when `ids` already sit above every other item, in the given order.
@@ -244,6 +245,15 @@ export function createMarkxStore(
    */
   const enrichInFlight = new Set<string>()
   const enrichResults = new Map<string, LinkMetadata | null>()
+  /** Bounded: only recent results can matter for undo/redo snapshots. */
+  const rememberEnrich = (id: string, meta: LinkMetadata | null) => {
+    enrichResults.delete(id)
+    enrichResults.set(id, meta)
+    if (enrichResults.size > ENRICH_RESULTS_LIMIT) {
+      const oldest = enrichResults.keys().next().value
+      if (oldest !== undefined) enrichResults.delete(oldest)
+    }
+  }
 
   const reconcileEnrich = (snapshot: MarkxState): MarkxState => {
     if (!snapshot.bookmarks.some((b) => b.enrichStatus === "pending")) {
@@ -398,6 +408,9 @@ export function createMarkxStore(
     updater: (prev: MarkxState) => MarkxState,
     opts?: { sync?: boolean }
   ) => {
+    // A history-free change between two note drafts ends the coalesced
+    // step, so Undo of the drafts cannot also revert this change.
+    coalesceKey = null
     state = updater(state)
     emit()
     persist(opts)
@@ -656,7 +669,7 @@ export function createMarkxStore(
         try {
           const meta = await dependencies.enrich({ data: { url: normalized } })
           enrichInFlight.delete(created.id)
-          enrichResults.set(created.id, meta)
+          rememberEnrich(created.id, meta)
           patch(
             (prev) => ({
               ...prev,
@@ -668,7 +681,7 @@ export function createMarkxStore(
           )
         } catch {
           enrichInFlight.delete(created.id)
-          enrichResults.set(created.id, null)
+          rememberEnrich(created.id, null)
           // Keep the optimistic card, but clear the loading shimmer.
           patch(
             (prev) => ({
@@ -813,10 +826,10 @@ export function createMarkxStore(
               data: { url: bookmark.url },
             })
             pendingMeta.set(bookmark.id, meta)
-            enrichResults.set(bookmark.id, meta)
+            rememberEnrich(bookmark.id, meta)
           } catch {
             pendingMeta.set(bookmark.id, null)
-            enrichResults.set(bookmark.id, null)
+            rememberEnrich(bookmark.id, null)
           }
           flushTimer ??= setTimeout(flushEnrich, STORE_ENRICH_BATCH_WINDOW_MS)
         })
@@ -844,6 +857,11 @@ export function createMarkxStore(
     getSyncEngine: () => syncEngine,
     attachSync(engine: SyncEngine) {
       syncUnsub?.()
+      // A debounced guest save must not run after login: it would write the
+      // account workspace into the shared guest store.
+      if (saveTimer) clearTimeout(saveTimer)
+      saveTimer = null
+      pendingSave = null
       syncEngine = engine
       // Adopt authoritative state only for explicit cloud adopts (bootstrap
       // load, stale-banner reload, shared-board lift). Save acks never emit

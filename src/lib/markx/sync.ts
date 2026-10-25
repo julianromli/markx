@@ -799,15 +799,21 @@ export class SyncEngine {
 
   /** Push a pending debounced edit now (page hide). */
   flushPending(): void {
-    if (!this.debounceTimer || this.destroyed || !this.online) return
-    clearTimeout(this.debounceTimer)
+    if (this.destroyed || !this.online) return
+    if (!this.debounceTimer && !this.flushTimer) return
+    if (this.debounceTimer) clearTimeout(this.debounceTimer)
+    if (this.flushTimer) clearTimeout(this.flushTimer)
     this.debounceTimer = null
+    this.flushTimer = null
     void this.sync()
   }
 
   private scheduleFlush(): void {
     if (this.flushTimer) clearTimeout(this.flushTimer)
-    this.flushTimer = setTimeout(() => void this.sync(), SYNC_RETRY_DEBOUNCE_MS)
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null
+      void this.sync()
+    }, SYNC_RETRY_DEBOUNCE_MS)
   }
 
   private handleVisibilityChange = () => {

@@ -17,6 +17,11 @@ type NoteCardProps = {
   editing?: boolean
   onCommit?: (content: string, session: string) => void
   onExitEdit?: () => void
+  /**
+   * Static content scrolls (read-only shared boards). On draggable boards it
+   * must not: a native scroller lets the browser cancel touch drags.
+   */
+  scrollable?: boolean
   onStyleChange?: (
     style: Partial<Pick<Note, "color" | "font" | "fontSize">>
   ) => void
@@ -44,6 +49,7 @@ export function NoteCard({
   onCommit,
   onExitEdit,
   onStyleChange,
+  scrollable = false,
   className,
 }: NoteCardProps) {
   const width = note.width ?? NOTE_SIZE.width
@@ -86,7 +92,7 @@ export function NoteCard({
         <div
           className={cn(
             "min-h-0 flex-1 leading-snug text-ink",
-            editing ? "overflow-y-auto" : "overflow-hidden"
+            editing || scrollable ? "overflow-y-auto" : "overflow-hidden"
           )}
           style={{ fontFamily, fontSize }}
         >

@@ -84,9 +84,10 @@ export function moveTargets(
 const MOVE_LAYOUT_VIEW: Rect = { x: 120, y: 120, width: 1600, height: 1200 }
 
 /**
- * Move items to `target`. Items that cannot live there are left in place
- * and reported as skipped. Moved items get free spots (no exact overlap)
- * and are raised above everything in their new location.
+ * Move items to `target`. Items that cannot live there (folders, bookmarks
+ * to Home) are left in place and reported as `skipped`. Items already in
+ * `target` are neither moved nor skipped. Moved items get free spots (no
+ * exact overlap) and are raised above everything in their new location.
  */
 export function moveItems(
   state: MarkxState,
@@ -96,13 +97,11 @@ export function moveItems(
   const items = ids
     .map((id) => findItem(state, id))
     .filter((item): item is BoardItemModel => item != null)
-  const movable = items.filter(
-    (item) =>
-      item.kind !== "folder" &&
-      canLiveIn(item.kind, target) &&
-      !sameLocation(item, target)
+  const allowed = items.filter(
+    (item) => item.kind !== "folder" && canLiveIn(item.kind, target)
   )
-  const skipped = items.length - movable.length
+  const movable = allowed.filter((item) => !sameLocation(item, target))
+  const skipped = items.length - allowed.length
   if (movable.length === 0) return { state, moved: 0, skipped }
 
   const occupied = selectWorkspaceItems(state, target).map(getBoardItemRect)

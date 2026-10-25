@@ -11,6 +11,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
+import { filterByKeywords, noteText } from "@/lib/markx/search"
 import { useMarkxState } from "@/lib/markx/store"
 import type { WorkspaceLocation } from "@/lib/markx/workspace-items"
 
@@ -18,13 +19,6 @@ export type SearchResult = {
   id: string
   kind: "folder" | "bookmark" | "note"
   location: WorkspaceLocation
-}
-
-function noteText(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
 }
 
 /** Search folders, bookmarks (title and URL), and notes (text). */
@@ -51,16 +45,18 @@ export function SearchDialog({
       title="Search"
       description="Search folders, bookmarks, and notes"
     >
-      <Command>
+      <Command filter={filterByKeywords}>
         <CommandInput placeholder="Search folders, bookmarks, notes…" />
-        <CommandList>
+        {/* Fits in the visible area below the palette's top, keyboard open or not. */}
+        <CommandList className="max-h-[min(18rem,calc(var(--vv-height,100dvh)*2/3-6rem))]">
           <CommandEmpty>Nothing found.</CommandEmpty>
           {state.folders.length > 0 ? (
             <CommandGroup heading="Folders">
               {state.folders.map((folder) => (
                 <CommandItem
                   key={folder.id}
-                  value={`folder ${folder.id} ${folder.name}`}
+                  value={`folder:${folder.id}`}
+                  keywords={[folder.name]}
                   onSelect={() =>
                     pick({
                       id: folder.id,
@@ -80,7 +76,8 @@ export function SearchDialog({
               {state.bookmarks.map((bookmark) => (
                 <CommandItem
                   key={bookmark.id}
-                  value={`bookmark ${bookmark.id} ${bookmark.title} ${bookmark.url}`}
+                  value={`bookmark:${bookmark.id}`}
+                  keywords={[bookmark.title, bookmark.url]}
                   onSelect={() =>
                     pick({
                       id: bookmark.id,
@@ -107,7 +104,8 @@ export function SearchDialog({
                 return (
                   <CommandItem
                     key={note.id}
-                    value={`note ${note.id} ${text}`}
+                    value={`note:${note.id}`}
+                    keywords={[text]}
                     onSelect={() =>
                       pick({
                         id: note.id,

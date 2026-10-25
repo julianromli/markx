@@ -19,6 +19,8 @@ type WorkspaceBoardItemProps = {
   folderContentsLabel?: string
   /** Show the "shared" badge on a folder tile. */
   shared?: boolean
+  /** Read-only board (shared view): notes scroll, nothing is dragged. */
+  readOnly?: boolean
   onCommitNote: (id: string, content: string, session: string) => void
   onExitNoteEdit: () => void
   onNoteStyleChange: (
@@ -41,6 +43,7 @@ export const WorkspaceBoardItem = memo(
     editing,
     folderContentsLabel = "Empty",
     shared = false,
+    readOnly = false,
     onCommitNote,
     onExitNoteEdit,
     onNoteStyleChange,
@@ -61,6 +64,7 @@ export const WorkspaceBoardItem = memo(
           note={item.data}
           selected={selected}
           editing={editing}
+          scrollable={readOnly}
           onCommit={(content, session) =>
             onCommitNote(item.id, content, session)
           }
@@ -86,6 +90,8 @@ export const WorkspaceBoardItem = memo(
     prev.selected === next.selected &&
     prev.interacting === next.interacting &&
     prev.editing === next.editing &&
+    prev.shared === next.shared &&
+    prev.readOnly === next.readOnly &&
     prev.folderContentsLabel === next.folderContentsLabel &&
     prev.onCommitNote === next.onCommitNote &&
     prev.onExitNoteEdit === next.onExitNoteEdit &&

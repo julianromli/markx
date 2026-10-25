@@ -247,6 +247,8 @@ export function MoveToDialog({
 export function ConfirmDeleteFolderDialog({
   open,
   contents,
+  folderCount,
+  otherCount,
   onOpenChange,
   onConfirm,
   finalFocus,
@@ -255,9 +257,24 @@ export function ConfirmDeleteFolderDialog({
   open: boolean
   /** Sentence form of what will go, e.g. "3 bookmarks and 1 note". */
   contents: string
+  folderCount: number
+  /** Selected items that are not folders. */
+  otherCount: number
   onOpenChange: (open: boolean) => void
   onConfirm: () => void
 }) {
+  // Keep the text while the dialog animates out (the ids clear on close).
+  const [shown, setShown] = useState({ contents, folderCount, otherCount })
+  useEffect(() => {
+    if (open) setShown({ contents, folderCount, otherCount })
+  }, [open, contents, folderCount, otherCount])
+  const inside =
+    shown.folderCount > 1 ? "inside the selected folders" : "inside the folder"
+  const others =
+    shown.otherCount > 0
+      ? `, and the ${shown.otherCount === 1 ? "other selected item" : `${shown.otherCount} other selected items`}`
+      : ""
+
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent
@@ -265,10 +282,12 @@ export function ConfirmDeleteFolderDialog({
         className="pb-[max(1.5rem,env(safe-area-inset-bottom))]"
       >
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete folder?</AlertDialogTitle>
+          <AlertDialogTitle>
+            {shown.folderCount > 1 ? "Delete folders?" : "Delete folder?"}
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            This deletes {contents} inside the folder, together with the other
-            selected items.
+            This deletes {shown.contents} {inside}
+            {others}.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

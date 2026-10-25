@@ -53,7 +53,8 @@ export function FolderIcon({
         <p className="truncate text-[20px] leading-7 font-semibold tracking-[-0.02em] text-balance text-ink/80">
           {name}
         </p>
-        {/* Keeps "name contents" as words in the accessible text. */}{" "}
+        {/* axe's label-in-name check joins visible text without spaces;
+            a real space keeps "Name 3 bookmarks" readable as words. */}{" "}
         <p className="mt-0.5 text-[16px] leading-[1.05] text-ink-muted tabular-nums">
           {contents}
         </p>

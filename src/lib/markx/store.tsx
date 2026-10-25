@@ -24,6 +24,34 @@ type PositionUpdate = { id: string; x: number; y: number; z?: number }
 
 const MAX_HISTORY = 50
 
+/**
+ * True when `ids` already sit above every other item, in the given order.
+ * Raising them again would only rewrite and re-sync the workspace.
+ */
+function isAlreadyOnTop(state: MarkxState, ids: readonly string[]): boolean {
+  const wanted = new Set(ids)
+  let othersMax = -Infinity
+  const zById = new Map<string, number>()
+  for (const list of [
+    state.folders,
+    state.bookmarks,
+    state.notes,
+    state.images,
+  ]) {
+    for (const item of list) {
+      if (wanted.has(item.id)) zById.set(item.id, item.z)
+      else othersMax = Math.max(othersMax, item.z)
+    }
+  }
+  let previous = othersMax
+  for (const id of ids) {
+    const z = zById.get(id)
+    if (z == null || z <= previous) return false
+    previous = z
+  }
+  return true
+}
+
 function applyBookmarkMetadata(
   bookmark: Bookmark,
   metadata: LinkMetadata
@@ -170,31 +198,39 @@ export function createMarkxStore(
 
   let pendingSave: (() => void) | null = null
 
+  /**
+   * Single save path. Logged in: every user change goes straight to the
+   * sync engine, which owns the only (cloud) debounce. Guest: one local
+   * debounce to IndexedDB. Background patches (`sync: false`) are never sent
+   * to the engine and never cancel a pending user save.
+   */
   const persist = (opts?: { sync?: boolean }) => {
+    if (syncEngine) {
+      if (opts?.sync === false) return
+      const deleted = [...pendingDeletedImageIds]
+      pendingDeletedImageIds.clear()
+      syncEngine.onStateChange(state, deleted)
+      return
+    }
     if (saveTimer) clearTimeout(saveTimer)
     const run = () => {
       saveTimer = null
       pendingSave = null
-      if (syncEngine) {
-        // Metadata enrich must not mark the engine dirty (blocks cross-tab
-        // cloud adopt). User edits always sync (opts.sync !== false).
-        if (opts?.sync === false) return
-        const deleted = [...pendingDeletedImageIds]
-        pendingDeletedImageIds.clear()
-        syncEngine.onStateChange(state, deleted)
-      } else {
-        void dependencies.storage.save(state)
-      }
+      void dependencies.storage.save(state)
     }
     pendingSave = run
     saveTimer = setTimeout(run, STORE_PERSIST_DEBOUNCE_MS)
   }
 
   const flush = (opts?: { unloading?: boolean }) => {
+    if (syncEngine) {
+      syncEngine.flushPending()
+      return
+    }
     if (saveTimer) clearTimeout(saveTimer)
     const hadPending = pendingSave != null
     pendingSave?.()
-    if (opts?.unloading && hadPending && !syncEngine) {
+    if (opts?.unloading && hadPending) {
       dependencies.storage.saveBackup?.(state)
     }
   }
@@ -278,7 +314,7 @@ export function createMarkxStore(
     },
 
     raiseZ(ids) {
-      if (ids.length === 0) return
+      if (ids.length === 0 || isAlreadyOnTop(state, ids)) return
       patch((prev) => {
         let { zCounter } = prev
         const bump = new Map<string, number>()
@@ -656,7 +692,7 @@ export function createMarkxStore(
       const pendingMeta = new Map<string, LinkMetadata | null>()
       let flushTimer: ReturnType<typeof setTimeout> | null = null
 
-      const flush = () => {
+      const flushEnrich = () => {
         flushTimer = null
         if (pendingMeta.size === 0) return
         const batch = new Map(pendingMeta)
@@ -686,7 +722,7 @@ export function createMarkxStore(
           } catch {
             pendingMeta.set(bookmark.id, null)
           }
-          flushTimer ??= setTimeout(flush, STORE_ENRICH_BATCH_WINDOW_MS)
+          flushTimer ??= setTimeout(flushEnrich, STORE_ENRICH_BATCH_WINDOW_MS)
         })
       )
 
@@ -695,7 +731,7 @@ export function createMarkxStore(
         flushTimer = null
       }
       cancelPendingFlush()
-      flush()
+      flushEnrich()
     },
   }
 
@@ -713,8 +749,9 @@ export function createMarkxStore(
     attachSync(engine: SyncEngine) {
       syncUnsub?.()
       syncEngine = engine
-      // Adopt authoritative remote state when the engine resolves a deferred
-      // first-login bootstrap (e.g. offline guest import → cloud-wins).
+      // Adopt authoritative state only for explicit cloud adopts (bootstrap
+      // load, stale-banner reload, shared-board lift). Save acks never emit
+      // state, so they cannot overwrite newer local edits or undo history.
       syncUnsub = engine.subscribe((_status, _conflict, authoritativeState) => {
         if (!authoritativeState || syncEngine !== engine) return
         state = authoritativeState

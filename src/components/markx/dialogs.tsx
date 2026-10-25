@@ -24,13 +24,18 @@ import { parseBookmarkUrl } from "@/lib/markx/board-items"
 import type { Folder } from "@/lib/markx/types"
 import type { WorkspaceLocation } from "@/lib/markx/workspace-items"
 
+/** Where focus goes when a dialog closes (Base UI `finalFocus`). */
+export type FinalFocus = () => HTMLElement | boolean
+
 export function RenameDialog({
   open,
   title,
   initialValue,
   onOpenChange,
   onSubmit,
+  finalFocus,
 }: {
+  finalFocus?: FinalFocus
   open: boolean
   title: string
   initialValue: string
@@ -45,7 +50,10 @@ export function RenameDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:max-w-md">
+      <DialogContent
+        finalFocus={finalFocus}
+        className="pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:max-w-md"
+      >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
@@ -88,7 +96,9 @@ export function AddLinkDialog({
   open,
   onOpenChange,
   onSubmit,
+  finalFocus,
 }: {
+  finalFocus?: FinalFocus
   open: boolean
   onOpenChange: (open: boolean) => void
   onSubmit: (url: string) => void
@@ -105,7 +115,10 @@ export function AddLinkDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:max-w-md">
+      <DialogContent
+        finalFocus={finalFocus}
+        className="pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:max-w-md"
+      >
         <DialogHeader>
           <DialogTitle>Add link</DialogTitle>
         </DialogHeader>
@@ -173,7 +186,9 @@ export function MoveToDialog({
   folders,
   onOpenChange,
   onSubmit,
+  finalFocus,
 }: {
+  finalFocus?: FinalFocus
   open: boolean
   /** Offer Home as a target (notes and images can live there). */
   home: boolean
@@ -197,7 +212,10 @@ export function MoveToDialog({
   ]
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:max-w-md">
+      <DialogContent
+        finalFocus={finalFocus}
+        className="pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:max-w-md"
+      >
         <DialogHeader>
           <DialogTitle>Move to…</DialogTitle>
         </DialogHeader>
@@ -231,7 +249,9 @@ export function ConfirmDeleteFolderDialog({
   contents,
   onOpenChange,
   onConfirm,
+  finalFocus,
 }: {
+  finalFocus?: FinalFocus
   open: boolean
   /** Sentence form of what will go, e.g. "3 bookmarks and 1 note". */
   contents: string
@@ -240,7 +260,10 @@ export function ConfirmDeleteFolderDialog({
 }) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent className="pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+      <AlertDialogContent
+        finalFocus={finalFocus}
+        className="pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+      >
         <AlertDialogHeader>
           <AlertDialogTitle>Delete folder?</AlertDialogTitle>
           <AlertDialogDescription>

@@ -68,6 +68,44 @@ export function Workspace(props: WorkspaceProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const selectedIdsRef = useRef(selectedIds)
+  selectedIdsRef.current = selectedIds
+
+  /**
+   * Dialogs here open from state, not from a trigger, so Base UI has no
+   * element to return focus to. Remember where focus was and give it back
+   * on close; fall back to the selected item, then the board's tab stop.
+   */
+  const returnFocusRef = useRef<HTMLElement | null>(null)
+  const rememberFocus = useCallback(() => {
+    const active = document.activeElement
+    returnFocusRef.current =
+      active instanceof HTMLElement &&
+      active !== document.body &&
+      !active.closest('[role="menu"]')
+        ? active
+        : null
+  }, [])
+  const dialogFinalFocus = useCallback((): HTMLElement | boolean => {
+    const remembered = returnFocusRef.current
+    returnFocusRef.current = null
+    if (remembered?.isConnected && !remembered.hasAttribute("data-leaving")) {
+      return remembered
+    }
+    const selectedId = [...selectedIdsRef.current][0]
+    const selectedEl = selectedId
+      ? document.querySelector<HTMLElement>(
+          `[data-board-item="${CSS.escape(selectedId)}"]:not([data-leaving])`
+        )
+      : null
+    return (
+      selectedEl ??
+      document.querySelector<HTMLElement>(
+        '[data-board-item][tabindex="0"]:not([data-leaving])'
+      ) ??
+      true
+    )
+  }, [])
   const [renameOpen, setRenameOpen] = useState(false)
   const [newFolderOpen, setNewFolderOpen] = useState(false)
   const [linkOpen, setLinkOpen] = useState(false)
@@ -274,12 +312,13 @@ export function Workspace(props: WorkspaceProps) {
       if (hasContents(contentsOfFolders(state, folderIds))) {
         // Confirm deletes exactly these ids, even if the selection changes.
         setPendingDeleteIds(ids)
+        rememberFocus()
         setConfirmFolderOpen(true)
         return
       }
       performDelete(ids)
     },
-    [performDelete, state]
+    [performDelete, rememberFocus, state]
   )
 
   const confirmDeleteFolders = () => {
@@ -331,15 +370,20 @@ export function Workspace(props: WorkspaceProps) {
   const openNewFolderDialog = useCallback(
     (point?: { x: number; y: number }) => {
       pendingCreateRef.current = point ?? null
+      rememberFocus()
       setNewFolderOpen(true)
     },
-    []
+    [rememberFocus]
   )
 
-  const openAddLinkDialog = useCallback((point?: { x: number; y: number }) => {
-    pendingCreateRef.current = point ?? null
-    setLinkOpen(true)
-  }, [])
+  const openAddLinkDialog = useCallback(
+    (point?: { x: number; y: number }) => {
+      pendingCreateRef.current = point ?? null
+      rememberFocus()
+      setLinkOpen(true)
+    },
+    [rememberFocus]
+  )
 
   /**
    * Sidebar buttons create in one click: no armed tool, no follow-up canvas
@@ -501,6 +545,7 @@ export function Workspace(props: WorkspaceProps) {
     onRedo: actions.redo,
     onRename: (id) => {
       setContextTargetId(id)
+      rememberFocus()
       setRenameOpen(true)
     },
     onResetInteraction: () => {
@@ -575,6 +620,7 @@ export function Workspace(props: WorkspaceProps) {
               onBlankPress={handleBlankPress}
               onRenameItem={(id) => {
                 setContextTargetId(id)
+                rememberFocus()
                 setRenameOpen(true)
               }}
               getItemLabel={getItemLabel}
@@ -618,10 +664,14 @@ export function Workspace(props: WorkspaceProps) {
           }
           onCreateNote={(point) => createNoteAt(pointInView(point, NOTE_SIZE))}
           onDelete={deleteSelection}
-          onMove={() => setMoveOpen(true)}
+          onMove={() => {
+            rememberFocus()
+            setMoveOpen(true)
+          }}
           onOpen={openItem}
           onRename={(id) => {
             setContextTargetId(id)
+            rememberFocus()
             setRenameOpen(true)
           }}
           onShare={(id) => {
@@ -704,6 +754,7 @@ export function Workspace(props: WorkspaceProps) {
       ) : null}
 
       <RenameDialog
+        finalFocus={dialogFinalFocus}
         open={newFolderOpen}
         title="New folder"
         initialValue=""
@@ -722,6 +773,7 @@ export function Workspace(props: WorkspaceProps) {
       />
 
       <RenameDialog
+        finalFocus={dialogFinalFocus}
         open={renameOpen}
         title={
           renameTarget?.kind === "bookmark"
@@ -740,6 +792,7 @@ export function Workspace(props: WorkspaceProps) {
       />
 
       <AddLinkDialog
+        finalFocus={dialogFinalFocus}
         open={linkOpen}
         onOpenChange={(open) => {
           setLinkOpen(open)
@@ -762,6 +815,7 @@ export function Workspace(props: WorkspaceProps) {
       />
 
       <MoveToDialog
+        finalFocus={dialogFinalFocus}
         open={moveOpen}
         home={moveOptions.home}
         folders={moveOptions.folders}
@@ -781,6 +835,7 @@ export function Workspace(props: WorkspaceProps) {
       />
 
       <ConfirmDeleteFolderDialog
+        finalFocus={dialogFinalFocus}
         open={confirmFolderOpen}
         contents={describeContentsSentence(
           contentsOfFolders(

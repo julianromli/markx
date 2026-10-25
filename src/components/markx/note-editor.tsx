@@ -91,6 +91,19 @@ export default function NoteEditor({
         class:
           "outline-none min-h-[1em] [&_p]:my-0 [&_p+p]:mt-2 [&_strong]:font-semibold",
       },
+      // Tab moves to the toolbar (it is portaled, so it is not next in DOM
+      // order). Inside a list, Tab keeps its indent meaning.
+      handleKeyDown: (view, event) => {
+        if (event.key !== "Tab" || event.shiftKey) return false
+        const inList =
+          view.state.selection.$from.node(-1).type.name === "listItem"
+        if (inList) return false
+        const first = toolbarRef.current?.querySelector<HTMLElement>("button")
+        if (!first) return false
+        event.preventDefault()
+        first.focus()
+        return true
+      },
     },
     onUpdate: ({ editor: ed }) => {
       latestHtmlRef.current = ed.getHTML()
@@ -204,9 +217,18 @@ export default function NoteEditor({
       className="note-toolbar-in fixed top-0 left-0 z-50 flex max-w-[calc(100vw-16px)] flex-wrap items-center gap-0.5 rounded-[13px] border border-black/10 bg-white px-1.5 py-1 shadow-[0_2px_6px_rgba(0,0,0,0.08),0_8px_24px_rgba(0,0,0,0.12)]"
       style={{ visibility: "hidden" }}
       onPointerDown={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        // Shift+Tab from the first control goes back into the text.
+        const first = toolbarRef.current?.querySelector("button")
+        if (e.key === "Tab" && e.shiftKey && e.target === first) {
+          e.preventDefault()
+          editor.commands.focus()
+        }
+      }}
     >
       <ToolbarDropdown
         id="color"
+        label="Note color"
         openMenu={openMenu}
         onOpenMenuChange={setOpenMenu}
         hasPopup="true"
@@ -235,6 +257,7 @@ export default function NoteEditor({
 
       <ToolbarDropdown
         id="font"
+        label="Font"
         openMenu={openMenu}
         onOpenMenuChange={setOpenMenu}
         triggerLabel={<span className="text-[13px] font-medium">Aa</span>}
@@ -269,6 +292,9 @@ export default function NoteEditor({
 
       <ToolbarDropdown
         id="size"
+        label={`Text size: ${
+          SIZE_OPTIONS.find((o) => o.value === note.fontSize)?.label ?? "Medium"
+        }`}
         openMenu={openMenu}
         onOpenMenuChange={setOpenMenu}
         triggerLabel={
@@ -371,6 +397,7 @@ function ToolbarDivider() {
 
 function ToolbarDropdown({
   id,
+  label,
   openMenu,
   onOpenMenuChange,
   triggerLabel,
@@ -378,6 +405,8 @@ function ToolbarDropdown({
   children,
 }: {
   id: string
+  /** Accessible name of the trigger, e.g. "Font". */
+  label: string
   openMenu: string | null
   onOpenMenuChange: (id: string | null) => void
   triggerLabel: ReactNode
@@ -386,6 +415,9 @@ function ToolbarDropdown({
   children: (close: () => void) => ReactNode
 }) {
   const open = openMenu === id
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const focusFirstRef = useRef(false)
 
   useEffect(() => {
     if (!open) return
@@ -394,16 +426,49 @@ function ToolbarDropdown({
     return () => window.removeEventListener("pointerdown", onPointerDown)
   }, [open, onOpenMenuChange])
 
+  // Keyboard open moves focus into the panel; closing while focus was in
+  // the (now removed) panel returns it to the trigger.
+  const wasOpenRef = useRef(open)
+  useEffect(() => {
+    const wasOpen = wasOpenRef.current
+    wasOpenRef.current = open
+    if (open) {
+      if (focusFirstRef.current) {
+        focusFirstRef.current = false
+        panelItems(panelRef.current)[0]?.focus()
+      }
+      return
+    }
+    const active = document.activeElement
+    if (wasOpen && (active == null || active === document.body)) {
+      triggerRef.current?.focus()
+    }
+  }, [open])
+
+  const openFromKeyboard = () => {
+    focusFirstRef.current = true
+    onOpenMenuChange(id)
+  }
+
   return (
     <div className="relative">
       <button
+        ref={triggerRef}
         type="button"
+        aria-label={label}
         aria-expanded={open}
         aria-haspopup={hasPopup}
         onPointerDown={(e) => {
           e.preventDefault()
           e.stopPropagation()
           onOpenMenuChange(open ? null : id)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") {
+            e.preventDefault()
+            if (open) onOpenMenuChange(null)
+            else openFromKeyboard()
+          }
         }}
         className={cn(
           "flex h-8 items-center gap-1 rounded-lg px-2 text-ink transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96] pointer-coarse:h-11 pointer-coarse:min-w-11 pointer-coarse:justify-center",
@@ -415,12 +480,25 @@ function ToolbarDropdown({
       </button>
       {open ? (
         <div
+          ref={panelRef}
           className="toolbar-dropdown-in absolute top-full left-0 z-20 mt-1 origin-top-left rounded-xl border border-black/10 bg-white p-0.5 shadow-[0_4px_16px_rgba(0,0,0,0.15)]"
           onPointerDown={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return
+            e.preventDefault()
+            const items = panelItems(panelRef.current)
+            const index = items.indexOf(document.activeElement as HTMLElement)
+            const step = e.key === "ArrowDown" ? 1 : -1
+            items[(index + step + items.length) % items.length]?.focus()
+          }}
         >
           {children(() => onOpenMenuChange(null))}
         </div>
       ) : null}
     </div>
   )
+}
+
+function panelItems(panel: HTMLElement | null): HTMLElement[] {
+  return panel ? [...panel.querySelectorAll<HTMLElement>("button")] : []
 }

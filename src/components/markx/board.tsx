@@ -185,6 +185,8 @@ export function Board({
    */
   const seenIdsRef = useRef<Set<string> | null>(null)
   const previousItemsRef = useRef(items)
+  /** Board item that last had focus (kept while focus is "nowhere"). */
+  const focusedIdRef = useRef<string | null>(null)
   const [exitingItems, setExitingItems] = useState<BoardItemModel[]>([])
   const [exitingIds, setExitingIds] = useState<Set<string>>(new Set())
   const exitTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
@@ -362,6 +364,37 @@ export function Board({
     }
 
     if (removedItems.length === 0) return
+
+    // A deleted item must not take keyboard focus with it: move focus to
+    // the nearest remaining item instead of dropping it on <body>.
+    const focusedRemoved = removedItems.find(
+      (item) => item.id === focusedIdRef.current
+    )
+    const active = document.activeElement
+    if (
+      focusedRemoved &&
+      (active == null ||
+        active === document.body ||
+        active.getAttribute("data-board-item") === focusedRemoved.id)
+    ) {
+      const from = getBoardItemRect(focusedRemoved)
+      let nearest: BoardItemModel | null = null
+      let best = Infinity
+      for (const item of items) {
+        const r = getBoardItemRect(item)
+        const d = Math.hypot(r.x - from.x, r.y - from.y)
+        if (d < best) {
+          best = d
+          nearest = item
+        }
+      }
+      focusedIdRef.current = null
+      if (nearest) {
+        const id = nearest.id
+        setTabStopId(id)
+        requestAnimationFrame(() => focusItem(id))
+      }
+    }
 
     const removedIds = removedItems.map((item) => item.id)
     exitFrameRef.current = requestAnimationFrame(() => {
@@ -777,10 +810,15 @@ export function Board({
               key={item.id}
               data-board-item={item.id}
               role="button"
-              tabIndex={item.id === tabStop ? 0 : -1}
+              tabIndex={isLeaving ? -1 : item.id === tabStop ? 0 : -1}
+              data-leaving={isLeaving ? "" : undefined}
               aria-label={getItemLabel?.(item)}
               aria-pressed={selected}
+              onBlur={(e) => {
+                if (e.relatedTarget) focusedIdRef.current = null
+              }}
               onFocus={() => {
+                focusedIdRef.current = item.id
                 setTabStopId(item.id)
                 if (
                   modalityRef.current === "keyboard" &&

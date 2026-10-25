@@ -193,6 +193,15 @@ export class BoardGesture {
 
     const selectMode = !!ctx.touchSelectMode && e.pointerType === "touch"
 
+    if (!hit && ctx.readOnly) {
+      // View-only: blank space pans for every pointer type; no marquee.
+      this.drag = { ...base, mode: "pan", startBoard: boardPoint }
+      return [
+        { type: "blankPress" },
+        { type: "capture", pointerIds: [e.pointerId] },
+      ]
+    }
+
     if (!hit) {
       if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !selectMode) {
         effects.push({ type: "select", ids: new Set() })
@@ -339,6 +348,8 @@ export class BoardGesture {
     const zoom = ctx.camera.zoom
 
     if (drag.mode === "pan") {
+      // A press that turned into a pan is not half of a double press.
+      if (Math.hypot(dx, dy) >= DRAG_THRESHOLD) this.lastClick = null
       return [
         {
           type: "camera",
@@ -386,6 +397,8 @@ export class BoardGesture {
     if (drag.mode === "pending") {
       if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return []
       drag.mode = "move"
+      // A press that turned into a drag is not half of a double press.
+      this.lastClick = null
       effects.push({ type: "moveStart", count: drag.origins?.size ?? 1 })
     }
 
@@ -481,6 +494,7 @@ export class BoardGesture {
    */
   pointerCancel(e: PointerInput): GestureEffect[] {
     this.pointers.delete(e.pointerId)
+    this.lastClick = null
     const effects: GestureEffect[] = [
       { type: "release", pointerId: e.pointerId },
     ]

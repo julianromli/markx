@@ -344,7 +344,9 @@ describe("BoardGesture", () => {
     expect(types(down)).not.toContain("select")
     expect(g.mode).toBe("pan")
     const move = g.pointerMove(input({ x: 150, y: 250 }), c)
-    expect(types(move)).toEqual(["camera"])
+    expect(move).toEqual([
+      { type: "camera", camera: { x: 0, y: 100, zoom: 1 } },
+    ])
     const up = g.pointerUp(input({ x: 150, y: 250 }), c)
     expect(types(up)).not.toContain("commitMove")
     expect(types(up)).not.toContain("liveOffsets")
@@ -358,5 +360,35 @@ describe("BoardGesture", () => {
     expect(g.pointerDown(input({ x: 150, y: 150, time: 200 }), c)).toEqual([
       { type: "open", id: "n1" },
     ])
+  })
+
+  it("on a read-only board a mouse drag on blank space pans without a marquee", () => {
+    const g = new BoardGesture()
+    const c = ctx({ readOnly: true })
+    const down = g.pointerDown(
+      input({ x: 900, y: 700, pointerType: "mouse" }),
+      c
+    )
+    expect(types(down)).not.toContain("select")
+    expect(types(down)).not.toContain("marquee")
+    const move = g.pointerMove(
+      input({ x: 850, y: 650, pointerType: "mouse" }),
+      c
+    )
+    expect(move).toEqual([
+      { type: "camera", camera: { x: -50, y: -50, zoom: 1 } },
+    ])
+  })
+
+  it("a press that turned into a pan or drag does not count toward a double press", () => {
+    for (const readOnly of [true, false]) {
+      const g = new BoardGesture()
+      const c = ctx({ readOnly })
+      g.pointerDown(input({ x: 150, y: 150, time: 0 }), c)
+      g.pointerMove(input({ x: 150, y: 200, time: 50 }), c)
+      g.pointerUp(input({ x: 150, y: 200, time: 80 }), c)
+      const again = g.pointerDown(input({ x: 150, y: 150, time: 200 }), c)
+      expect(types(again)).not.toContain("open")
+    }
   })
 })

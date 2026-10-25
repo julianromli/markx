@@ -22,6 +22,8 @@ export type MarkxStoreApi = {
   getSyncEngine: () => SyncEngine | null
   resolveConflictUseCloud: () => Promise<void>
   resolveConflictOverwriteCloud: () => Promise<void>
+  /** Run any pending debounced save now. */
+  flush: (opts?: { unloading?: boolean }) => void
   /** Soft-adopt the latest cloud workspace (stale banner Reload). */
   reloadWorkspaceFromCloud: () => Promise<void>
 }
@@ -39,6 +41,7 @@ export function MarkxProvider({ children }: { children: ReactNode }) {
       initialSyncStatus: bootstrap.initialSyncStatus,
       retryInitialSync: bootstrap.retryInitialSync,
       getSyncEngine: store.getSyncEngine,
+      flush: store.flush,
       resolveConflictUseCloud: store.resolveConflictUseCloud,
       resolveConflictOverwriteCloud: store.resolveConflictOverwriteCloud,
       async reloadWorkspaceFromCloud() {

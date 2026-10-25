@@ -15,7 +15,7 @@ type NoteCardProps = {
   note: Note
   selected?: boolean
   editing?: boolean
-  onCommit?: (content: string) => void
+  onCommit?: (content: string, session: string) => void
   onExitEdit?: () => void
   onStyleChange?: (
     style: Partial<Pick<Note, "color" | "font" | "fontSize">>

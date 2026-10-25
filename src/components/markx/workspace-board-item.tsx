@@ -19,7 +19,7 @@ type WorkspaceBoardItemProps = {
   folderBookmarkCount?: number
   /** Show the "shared" badge on a folder tile. */
   shared?: boolean
-  onCommitNote: (id: string, content: string) => void
+  onCommitNote: (id: string, content: string, session: string) => void
   onExitNoteEdit: () => void
   onNoteStyleChange: (
     id: string,
@@ -61,7 +61,9 @@ export const WorkspaceBoardItem = memo(
           note={item.data}
           selected={selected}
           editing={editing}
-          onCommit={(content) => onCommitNote(item.id, content)}
+          onCommit={(content, session) =>
+            onCommitNote(item.id, content, session)
+          }
           onExitEdit={onExitNoteEdit}
           onStyleChange={(style) => onNoteStyleChange(item.id, style)}
         />

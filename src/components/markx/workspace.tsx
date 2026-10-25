@@ -74,16 +74,18 @@ export function Workspace(props: WorkspaceProps) {
   const [emptyStateLeaving, setEmptyStateLeaving] = useState(false)
   const emptyStateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // folderId → boardId for the owner's shared boards (drives "shared" badges + dialog mode).
-  const [sharedBoardByFolder, setSharedBoardByFolder] = useState<Map<string, string>>(
-    new Map()
-  )
+  const [sharedBoardByFolder, setSharedBoardByFolder] = useState<
+    Map<string, string>
+  >(new Map())
 
   useEffect(() => {
     let cancelled = false
     listMySharedBoards()
       .then((rows) => {
         if (cancelled) return
-        setSharedBoardByFolder(new Map(rows.map((r) => [r.folderId, r.boardId])))
+        setSharedBoardByFolder(
+          new Map(rows.map((r) => [r.folderId, r.boardId]))
+        )
       })
       .catch(() => {
         // Ignore — badges are decorative.
@@ -158,6 +160,36 @@ export function Workspace(props: WorkspaceProps) {
   }, [state.bookmarks, props.mode])
 
   const exitNoteEdit = useCallback(() => setEditingNoteId(null), [])
+  const commitNote = useCallback(
+    (id: string, content: string, session: string) =>
+      actions.updateNoteContent(id, content, { session }),
+    [actions]
+  )
+
+  // Bubble phase: the note editor saves its draft in the capture phase first.
+  useEffect(() => {
+    const flush = () => storeApi.flush({ unloading: true })
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flush()
+    }
+    document.addEventListener("visibilitychange", onVisibility)
+    window.addEventListener("pagehide", flush)
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility)
+      window.removeEventListener("pagehide", flush)
+    }
+  }, [storeApi])
+
+  /**
+   * A press on empty canvas ends note editing. iOS Safari does not blur a
+   * contenteditable when you tap a non-focusable element, so do it here.
+   */
+  const handleBlankPress = useCallback(() => {
+    if (editingNoteId == null) return
+    const active = document.activeElement
+    if (active instanceof HTMLElement && active.isContentEditable) active.blur()
+    setEditingNoteId(null)
+  }, [editingNoteId])
 
   const selectedItems = items.filter((i) => selectedIds.has(i.id))
 
@@ -525,6 +557,7 @@ export function Workspace(props: WorkspaceProps) {
               onItemMoveDragChange={setItemMoveDragging}
               onZoomChange={setZoomPercent}
               onContextPoint={setContextPoint}
+              onBlankPress={handleBlankPress}
               onRenameItem={(id) => {
                 setContextTargetId(id)
                 setRenameOpen(true)
@@ -539,15 +572,14 @@ export function Workspace(props: WorkspaceProps) {
                   interacting={dragging}
                   editing={editingNoteId === item.id}
                   shared={
-                    item.kind === "folder" &&
-                    sharedBoardByFolder.has(item.id)
+                    item.kind === "folder" && sharedBoardByFolder.has(item.id)
                   }
                   folderBookmarkCount={
                     item.kind === "folder"
                       ? (folderBookmarkCounts.get(item.id) ?? 0)
                       : undefined
                   }
-                  onCommitNote={actions.updateNoteContent}
+                  onCommitNote={commitNote}
                   onExitNoteEdit={exitNoteEdit}
                   onNoteStyleChange={actions.setNoteStyle}
                 />
@@ -740,7 +772,9 @@ export function Workspace(props: WorkspaceProps) {
           folder={shareFolder}
           initialBoardId={sharedBoardByFolder.get(shareFolder.id) ?? null}
           onShared={(result) => {
-            setSharedBoardByFolder((prev) => new Map(prev).set(shareFolder.id, result.boardId))
+            setSharedBoardByFolder((prev) =>
+              new Map(prev).set(shareFolder.id, result.boardId)
+            )
           }}
           onUnshared={() => {
             setSharedBoardByFolder((prev) => {

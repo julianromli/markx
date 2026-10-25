@@ -14,6 +14,8 @@ import { NOTE_FONTS } from "@/components/markx/note-card"
 import { cn } from "@/lib/utils"
 import type { Note, NoteFont, NoteSize } from "@/lib/markx/types"
 
+const NOTE_DRAFT_DEBOUNCE_MS = 400
+
 const FONT_OPTIONS: Array<{ value: NoteFont; label: string }> = [
   { value: "sans", label: "Sans" },
   { value: "serif", label: "Serif" },
@@ -37,7 +39,11 @@ type NoteEditorProps = {
    * still editing.
    */
   container: HTMLElement | null
-  onCommit?: (content: string) => void
+  /**
+   * Saves content. Called for autosave drafts while typing and for the final
+   * commit; all calls from one mount share `session` (one undo step).
+   */
+  onCommit?: (content: string, session: string) => void
   onExitEdit?: () => void
   onStyleChange?: (
     style: Partial<Pick<Note, "color" | "font" | "fontSize">>
@@ -58,6 +64,22 @@ export default function NoteEditor({
 }: NoteEditorProps) {
   const committedRef = useRef(false)
   const [openMenu, setOpenMenu] = useState<string | null>(null)
+  const [session] = useState(() => Math.random().toString(36).slice(2))
+  const latestHtmlRef = useRef(note.content)
+  const savedHtmlRef = useRef(note.content)
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const onCommitRef = useRef(onCommit)
+  onCommitRef.current = onCommit
+
+  const saveDraft = () => {
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current)
+    draftTimerRef.current = null
+    if (latestHtmlRef.current === savedHtmlRef.current) return
+    savedHtmlRef.current = latestHtmlRef.current
+    onCommitRef.current?.(latestHtmlRef.current, session)
+  }
+  const saveDraftRef = useRef(saveDraft)
+  saveDraftRef.current = saveDraft
 
   const editor = useEditor({
     extensions: [StarterKit, Underline],
@@ -69,6 +91,14 @@ export default function NoteEditor({
           "outline-none min-h-[1em] [&_p]:my-0 [&_p+p]:mt-2 [&_strong]:font-semibold",
       },
     },
+    onUpdate: ({ editor: ed }) => {
+      latestHtmlRef.current = ed.getHTML()
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current)
+      draftTimerRef.current = setTimeout(
+        () => saveDraftRef.current(),
+        NOTE_DRAFT_DEBOUNCE_MS
+      )
+    },
     onBlur: ({ editor: ed, event }) => {
       if (committedRef.current) return
       const related = event.relatedTarget
@@ -76,10 +106,28 @@ export default function NoteEditor({
         return
       }
       committedRef.current = true
-      onCommit?.(ed.getHTML())
+      latestHtmlRef.current = ed.getHTML()
+      saveDraftRef.current()
       onExitEdit?.()
     },
   })
+
+  // Phones discard background tabs, so save before the page can go away.
+  // Capture phase: runs before the store's own flush listener.
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === "hidden") saveDraftRef.current()
+    }
+    const onPageHide = () => saveDraftRef.current()
+    document.addEventListener("visibilitychange", onHide, true)
+    window.addEventListener("pagehide", onPageHide, true)
+    return () => {
+      document.removeEventListener("visibilitychange", onHide, true)
+      window.removeEventListener("pagehide", onPageHide, true)
+      // Editing can end without a blur (blank-canvas tap, navigation).
+      saveDraftRef.current()
+    }
+  }, [])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -94,14 +142,15 @@ export default function NoteEditor({
       }
       if (committedRef.current) return
       committedRef.current = true
-      onCommit?.(editor.getHTML())
+      latestHtmlRef.current = editor.getHTML()
+      saveDraftRef.current()
       onExitEdit?.()
       editor.commands.blur()
     }
 
     window.addEventListener("keydown", onKeyDown, true)
     return () => window.removeEventListener("keydown", onKeyDown, true)
-  }, [editor, openMenu, onCommit, onExitEdit])
+  }, [editor, openMenu, onExitEdit])
 
   const toolbar = (
     <div

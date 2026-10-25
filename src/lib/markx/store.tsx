@@ -40,7 +40,9 @@ function applyBookmarkMetadata(
 
 /** Pending enrich flags are session-local; never resume a shimmer after reload. */
 function settleStaleEnrichStatus(state: MarkxState): MarkxState {
-  if (!state.bookmarks.some((bookmark) => bookmark.enrichStatus === "pending")) {
+  if (
+    !state.bookmarks.some((bookmark) => bookmark.enrichStatus === "pending")
+  ) {
     return state
   }
   return {
@@ -62,7 +64,15 @@ export type MarkxActions = {
   renameFolder: (id: string, name: string) => void
   deleteFolders: (ids: string[]) => void
   createNote: (x: number, y: number, folderId: string | null) => Note
-  updateNoteContent: (id: string, content: string) => void
+  /**
+   * Updates from one editing `session` (autosave drafts plus the final
+   * commit) share a single undo step. An unchanged content is a no-op.
+   */
+  updateNoteContent: (
+    id: string,
+    content: string,
+    opts?: { session?: string }
+  ) => void
   setNoteStyle: (
     id: string,
     style: Partial<Pick<Note, "color" | "font" | "fontSize">>
@@ -107,6 +117,11 @@ export type MarkxStore = {
   attachSync: (engine: SyncEngine) => void
   detachSync: () => void
   replaceState: (newState: MarkxState, opts?: { persist?: boolean }) => void
+  /**
+   * Run a pending debounced save now. `unloading` also writes the guest
+   * state synchronously, since async storage may not finish before unload.
+   */
+  flush: (opts?: { unloading?: boolean }) => void
   hydrate: () => Promise<void>
   finishHydration: () => void
   resolveConflictUseCloud: () => Promise<void>
@@ -153,9 +168,13 @@ export function createMarkxStore(
     for (const listener of listeners) listener()
   }
 
+  let pendingSave: (() => void) | null = null
+
   const persist = (opts?: { sync?: boolean }) => {
     if (saveTimer) clearTimeout(saveTimer)
-    saveTimer = setTimeout(() => {
+    const run = () => {
+      saveTimer = null
+      pendingSave = null
       if (syncEngine) {
         // Metadata enrich must not mark the engine dirty (blocks cross-tab
         // cloud adopt). User edits always sync (opts.sync !== false).
@@ -166,7 +185,18 @@ export function createMarkxStore(
       } else {
         void dependencies.storage.save(state)
       }
-    }, STORE_PERSIST_DEBOUNCE_MS)
+    }
+    pendingSave = run
+    saveTimer = setTimeout(run, STORE_PERSIST_DEBOUNCE_MS)
+  }
+
+  const flush = (opts?: { unloading?: boolean }) => {
+    if (saveTimer) clearTimeout(saveTimer)
+    const hadPending = pendingSave != null
+    pendingSave?.()
+    if (opts?.unloading && hadPending && !syncEngine) {
+      dependencies.storage.saveBackup?.(state)
+    }
   }
 
   let historySnapshot: MarkxHistory = { canUndo: false, canRedo: false }
@@ -183,10 +213,33 @@ export function createMarkxStore(
     return historySnapshot
   }
 
+  /** Key of the last coalescing commit; see {@link commitCoalesced}. */
+  let coalesceKey: string | null = null
+
   /** Apply a change and push the previous snapshot onto the undo stack. */
   const commit = (updater: (prev: MarkxState) => MarkxState) => {
+    coalesceKey = null
     past.push(cloneState(state))
     if (past.length > MAX_HISTORY) past.shift()
+    future = []
+    state = updater(state)
+    emit()
+    persist()
+  }
+
+  /**
+   * Like {@link commit}, but consecutive calls with the same key extend the
+   * last undo step instead of adding one (note drafts while typing).
+   */
+  const commitCoalesced = (
+    key: string,
+    updater: (prev: MarkxState) => MarkxState
+  ) => {
+    if (coalesceKey !== key || past.length === 0) {
+      commit(updater)
+      coalesceKey = key
+      return
+    }
     future = []
     state = updater(state)
     emit()
@@ -205,6 +258,7 @@ export function createMarkxStore(
 
   const actions: MarkxActions = {
     undo() {
+      coalesceKey = null
       const previous = past.pop()
       if (!previous) return
       future.push(cloneState(state))
@@ -214,6 +268,7 @@ export function createMarkxStore(
     },
 
     redo() {
+      coalesceKey = null
       const next = future.pop()
       if (!next) return
       past.push(cloneState(state))
@@ -349,11 +404,15 @@ export function createMarkxStore(
       return created
     },
 
-    updateNoteContent(id, content) {
-      commit((prev) => ({
+    updateNoteContent(id, content, opts) {
+      const current = state.notes.find((n) => n.id === id)
+      if (!current || current.content === content) return
+      const updater = (prev: MarkxState): MarkxState => ({
         ...prev,
         notes: prev.notes.map((n) => (n.id === id ? { ...n, content } : n)),
-      }))
+      })
+      if (opts?.session) commitCoalesced(`note:${id}:${opts.session}`, updater)
+      else commit(updater)
     },
 
     setNoteStyle(id, style) {
@@ -670,6 +729,7 @@ export function createMarkxStore(
       syncEngine = null
       pendingDeletedImageIds.clear()
     },
+    flush,
     replaceState(newState: MarkxState, opts?: { persist?: boolean }) {
       state = settleStaleEnrichStatus(newState)
       past = []

@@ -57,6 +57,30 @@ function input(over: Partial<PointerInput>): PointerInput {
   }
 }
 
+/** Ids of the last select effect, sorted (Set equality is loose in expect). */
+function selection(effects: GestureEffect[]): string[] | null {
+  const select = effects.filter((e) => e.type === "select").at(-1)
+  return select && "ids" in select ? [...select.ids].sort() : null
+}
+
+/** Size of the map in the last liveOffsets/liveResize effect, or -1. */
+function lastSize(
+  effects: GestureEffect[],
+  type: "liveOffsets" | "liveResize"
+): number {
+  const effect = effects.filter((e) => e.type === type).at(-1)
+  if (!effect) return -1
+  return "offsets" in effect
+    ? effect.offsets.size
+    : "resize" in effect
+      ? effect.resize.size
+      : -1
+}
+
+function sortIds(ids: string[]): string[] {
+  return [...ids].sort()
+}
+
 function types(effects: GestureEffect[]): string[] {
   return effects.map((e) => e.type)
 }
@@ -73,7 +97,7 @@ describe("BoardGesture", () => {
 
     expect(types(effects)).not.toContain("commitMove")
     expect(types(effects)).not.toContain("trashDrop")
-    expect(effects).toContainEqual({ type: "liveOffsets", offsets: new Map() })
+    expect(lastSize(effects, "liveOffsets")).toBe(0)
     expect(types(effects)).toContain("moveEnd")
     expect(g.mode).toBeNull()
   })
@@ -86,7 +110,7 @@ describe("BoardGesture", () => {
     g.pointerMove(input({ x: 450, y: 450, pointerType: "mouse" }), c)
     const effects = g.pointerCancel(input({}))
     expect(types(effects)).not.toContain("commitResize")
-    expect(effects).toContainEqual({ type: "liveResize", resize: new Map() })
+    expect(lastSize(effects, "liveResize")).toBe(0)
   })
 
   it("MX-21 a pointercancel during a pan restores the original camera", () => {
@@ -237,17 +261,14 @@ describe("BoardGesture", () => {
     it("a tap adds an item to the selection", () => {
       const g = new BoardGesture()
       const effects = g.pointerDown(input({ x: 650, y: 150 }), sel(["n1"]))
-      expect(effects).toContainEqual({
-        type: "select",
-        ids: new Set(["n1", "f1"]),
-      })
+      expect(selection(effects)).toEqual(sortIds(["n1", "f1"]))
     })
 
     it("a tap on a selected item removes it", () => {
       const g = new BoardGesture()
       g.pointerDown(input({ x: 150, y: 150 }), sel(["n1", "f1"]))
       const effects = g.pointerUp(input({ x: 150, y: 150 }), sel(["n1", "f1"]))
-      expect(effects).toContainEqual({ type: "select", ids: new Set(["f1"]) })
+      expect(selection(effects)).toEqual(sortIds(["f1"]))
     })
 
     it("dragging a selected item still moves the whole selection", () => {
@@ -264,10 +285,55 @@ describe("BoardGesture", () => {
       g.pointerDown(input({ x: 50, y: 50 }), sel(["f1"]))
       expect(g.mode).toBe("marquee")
       const effects = g.pointerMove(input({ x: 200, y: 200 }), sel(["f1"]))
-      expect(effects).toContainEqual({
-        type: "select",
-        ids: new Set(["f1", "n1"]),
-      })
+      expect(selection(effects)).toEqual(sortIds(["f1", "n1"]))
     })
+  })
+
+  it("Shift-drag on blank space adds to the selection", () => {
+    const g = new BoardGesture()
+    const c = ctx({ selectedIds: new Set(["f1"]) })
+    g.pointerDown(
+      input({ x: 50, y: 50, pointerType: "mouse", shiftKey: true }),
+      c
+    )
+    const effects = g.pointerMove(
+      input({ x: 200, y: 200, pointerType: "mouse", shiftKey: true }),
+      c
+    )
+    const select = effects.find((e) => e.type === "select")
+    expect(select && "ids" in select ? [...select.ids].sort() : []).toEqual([
+      "f1",
+      "n1",
+    ])
+  })
+
+  it("a second finger during a one-finger pan keeps the panned camera", () => {
+    const g = new BoardGesture()
+    g.pointerDown(input({ x: 900, y: 700 }), ctx())
+    g.pointerMove(input({ x: 800, y: 600 }), ctx())
+    const effects = g.pointerDown(
+      input({ pointerId: 2, x: 500, y: 500 }),
+      ctx({ camera: { x: -100, y: -100, zoom: 1 } })
+    )
+    expect(effects.some((e) => e.type === "camera")).toBe(false)
+    expect(g.mode).toBe("touchPan")
+  })
+
+  it("trackPointer keeps a resting finger's position for a later pinch", () => {
+    const g = new BoardGesture()
+    const c = ctx({ editingId: "n1" })
+    g.pointerDown(input({ x: 150, y: 150 }), c) // on the edited note: no drag
+    expect(g.mode).toBeNull()
+    g.trackPointer({ pointerId: 1, x: 300, y: 300 })
+    g.pointerDown(input({ pointerId: 2, x: 500, y: 300 }), c)
+    // The resting finger moves 2px. With a stale start of (150,150) the
+    // centroid would jump about 75px on this first move.
+    const effects = g.pointerMove(input({ pointerId: 1, x: 302, y: 300 }), c)
+    const cam = effects.find((e) => e.type === "camera")
+    const moved = cam && "camera" in cam ? cam.camera : { x: 999, y: 999 }
+    // Allow the small pinch-zoom shift; a stale start jumps ~75px.
+    expect(Math.abs(moved.x)).toBeLessThan(20)
+    expect(Math.abs(moved.y)).toBeLessThan(20)
+    expect(g.mode).toBe("touchPan")
   })
 })

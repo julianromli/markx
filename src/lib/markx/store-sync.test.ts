@@ -177,12 +177,14 @@ describe("store persistence with a sync engine", () => {
       onStateChange,
       subscribe: () => () => {},
     } as unknown as SyncEngine)
-    const folder = store.actions.createFolder(0, 0, "F")
+    store.actions.createFolder(0, 0, "Below")
+    const top = store.actions.createFolder(10, 10, "On top")
     await vi.advanceTimersByTimeAsync(200)
     onStateChange.mockClear()
 
-    // Board.onPointerDown calls onRaiseZ for every tap on an item.
-    store.actions.raiseZ([folder.id])
+    // Board.onPointerDown calls onRaiseZ for every tap on an item. A tap on
+    // the item that is already on top changes nothing, so nothing syncs.
+    store.actions.raiseZ([top.id])
     await vi.advanceTimersByTimeAsync(200)
 
     expect(onStateChange).not.toHaveBeenCalled()
@@ -210,5 +212,76 @@ describe("store persistence with a sync engine", () => {
     expect(lowZ).toBeGreaterThan(
       Math.max(...folders.filter((f) => f.id !== low.id).map((f) => f.z))
     )
+  })
+
+  it("MX-01 with a real engine, an edit followed by an enrich result is saved to the cloud", async () => {
+    vi.useFakeTimers()
+    const { store } = makeStore(
+      () =>
+        new Promise<LinkMetadata>((resolve) =>
+          setTimeout(() => resolve({ title: "Example", faviconUrl: "" }), 300)
+        )
+    )
+    const deps = makeEngineDeps()
+    const engine = await SyncEngine.createFromCache("u1", deps)
+    store.attachSync(engine)
+    const folder = store.actions.createFolder(0, 0, "Reading")
+    store.actions.createBookmark(folder.id, "example.com", 0, 0)
+    await vi.advanceTimersByTimeAsync(250)
+    store.actions.renameFolder(folder.id, "Reading list")
+    await vi.advanceTimersByTimeAsync(3000)
+    const saved = vi.mocked(deps.workspace.save).mock.calls.at(-1)?.[0]
+    expect(saved?.state.folders[0]?.name).toBe("Reading list")
+    engine.destroy()
+  })
+
+  it("an enrich-only change is not sent to the engine", async () => {
+    vi.useFakeTimers()
+    const { store } = makeStore()
+    const onStateChange = vi.fn()
+    store.attachSync({
+      onStateChange,
+      subscribe: () => () => {},
+    } as unknown as SyncEngine)
+    const folder = store.actions.createFolder(0, 0, "F")
+    store.actions.createBookmark(folder.id, "example.com", 0, 0)
+    const userEdits = onStateChange.mock.calls.length
+    await vi.advanceTimersByTimeAsync(1000) // enrich resolves
+    expect(onStateChange.mock.calls.length).toBe(userEdits)
+  })
+
+  it("a pending guest save is cancelled when cloud sync attaches", async () => {
+    vi.useFakeTimers()
+    const { store, save } = makeStore()
+    store.actions.createFolder(0, 0, "Guest edit")
+    store.attachSync({
+      onStateChange: vi.fn(),
+      subscribe: () => () => {},
+    } as unknown as SyncEngine)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it("flushPending also flushes a pending retry", async () => {
+    vi.useFakeTimers()
+    let calls = 0
+    const deps = makeEngineDeps(
+      vi.fn(async (input) => {
+        calls += 1
+        return {
+          ok: true as const,
+          version: input.baseVersion + 1,
+          updatedAt: "now",
+          state: input.state,
+        }
+      })
+    )
+    const engine = await SyncEngine.createFromCache("u1", deps)
+    // enqueueAsset schedules the 500ms retry/flush timer.
+    await engine.enqueueAsset("img", new Blob(["x"]), "image/png")
+    engine.flushPending()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(calls).toBe(1)
+    engine.destroy()
   })
 })

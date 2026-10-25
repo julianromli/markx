@@ -28,6 +28,20 @@ function note(id: string, folderId: string | null): Note {
   }
 }
 
+function image(id: string, folderId: string | null) {
+  return {
+    id,
+    folderId,
+    imageId: `blob-${id}`,
+    mime: "image/png",
+    naturalWidth: 10,
+    naturalHeight: 10,
+    x: 0,
+    y: 0,
+    z: 1,
+  }
+}
+
 function demo(extra: Partial<MarkxState> = {}): MarkxState {
   const base = createDemoState()
   return { ...base, ...extra }
@@ -46,6 +60,8 @@ describe("board items", () => {
     })
     expect(moved).toBe(3)
     const movedItems = next.bookmarks.filter((b) => ids.includes(b.id))
+    expect(movedItems).toHaveLength(ids.length)
+    expect(movedItems.every((b) => b.folderId === AI)).toBe(true)
     const spots = new Set(movedItems.map((b) => `${b.x},${b.y}`))
     expect(spots.size).toBe(3)
     const others = next.bookmarks.filter(
@@ -74,6 +90,15 @@ describe("board items", () => {
     expect(toHome.state.notes[0]?.folderId).toBeNull()
   })
 
+  it("MX-15 items already in the target are not reported as skipped", () => {
+    const state = demo({ notes: [note("n1", VIBE)] })
+    const result = moveItems(state, ["n1", "bookmark-openai"], {
+      mode: "folder",
+      folderId: AI,
+    })
+    expect(result).toMatchObject({ moved: 1, skipped: 0 })
+  })
+
   it("MX-38 offers Home as a target only when every selected item can live there", () => {
     const state = demo({ notes: [note("n1", VIBE)] })
     const here = { mode: "folder" as const, folderId: VIBE }
@@ -86,20 +111,39 @@ describe("board items", () => {
   })
 
   it("MX-17 deletes every selected kind in one pass, with folder cascade", () => {
-    const state = demo({ notes: [note("home-note", null), note("in", VIBE)] })
-    const { state: next, counts } = deleteItems(state, [VIBE, "home-note"])
+    const state = demo({
+      notes: [note("home-note", null), note("in", VIBE)],
+      images: [
+        image("home-img", null),
+        image("in-img", VIBE),
+        image("keep", AI),
+      ],
+    })
+    const {
+      state: next,
+      counts,
+      removedImageIds,
+    } = deleteItems(state, [VIBE, "home-note", "home-img", "bookmark-openai"])
     expect(next.folders.map((f) => f.id)).not.toContain(VIBE)
     expect(next.notes).toEqual([])
     expect(next.bookmarks.some((b) => b.folderId === VIBE)).toBe(false)
-    expect(counts).toEqual({ folders: 1, bookmarks: 3, notes: 2, images: 0 })
+    expect(next.bookmarks.map((b) => b.id)).not.toContain("bookmark-openai")
+    expect(next.images.map((i) => i.id)).toEqual(["keep"])
+    expect(removedImageIds.sort()).toEqual(["blob-home-img", "blob-in-img"])
+    expect(counts).toEqual({ folders: 1, bookmarks: 4, notes: 2, images: 2 })
   })
 
   it("MX-18 counts and labels every kind inside a folder", () => {
-    const state = demo({ notes: [note("in", VIBE)] })
+    const state = demo({
+      notes: [note("in", VIBE)],
+      images: [image("i1", VIBE), image("i2", VIBE)],
+    })
     const counts = folderContents(state, VIBE)
-    expect(counts).toEqual({ bookmarks: 3, notes: 1, images: 0 })
-    expect(describeContents(counts)).toBe("3 bookmarks, 1 note")
-    expect(describeContentsSentence(counts)).toBe("3 bookmarks and 1 note")
+    expect(counts).toEqual({ bookmarks: 3, notes: 1, images: 2 })
+    expect(describeContents(counts)).toBe("3 bookmarks, 1 note, 2 images")
+    expect(describeContentsSentence(counts)).toBe(
+      "3 bookmarks, 1 note and 2 images"
+    )
     expect(describeContents({ bookmarks: 0, notes: 0, images: 0 })).toBe(
       "Empty"
     )

@@ -387,6 +387,8 @@ describe("audit fixes: camera helpers", () => {
       const r = getBoardItemRect(item)
       expect(cam.x + r.x * cam.zoom).toBeGreaterThanOrEqual(0)
       expect(cam.x + (r.x + r.width) * cam.zoom).toBeLessThanOrEqual(vp.width)
+      expect(cam.y + r.y * cam.zoom).toBeGreaterThanOrEqual(0)
+      expect(cam.y + (r.y + r.height) * cam.zoom).toBeLessThanOrEqual(vp.height)
     }
   })
 

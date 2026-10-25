@@ -59,7 +59,8 @@ describe("one undo history", () => {
     store.actions.deleteBookmarks([bookmark.id])
     const entry = store.actions.lastEntryId()
     store.actions.deleteFolders([folder.id])
-    store.actions.undoEntry(entry)
+    expect(store.actions.undoEntry(entry)).toBe(false)
+    expect(store.getState().folders.map((f) => f.id)).not.toContain(folder.id)
 
     const folderIds = new Set(store.getState().folders.map((f) => f.id))
     const orphans = store
@@ -99,6 +100,21 @@ describe("store item actions", () => {
       expect(store.actions.createBookmark(folder.id, text, 0, 0)).toBeNull()
     }
     expect(store.getState().bookmarks).toHaveLength(0)
+  })
+
+  it("MX-15 moving a note and a bookmark together is one undo step", () => {
+    const store = makeStore()
+    const from = store.actions.createFolder(0, 0, "From")
+    const to = store.actions.createFolder(300, 0, "To")
+    const note = store.actions.createNote(0, 0, from.id)
+    const bookmark = store.actions.createBookmark(from.id, "a.com", 0, 0)!
+    store.actions.moveItems([note.id, bookmark.id], {
+      mode: "folder",
+      folderId: to.id,
+    })
+    store.actions.undo()
+    expect(store.getState().notes[0]?.folderId).toBe(from.id)
+    expect(store.getState().bookmarks[0]?.folderId).toBe(from.id)
   })
 
   it("MX-15 moveItems moves a note from a folder to Home in one undo step", () => {

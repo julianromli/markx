@@ -12,4 +12,26 @@ describe("platform shortcut labels", () => {
       false
     )
   })
+
+  it("MX-35 shortcutLabel(key) reads the real navigator by default", () => {
+    const original = Object.getOwnPropertyDescriptor(
+      Navigator.prototype,
+      "platform"
+    )
+    try {
+      Object.defineProperty(Navigator.prototype, "platform", {
+        configurable: true,
+        get: () => "MacIntel",
+      })
+      expect(shortcutLabel("N")).toBe("⌘N")
+      Object.defineProperty(Navigator.prototype, "platform", {
+        configurable: true,
+        get: () => "Win32",
+      })
+      expect(shortcutLabel("N")).toBe("Ctrl+N")
+    } finally {
+      if (original)
+        Object.defineProperty(Navigator.prototype, "platform", original)
+    }
+  })
 })

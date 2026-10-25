@@ -1,0 +1,15 @@
+== axe phone /
+   label-content-name-mismatch(serious) x3: #base-ui-_r_b_ ; div[data-board-item="folder-vibe-coding"] ; div[data-board-item="folder-design-engineer"]
+   page-has-heading-one(moderate) x1: html
+== axe phone /folder/folder-vibe-coding
+   label-content-name-mismatch(serious) x1: #base-ui-_r_b_
+   page-has-heading-one(moderate) x1: html
+== axe desktop /
+   label-content-name-mismatch(serious) x4: #base-ui-_r_3_ ; div[data-board-item="folder-vibe-coding"] ; div[data-board-item="folder-ai"]
+== axe desktop /folder/folder-vibe-coding
+   label-content-name-mismatch(serious) x1: #base-ui-_r_3_
+phone tab order: Tools@4,2,44x44 -> Back@48,2,44x44 -> More@289,2,44x44 -> Sign inSign in to sa@337,8,71x32 -> Zoom@329,60,71x44 -> AI Coding Agent for Building Ambitious Software | Cursor, bookmark@76,132,240x126 -> Home/Vibe CodingVibe@0,0,412x839 -> Tools@4,2,44x44 -> Back@48,2,44x44 -> More@289,2,44x44 -> Sign inSign in to sa@337,8,71x32 -> Zoom@329,60,71x44 -> AI Coding Agent for Building Ambitious Software | Cursor, bookmark@76,132,240x126 -> Home/Vibe CodingVibe@0,0,412x839
+focus after Tools sheet Escape: Tools
+long-press attempts until the menu stayed open: 1
+long-press menu items: Add bookmark=180x36, New note=180x36, Open=180x36, Rename=180x36, Move to…=180x36, Reset size=180x36, Delete=180x36
+toast buttons: [ 'Undo=47x24' ]

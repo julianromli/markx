@@ -126,7 +126,23 @@ export type MarkxActions = {
   resetSizes: (ids: string[]) => void
   moveBookmarks: (ids: string[], folderId: string) => void
   deleteBookmarks: (ids: string[]) => Bookmark[]
-  restoreBookmarks: (bookmarks: Bookmark[]) => void
+  /**
+   * Delete any mix of items in one undo step. Deleting a folder also
+   * deletes everything inside it.
+   */
+  deleteItems: (ids: string[]) => {
+    folders: number
+    bookmarks: number
+    notes: number
+    images: number
+  }
+  /** Id of the latest undo step, for toast "Undo" buttons. */
+  lastEntryId: () => number | null
+  /**
+   * Undo `entryId` only if it is still the latest step. Returns false (and
+   * changes nothing) when newer changes came after it.
+   */
+  undoEntry: (entryId: number | null) => boolean
   markxOnboarded: () => void
   enrichMissingBookmarks: () => Promise<void>
 }
@@ -172,8 +188,38 @@ export function createMarkxStore(
   dependencies: MarkxStoreDependencies = defaultDependencies
 ): MarkxStore {
   let state: MarkxState = createEmptyState()
-  let past: MarkxState[] = []
-  let future: MarkxState[] = []
+  type HistoryEntry = { id: number; snapshot: MarkxState }
+  let past: HistoryEntry[] = []
+  let future: HistoryEntry[] = []
+  let nextEntryId = 1
+
+  /**
+   * Enrich bookkeeping, so undo/redo can restore a bookmark snapshot taken
+   * while its enrich was pending without a shimmer that never ends.
+   */
+  const enrichInFlight = new Set<string>()
+  const enrichResults = new Map<string, LinkMetadata | null>()
+
+  const reconcileEnrich = (snapshot: MarkxState): MarkxState => {
+    if (!snapshot.bookmarks.some((b) => b.enrichStatus === "pending")) {
+      return snapshot
+    }
+    return {
+      ...snapshot,
+      bookmarks: snapshot.bookmarks.map((b) => {
+        if (b.enrichStatus !== "pending") return b
+        if (enrichResults.has(b.id)) {
+          const meta = enrichResults.get(b.id)
+          return meta
+            ? applyBookmarkMetadata(b, meta)
+            : { ...b, enrichStatus: "done" as const }
+        }
+        return enrichInFlight.has(b.id)
+          ? b
+          : { ...b, enrichStatus: "done" as const }
+      }),
+    }
+  }
   const listeners = new Set<Listener>()
   let saveTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -255,7 +301,7 @@ export function createMarkxStore(
   /** Apply a change and push the previous snapshot onto the undo stack. */
   const commit = (updater: (prev: MarkxState) => MarkxState) => {
     coalesceKey = null
-    past.push(cloneState(state))
+    past.push({ id: nextEntryId++, snapshot: cloneState(state) })
     if (past.length > MAX_HISTORY) past.shift()
     future = []
     state = updater(state)
@@ -297,8 +343,8 @@ export function createMarkxStore(
       coalesceKey = null
       const previous = past.pop()
       if (!previous) return
-      future.push(cloneState(state))
-      state = previous
+      future.push({ id: previous.id, snapshot: cloneState(state) })
+      state = reconcileEnrich(previous.snapshot)
       emit()
       persist()
     },
@@ -307,10 +353,51 @@ export function createMarkxStore(
       coalesceKey = null
       const next = future.pop()
       if (!next) return
-      past.push(cloneState(state))
-      state = next
+      past.push({ id: next.id, snapshot: cloneState(state) })
+      state = reconcileEnrich(next.snapshot)
       emit()
       persist()
+    },
+
+    deleteItems(ids) {
+      const idSet = new Set(ids)
+      const counts = { folders: 0, bookmarks: 0, notes: 0, images: 0 }
+      if (idSet.size === 0) return counts
+      commit((prev) => {
+        const folderIds = new Set(
+          prev.folders.filter((f) => idSet.has(f.id)).map((f) => f.id)
+        )
+        const inDeleted = (folderId: string | null) =>
+          folderId != null && folderIds.has(folderId)
+        const folders = prev.folders.filter((f) => !folderIds.has(f.id))
+        const bookmarks = prev.bookmarks.filter(
+          (b) => !idSet.has(b.id) && !inDeleted(b.folderId)
+        )
+        const notes = prev.notes.filter(
+          (n) => !idSet.has(n.id) && !inDeleted(n.folderId)
+        )
+        const images = prev.images.filter((i) => {
+          const keep = !idSet.has(i.id) && !inDeleted(i.folderId)
+          if (!keep) pendingDeletedImageIds.add(i.imageId)
+          return keep
+        })
+        counts.folders = prev.folders.length - folders.length
+        counts.bookmarks = prev.bookmarks.length - bookmarks.length
+        counts.notes = prev.notes.length - notes.length
+        counts.images = prev.images.length - images.length
+        return { ...prev, folders, bookmarks, notes, images }
+      })
+      return counts
+    },
+
+    lastEntryId() {
+      return past.at(-1)?.id ?? null
+    },
+
+    undoEntry(entryId) {
+      if (entryId == null || past.at(-1)?.id !== entryId) return false
+      actions.undo()
+      return true
     },
 
     raiseZ(ids) {
@@ -537,9 +624,12 @@ export function createMarkxStore(
       // Enrich in the background: the card is already on the board, and waiting
       // for the scrape would delay selection and edit affordances.
       // Do not mark SyncEngine dirty — the create commit already queued a sync.
+      enrichInFlight.add(created.id)
       void (async () => {
         try {
           const meta = await dependencies.enrich({ data: { url: normalized } })
+          enrichInFlight.delete(created.id)
+          enrichResults.set(created.id, meta)
           patch(
             (prev) => ({
               ...prev,
@@ -550,6 +640,8 @@ export function createMarkxStore(
             { sync: false }
           )
         } catch {
+          enrichInFlight.delete(created.id)
+          enrichResults.set(created.id, null)
           // Keep the optimistic card, but clear the loading shimmer.
           patch(
             (prev) => ({
@@ -648,14 +740,6 @@ export function createMarkxStore(
       return removed
     },
 
-    restoreBookmarks(bookmarks) {
-      if (bookmarks.length === 0) return
-      commit((prev) => ({
-        ...prev,
-        bookmarks: [...prev.bookmarks, ...bookmarks],
-      }))
-    },
-
     markxOnboarded() {
       patch((prev) =>
         prev.hasOnboarded ? prev : { ...prev, hasOnboarded: true }
@@ -719,8 +803,10 @@ export function createMarkxStore(
               data: { url: bookmark.url },
             })
             pendingMeta.set(bookmark.id, meta)
+            enrichResults.set(bookmark.id, meta)
           } catch {
             pendingMeta.set(bookmark.id, null)
+            enrichResults.set(bookmark.id, null)
           }
           flushTimer ??= setTimeout(flushEnrich, STORE_ENRICH_BATCH_WINDOW_MS)
         })

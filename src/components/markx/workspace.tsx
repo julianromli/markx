@@ -213,80 +213,62 @@ export function Workspace(props: WorkspaceProps) {
     [actions, navigate, props.mode, state.bookmarks, state.notes]
   )
 
+  /** Toast with an Undo that reverts exactly this step, if still latest. */
+  const toastWithUndo = useCallback(
+    (message: string) => {
+      const entry = actions.lastEntryId()
+      toast(message, {
+        action: {
+          label: "Undo",
+          onClick: () => {
+            if (!actions.undoEntry(entry)) {
+              toast("Newer changes came after this. Use Undo to step back.")
+            }
+          },
+        },
+      })
+    },
+    [actions]
+  )
+
+  const performDelete = useCallback(
+    (ids: string[]) => {
+      const counts = actions.deleteItems(ids)
+      const total =
+        counts.folders + counts.bookmarks + counts.notes + counts.images
+      if (total === 0) return
+      if (editingNoteId && ids.includes(editingNoteId)) setEditingNoteId(null)
+      setSelectedIds(new Set())
+      const message =
+        ids.length > 1
+          ? "Deleted"
+          : counts.folders > 0
+            ? "Folder deleted"
+            : counts.bookmarks > 0
+              ? "Bookmark deleted"
+              : counts.notes > 0
+                ? "Note deleted"
+                : "Image deleted"
+      toastWithUndo(message)
+    },
+    [actions, editingNoteId, toastWithUndo]
+  )
+
   const deleteSelection = useCallback(
     (ids: string[]) => {
       if (ids.length === 0) return
-
-      const { folderIds, bookmarkIds, noteIds, imageIds } = classifyItemIds(
-        state,
-        ids
-      )
-
-      if (props.mode === "home") {
-        const nonempty = folderIds.filter((id) => folderHasItems(state, id))
-        if (nonempty.length > 0) {
-          setConfirmFolderOpen(true)
-          return
-        }
-        if (folderIds.length > 0) {
-          actions.deleteFolders(folderIds)
-        }
-        if (noteIds.length > 0) {
-          actions.deleteNotes(noteIds)
-        }
-        if (imageIds.length > 0) {
-          actions.deleteImages(imageIds)
-        }
-        if (editingNoteId && noteIds.includes(editingNoteId)) {
-          setEditingNoteId(null)
-        }
-        setSelectedIds(new Set())
-        toast(
-          ids.length === 1
-            ? folderIds.length > 0
-              ? "Folder deleted"
-              : noteIds.length > 0
-                ? "Note deleted"
-                : "Image deleted"
-            : "Deleted"
-        )
+      const { folderIds } = classifyItemIds(state, ids)
+      if (folderIds.some((id) => folderHasItems(state, id))) {
+        setConfirmFolderOpen(true)
         return
       }
-
-      if (bookmarkIds.length > 0) {
-        const removed = actions.deleteBookmarks(bookmarkIds)
-        toast("Bookmark deleted", {
-          action: {
-            label: "Undo",
-            onClick: () => actions.restoreBookmarks(removed),
-          },
-        })
-      }
-      if (noteIds.length > 0) {
-        actions.deleteNotes(noteIds)
-        if (bookmarkIds.length === 0 && imageIds.length === 0) {
-          toast("Note deleted")
-        }
-      }
-      if (imageIds.length > 0) {
-        actions.deleteImages(imageIds)
-        if (bookmarkIds.length === 0 && noteIds.length === 0) {
-          toast("Image deleted")
-        }
-      }
-      if (editingNoteId && noteIds.includes(editingNoteId)) {
-        setEditingNoteId(null)
-      }
-      setSelectedIds(new Set())
+      performDelete(ids)
     },
-    [actions, editingNoteId, props.mode, state]
+    [performDelete, state]
   )
 
   const confirmDeleteFolders = () => {
-    const { folderIds } = classifyItemIds(state, [...selectedIds])
-    actions.deleteFolders(folderIds)
-    setSelectedIds(new Set())
-    toast("Folder deleted")
+    performDelete([...selectedIds])
   }
 
   /**

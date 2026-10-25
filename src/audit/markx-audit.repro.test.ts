@@ -44,14 +44,6 @@ function makeStore(enrich?: MarkxStoreDependencies["enrich"]) {
   return { store, save }
 }
 
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  const promise = new Promise<T>((r) => {
-    resolve = r
-  })
-  return { promise, resolve }
-}
-
 describe("audit: store and sync", () => {
   auditIt(
     "MX-04 moveBookmarks gives each moved bookmark its own position",
@@ -79,42 +71,6 @@ describe("audit: store and sync", () => {
   )
 
   auditIt(
-    "MX-05 toast Undo after Cmd+Z does not duplicate a deleted bookmark",
-    () => {
-      const { store } = makeStore()
-      const folder = store.actions.createFolder(0, 0, "F")
-      const bookmark = store.actions.createBookmark(folder.id, "a.com", 0, 0)
-
-      const removed = store.actions.deleteBookmarks([bookmark.id])
-      store.actions.undo() // keyboard / header Undo
-      store.actions.restoreBookmarks(removed) // then the toast "Undo" button
-
-      const copies = store
-        .getState()
-        .bookmarks.filter((b) => b.id === bookmark.id)
-      expect(copies).toHaveLength(1)
-    }
-  )
-
-  auditIt(
-    "MX-05b toast Undo does not restore a bookmark into a folder that no longer exists",
-    () => {
-      const { store } = makeStore()
-      const folder = store.actions.createFolder(0, 0, "F")
-      const bookmark = store.actions.createBookmark(folder.id, "a.com", 0, 0)
-      const removed = store.actions.deleteBookmarks([bookmark.id])
-      store.actions.deleteFolders([folder.id])
-      store.actions.restoreBookmarks(removed)
-
-      const folderIds = new Set(store.getState().folders.map((f) => f.id))
-      const orphans = store
-        .getState()
-        .bookmarks.filter((b) => !folderIds.has(b.folderId))
-      expect(orphans).toHaveLength(0)
-    }
-  )
-
-  auditIt(
     "MX-06 createBookmark does not throw on an input that is not a valid URL",
     () => {
       const { store } = makeStore()
@@ -124,27 +80,6 @@ describe("audit: store and sync", () => {
       expect(() =>
         store.actions.createBookmark(folder.id, "https://", 0, 0)
       ).not.toThrow()
-    }
-  )
-
-  auditIt(
-    "MX-07 redo of a bookmark created while enrich was pending does not leave a stuck loading shimmer",
-    async () => {
-      const pending = deferred<LinkMetadata>()
-      const { store } = makeStore(vi.fn(() => pending.promise))
-      const folder = store.actions.createFolder(0, 0, "F")
-      const bookmark = store.actions.createBookmark(folder.id, "a.com", 0, 0)
-
-      store.actions.undo()
-      pending.resolve({ title: "A", faviconUrl: "" })
-      await Promise.resolve()
-      await Promise.resolve()
-      store.actions.redo()
-
-      const restored = store
-        .getState()
-        .bookmarks.find((b) => b.id === bookmark.id)
-      expect(restored?.enrichStatus).not.toBe("pending")
     }
   )
 })

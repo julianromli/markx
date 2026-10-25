@@ -410,6 +410,16 @@ export function AppShell({
 
             <button
               type="button"
+              aria-label="Undo"
+              disabled={!canUndo}
+              onClick={() => actions.undo()}
+              className="flex size-11 shrink-0 items-center justify-center text-ink/80 transition-[background-color,transform,opacity] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.03] active:scale-[0.96] disabled:opacity-30 md:hidden"
+            >
+              <ArrowCounterClockwiseIcon className="size-5" weight="regular" />
+            </button>
+
+            <button
+              type="button"
               aria-label="More"
               aria-expanded={moreOpen}
               onClick={() => setMoreOpen(true)}
@@ -461,53 +471,51 @@ export function AppShell({
       <main className="relative col-start-1 row-start-2 flex min-h-0 min-w-0 flex-col md:col-start-2">
         <StaleWorkspaceBanner />
         <div className="relative min-h-0 min-w-0 flex-1">
-        {typeof zoomPercent === "number" &&
-        onZoomPreset &&
-        onZoomFit ? (
-          <div className="pointer-events-none absolute top-3 right-3 z-20 md:hidden">
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                className="pointer-events-auto flex h-11 items-center gap-1 rounded-xl border border-black/10 bg-white/90 px-3 text-[13px] font-medium text-ink/80 shadow-sm backdrop-blur-xl transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] outline-none hover:bg-white focus-visible:ring-2 focus-visible:ring-black/10 active:scale-[0.96]"
-                aria-label="Zoom"
-              >
-                <span className="tabular-nums" suppressHydrationWarning>
-                  {zoomPercent}%
-                </span>
-                <CaretDownIcon className="size-[14px]" weight="bold" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-[9.5rem]">
-                <DropdownMenuRadioGroup
-                  value={
-                    (ZOOM_PRESET_PERCENTS as readonly number[]).includes(
-                      zoomPercent
-                    )
-                      ? String(zoomPercent)
-                      : undefined
-                  }
-                  onValueChange={(value) => {
-                    const percent = Number(value)
-                    if (Number.isFinite(percent)) onZoomPreset(percent)
-                  }}
+          {typeof zoomPercent === "number" && onZoomPreset && onZoomFit ? (
+            <div className="pointer-events-none absolute top-3 right-3 z-20 md:hidden">
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  className="pointer-events-auto flex h-11 items-center gap-1 rounded-xl border border-black/10 bg-white/90 px-3 text-[13px] font-medium text-ink/80 shadow-sm backdrop-blur-xl transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] outline-none hover:bg-white focus-visible:ring-2 focus-visible:ring-black/10 active:scale-[0.96]"
+                  aria-label="Zoom"
                 >
-                  {ZOOM_PRESET_PERCENTS.map((percent) => (
-                    <DropdownMenuRadioItem
-                      key={percent}
-                      value={String(percent)}
-                      className="tabular-nums"
-                    >
-                      {percent}%
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => onZoomFit()}>
-                  Fit
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        ) : null}
-        {children}
+                  <span className="tabular-nums" suppressHydrationWarning>
+                    {zoomPercent}%
+                  </span>
+                  <CaretDownIcon className="size-[14px]" weight="bold" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-[9.5rem]">
+                  <DropdownMenuRadioGroup
+                    value={
+                      (ZOOM_PRESET_PERCENTS as readonly number[]).includes(
+                        zoomPercent
+                      )
+                        ? String(zoomPercent)
+                        : undefined
+                    }
+                    onValueChange={(value) => {
+                      const percent = Number(value)
+                      if (Number.isFinite(percent)) onZoomPreset(percent)
+                    }}
+                  >
+                    {ZOOM_PRESET_PERCENTS.map((percent) => (
+                      <DropdownMenuRadioItem
+                        key={percent}
+                        value={String(percent)}
+                        className="tabular-nums"
+                      >
+                        {percent}%
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => onZoomFit()}>
+                    Fit
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          ) : null}
+          {children}
         </div>
       </main>
 
@@ -527,7 +535,7 @@ export function AppShell({
         </SheetContent>
       </Sheet>
 
-      {/* Mobile overflow menu (Help / Search) */}
+      {/* Mobile overflow menu (Undo / Redo / Share / Help / Search) */}
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
         <SheetContent
           side="bottom"
@@ -537,6 +545,26 @@ export function AppShell({
           <SheetHeader className="sr-only">
             <SheetTitle>More</SheetTitle>
           </SheetHeader>
+          <MoreMenuItem
+            label="Undo"
+            disabled={!canUndo}
+            icon={
+              <ArrowCounterClockwiseIcon className="size-5" weight="regular" />
+            }
+            onClick={() => {
+              setMoreOpen(false)
+              actions.undo()
+            }}
+          />
+          <MoreMenuItem
+            label="Redo"
+            disabled={!canRedo}
+            icon={<ArrowClockwiseIcon className="size-5" weight="regular" />}
+            onClick={() => {
+              setMoreOpen(false)
+              actions.redo()
+            }}
+          />
           {onShare ? (
             <MoreMenuItem
               label="Share"
@@ -655,17 +683,20 @@ function ToolButton({
 function MoreMenuItem({
   label,
   icon,
+  disabled,
   onClick,
 }: {
   label: string
   icon: ReactNode
+  disabled?: boolean
   onClick?: () => void
 }) {
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={onClick}
-      className="flex w-full items-center gap-3 rounded-xl px-4 py-3.5 text-left text-[15px] font-medium text-ink/80 transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.04] active:scale-[0.99]"
+      className="flex w-full items-center gap-3 rounded-xl px-4 py-3.5 text-left text-[15px] font-medium text-ink/80 transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.04] active:scale-[0.99] disabled:opacity-40"
     >
       <span className="text-black/55">{icon}</span>
       {label}

@@ -161,6 +161,7 @@ export function Board({
     new Map()
   )
   const gestureRef = useRef(new BoardGesture())
+  const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const selectedRef = useRef(selectedIds)
   const itemsRef = useRef(items)
   /** Roving-tabindex stop for keyboard users reaching the canvas via Tab. */
@@ -299,6 +300,7 @@ export function Board({
   useEffect(() => {
     return () => {
       if (rafIdRef.current != null) cancelAnimationFrame(rafIdRef.current)
+      if (armTimerRef.current) clearTimeout(armTimerRef.current)
     }
   }, [])
 
@@ -584,6 +586,17 @@ export function Board({
           break
         case "trashArmed":
           setTrashArmedState(effect.armed)
+          break
+        case "armLater":
+          if (armTimerRef.current) clearTimeout(armTimerRef.current)
+          armTimerRef.current = setTimeout(() => {
+            armTimerRef.current = null
+            if (!viewportRef.current) return
+            runEffects(
+              viewportRef.current,
+              gestureRef.current.tick(Date.now(), gestureContext())
+            )
+          }, effect.delayMs + 10)
           break
         case "commitMove":
           onMoveItems(effect.updates)

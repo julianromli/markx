@@ -77,6 +77,8 @@ export type GestureEffect =
   | { type: "moveStart"; count: number }
   | { type: "moveEnd" }
   | { type: "trashArmed"; armed: boolean }
+  /** Call {@link BoardGesture.tick} after `delayMs` (dock dwell). */
+  | { type: "armLater"; delayMs: number }
   | { type: "commitMove"; updates: Array<{ id: string; x: number; y: number }> }
   | { type: "commitResize"; id: string; rect: LiveResize }
   | { type: "trashDrop"; ids: string[] }
@@ -100,9 +102,17 @@ type Drag = {
   lastCentroid?: Point
   lastDistance?: number
   armed?: boolean
+  /** When the pointer entered the phone delete dock, or null. */
+  overDockSince?: number | null
+  lastPointer?: Point
 }
 
 const DOUBLE_CLICK_MS = 350
+/**
+ * The phone dock must be held for a moment before it arms, so a drag that
+ * merely passes near the bottom edge does not delete anything.
+ */
+export const DOCK_ARM_DWELL_MS = 180
 
 function toViewportRect(ctx: GestureContext): DOMRect {
   const { left, top, width, height } = ctx.viewport
@@ -318,11 +328,8 @@ export class BoardGesture {
         offsets.set(id, { x: origin.x + dx / zoom, y: origin.y + dy / zoom })
       }
       effects.push({ type: "liveOffsets", offsets })
-      const armed = this.isOverDropTarget(e, ctx)
-      if (armed !== !!drag.armed) {
-        drag.armed = armed
-        effects.push({ type: "trashArmed", armed })
-      }
+      drag.lastPointer = { x: e.x, y: e.y }
+      effects.push(...this.updateArmed(e.x, e.y, e.time, ctx))
     }
     return effects
   }
@@ -368,7 +375,10 @@ export class BoardGesture {
     }
 
     if (drag.mode === "move" && drag.origins) {
-      if (this.isOverDropTarget(e, ctx)) {
+      const dropOnTarget = ctx.mobileDock
+        ? !!drag.armed && this.isOverDropTarget(e.x, e.y, ctx)
+        : this.isOverDropTarget(e.x, e.y, ctx)
+      if (dropOnTarget) {
         effects.push({ type: "trashDrop", ids: [...drag.origins.keys()] })
       } else {
         const zoom = ctx.camera.zoom
@@ -461,8 +471,42 @@ export class BoardGesture {
     return effects
   }
 
-  private isOverDropTarget(e: PointerInput, ctx: GestureContext): boolean {
-    return inScreenRect(e.x, e.y, ctx.mobileDock ? ctx.dockRect : ctx.trashRect)
+  /** Re-check the dock dwell without a new pointer event. */
+  tick(time: number, ctx: GestureContext): GestureEffect[] {
+    const drag = this.drag
+    if (drag?.mode !== "move" || !drag.lastPointer) return []
+    return this.updateArmed(drag.lastPointer.x, drag.lastPointer.y, time, ctx)
+  }
+
+  private updateArmed(
+    x: number,
+    y: number,
+    time: number,
+    ctx: GestureContext
+  ): GestureEffect[] {
+    const drag = this.drag
+    if (!drag) return []
+    const over = this.isOverDropTarget(x, y, ctx)
+    let armed = over
+    const effects: GestureEffect[] = []
+    if (ctx.mobileDock) {
+      if (!over) drag.overDockSince = null
+      else drag.overDockSince ??= time
+      const held = over ? time - (drag.overDockSince ?? time) : 0
+      armed = over && held >= DOCK_ARM_DWELL_MS
+      if (over && !armed && !drag.armed) {
+        effects.push({ type: "armLater", delayMs: DOCK_ARM_DWELL_MS - held })
+      }
+    }
+    if (armed !== !!drag.armed) {
+      drag.armed = armed
+      effects.push({ type: "trashArmed", armed })
+    }
+    return effects
+  }
+
+  private isOverDropTarget(x: number, y: number, ctx: GestureContext): boolean {
+    return inScreenRect(x, y, ctx.mobileDock ? ctx.dockRect : ctx.trashRect)
   }
 
   private selectionForPress(

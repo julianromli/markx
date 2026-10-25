@@ -146,4 +146,46 @@ describe("BoardGesture", () => {
     const effects = g.pointerDown(input({ x: 900, y: 700 }), ctx())
     expect(types(effects)).toContain("blankPress")
   })
+
+  describe("MX-13 delete dock", () => {
+    const dock = { left: 400, top: 700, right: 560, bottom: 770 }
+    const phone = () => ctx({ mobileDock: true, dockRect: dock })
+
+    it("does not delete when the item only passes over the dock", () => {
+      const g = new BoardGesture()
+      g.pointerDown(input({ x: 150, y: 150, time: 0 }), phone())
+      g.pointerMove(input({ x: 480, y: 735, time: 20 }), phone())
+      const effects = g.pointerUp(input({ x: 480, y: 735, time: 60 }), phone())
+      expect(types(effects)).not.toContain("trashDrop")
+      expect(types(effects)).toContain("commitMove")
+    })
+
+    it("arms after a short dwell on the dock and then deletes on release", () => {
+      const g = new BoardGesture()
+      g.pointerDown(input({ x: 150, y: 150, time: 0 }), phone())
+      const over = g.pointerMove(input({ x: 480, y: 735, time: 20 }), phone())
+      expect(over).not.toContainEqual({ type: "trashArmed", armed: true })
+      expect(over).toContainEqual({
+        type: "armLater",
+        delayMs: expect.any(Number),
+      })
+      expect(g.tick(400, phone())).toContainEqual({
+        type: "trashArmed",
+        armed: true,
+      })
+      const effects = g.pointerUp(input({ x: 480, y: 735, time: 420 }), phone())
+      expect(effects).toContainEqual({ type: "trashDrop", ids: ["n1"] })
+    })
+
+    it("disarms when the finger leaves the dock", () => {
+      const g = new BoardGesture()
+      g.pointerDown(input({ x: 150, y: 150, time: 0 }), phone())
+      g.pointerMove(input({ x: 480, y: 735, time: 20 }), phone())
+      g.tick(400, phone())
+      const away = g.pointerMove(input({ x: 30, y: 740, time: 450 }), phone())
+      expect(away).toContainEqual({ type: "trashArmed", armed: false })
+      const effects = g.pointerUp(input({ x: 30, y: 740, time: 470 }), phone())
+      expect(types(effects)).not.toContain("trashDrop")
+    })
+  })
 })

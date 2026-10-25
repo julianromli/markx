@@ -15,8 +15,8 @@ type WorkspaceBoardItemProps = {
   interacting?: boolean
   /** True while this item's note editor is open. */
   editing: boolean
-  /** Bookmark count shown on folder tiles (home board only). */
-  folderBookmarkCount?: number
+  /** Contents label shown on folder tiles (home board only). */
+  folderContentsLabel?: string
   /** Show the "shared" badge on a folder tile. */
   shared?: boolean
   onCommitNote: (id: string, content: string, session: string) => void
@@ -39,7 +39,7 @@ export const WorkspaceBoardItem = memo(
     selected,
     interacting = false,
     editing,
-    folderBookmarkCount = 0,
+    folderContentsLabel = "Empty",
     shared = false,
     onCommitNote,
     onExitNoteEdit,
@@ -49,7 +49,7 @@ export const WorkspaceBoardItem = memo(
       return (
         <FolderIcon
           name={item.data.name}
-          count={folderBookmarkCount}
+          contents={folderContentsLabel}
           selected={selected}
           shared={shared}
         />
@@ -86,7 +86,7 @@ export const WorkspaceBoardItem = memo(
     prev.selected === next.selected &&
     prev.interacting === next.interacting &&
     prev.editing === next.editing &&
-    prev.folderBookmarkCount === next.folderBookmarkCount &&
+    prev.folderContentsLabel === next.folderContentsLabel &&
     prev.onCommitNote === next.onCommitNote &&
     prev.onExitNoteEdit === next.onExitNoteEdit &&
     prev.onNoteStyleChange === next.onNoteStyleChange

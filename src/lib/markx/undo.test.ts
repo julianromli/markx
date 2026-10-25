@@ -87,3 +87,30 @@ describe("one undo history", () => {
     expect(restored?.title).toBe("Arrived late")
   })
 })
+
+describe("store item actions", () => {
+  it("MX-06 createBookmark returns null instead of throwing on a bad link", () => {
+    const store = makeStore()
+    const folder = store.actions.createFolder(0, 0, "F")
+    for (const text of ["https://", "my reading list", "https://[x"]) {
+      expect(() =>
+        store.actions.createBookmark(folder.id, text, 0, 0)
+      ).not.toThrow()
+      expect(store.actions.createBookmark(folder.id, text, 0, 0)).toBeNull()
+    }
+    expect(store.getState().bookmarks).toHaveLength(0)
+  })
+
+  it("MX-15 moveItems moves a note from a folder to Home in one undo step", () => {
+    const store = makeStore()
+    const folder = store.actions.createFolder(0, 0, "F")
+    const note = store.actions.createNote(0, 0, folder.id)
+    expect(store.actions.moveItems([note.id], { mode: "home" })).toEqual({
+      moved: 1,
+      skipped: 0,
+    })
+    expect(store.getState().notes[0]?.folderId).toBeNull()
+    store.actions.undo()
+    expect(store.getState().notes[0]?.folderId).toBe(folder.id)
+  })
+})

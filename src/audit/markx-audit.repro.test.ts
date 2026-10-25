@@ -9,11 +9,8 @@
  *
  * Test names start with the finding id from the audit report.
  */
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 
-import { createMarkxStore } from "@/lib/markx/store"
-import type { MarkxStoreDependencies } from "@/lib/markx/store"
-import { createEmptyState } from "@/lib/markx/seed"
 import {
   NOTE_SIZE,
   MIN_NOTE_SIZE,
@@ -21,68 +18,8 @@ import {
   RESIZE_HANDLE_SIZE,
   isInBottomRightResizeZone,
 } from "@/lib/markx/geometry"
-import type { LinkMetadata, MarkxState } from "@/lib/markx/types"
 
 const auditIt = process.env.MARKX_AUDIT ? it : it.skip
-
-afterEach(() => {
-  vi.useRealTimers()
-})
-
-function makeStore(enrich?: MarkxStoreDependencies["enrich"]) {
-  const save = vi.fn(async (_state: MarkxState) => {})
-  const store = createMarkxStore({
-    storage: { load: vi.fn(async () => createEmptyState()), save },
-    enrich:
-      enrich ??
-      vi.fn(async (): Promise<LinkMetadata> => ({
-        title: "Example",
-        faviconUrl: "",
-      })),
-    sweepOrphanImages: vi.fn(async () => {}),
-  })
-  return { store, save }
-}
-
-describe("audit: store and sync", () => {
-  auditIt(
-    "MX-04 moveBookmarks gives each moved bookmark its own position",
-    () => {
-      const { store } = makeStore()
-      const source = store.actions.createFolder(0, 0, "Source")
-      const target = store.actions.createFolder(300, 0, "Target")
-      const ids: string[] = []
-      for (let i = 0; i < 6; i += 1) {
-        ids.push(
-          store.actions.createBookmark(source.id, `site${i}.com`, i * 500, 0).id
-        )
-      }
-
-      // Move the 1st and the 6th bookmark (global index 0 and 5).
-      store.actions.moveBookmarks([ids[0], ids[5]], target.id)
-
-      const positions = store
-        .getState()
-        .bookmarks.filter((b) => b.folderId === target.id)
-        .map((b) => `${b.x},${b.y}`)
-      expect(positions).toHaveLength(2)
-      expect(new Set(positions).size).toBe(2)
-    }
-  )
-
-  auditIt(
-    "MX-06 createBookmark does not throw on an input that is not a valid URL",
-    () => {
-      const { store } = makeStore()
-      const folder = store.actions.createFolder(0, 0, "F")
-      // "https://" and "https://[x" throw in every URL parser. Text with
-      // spaces throws in jsdom but becomes host "my%20notes" in Chromium.
-      expect(() =>
-        store.actions.createBookmark(folder.id, "https://", 0, 0)
-      ).not.toThrow()
-    }
-  )
-})
 
 describe("audit: geometry", () => {
   auditIt(

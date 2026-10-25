@@ -1,5 +1,10 @@
 import { nanoid } from "nanoid"
 
+import {
+  deleteItems as deleteBoardItems,
+  moveItems as moveBoardItems,
+  parseBookmarkUrl,
+} from "./board-items"
 import { enrichLink } from "./enrich"
 import { cloneState, createEmptyState, nextZ } from "./state"
 import { localMarkxStorage, sweepOrphanImageBlobs } from "./storage"
@@ -17,6 +22,7 @@ import type {
   MarkxState,
   Note,
 } from "./types"
+import type { WorkspaceLocation } from "./workspace-items"
 import { youtubeOptimisticImageUrl } from "./youtube"
 
 type Listener = () => void
@@ -110,21 +116,29 @@ export type MarkxActions = {
   deleteImages: (ids: string[]) => BoardImage[]
   /**
    * Returns the optimistic bookmark synchronously so callers can select it right
-   * away. Open Graph metadata arrives later via a background patch.
+   * away. Open Graph metadata arrives later via a background patch. Returns
+   * null when `url` is not a valid http(s) link.
    */
   createBookmark: (
     folderId: string,
     url: string,
     x: number,
     y: number
-  ) => Bookmark
+  ) => Bookmark | null
   renameBookmark: (id: string, title: string) => void
   resizeItem: (
     id: string,
     rect: { x: number; width: number; height: number }
   ) => void
   resetSizes: (ids: string[]) => void
-  moveBookmarks: (ids: string[], folderId: string) => void
+  /**
+   * Move bookmarks, notes, and images to Home or a folder (see
+   * board-items.ts for what can live where). Returns what moved.
+   */
+  moveItems: (
+    ids: string[],
+    target: WorkspaceLocation
+  ) => { moved: number; skipped: number }
   deleteBookmarks: (ids: string[]) => Bookmark[]
   /**
    * Delete any mix of items in one undo step. Deleting a folder also
@@ -360,33 +374,20 @@ export function createMarkxStore(
     },
 
     deleteItems(ids) {
-      const idSet = new Set(ids)
-      const counts = { folders: 0, bookmarks: 0, notes: 0, images: 0 }
-      if (idSet.size === 0) return counts
-      commit((prev) => {
-        const folderIds = new Set(
-          prev.folders.filter((f) => idSet.has(f.id)).map((f) => f.id)
-        )
-        const inDeleted = (folderId: string | null) =>
-          folderId != null && folderIds.has(folderId)
-        const folders = prev.folders.filter((f) => !folderIds.has(f.id))
-        const bookmarks = prev.bookmarks.filter(
-          (b) => !idSet.has(b.id) && !inDeleted(b.folderId)
-        )
-        const notes = prev.notes.filter(
-          (n) => !idSet.has(n.id) && !inDeleted(n.folderId)
-        )
-        const images = prev.images.filter((i) => {
-          const keep = !idSet.has(i.id) && !inDeleted(i.folderId)
-          if (!keep) pendingDeletedImageIds.add(i.imageId)
-          return keep
-        })
-        counts.folders = prev.folders.length - folders.length
-        counts.bookmarks = prev.bookmarks.length - bookmarks.length
-        counts.notes = prev.notes.length - notes.length
-        counts.images = prev.images.length - images.length
-        return { ...prev, folders, bookmarks, notes, images }
-      })
+      let counts = { folders: 0, bookmarks: 0, notes: 0, images: 0 }
+      if (ids.length === 0) return counts
+      const result = deleteBoardItems(state, ids)
+      counts = result.counts
+      if (
+        counts.folders + counts.bookmarks + counts.notes + counts.images ===
+        0
+      ) {
+        return counts
+      }
+      for (const imageId of result.removedImageIds) {
+        pendingDeletedImageIds.add(imageId)
+      }
+      commit(() => result.state)
       return counts
     },
 
@@ -479,27 +480,8 @@ export function createMarkxStore(
     },
 
     deleteFolders(ids) {
-      const idSet = new Set(ids)
-      commit((prev) => {
-        // Track images that are being removed so the sync engine can
-        // soft-delete their R2 objects.
-        for (const img of prev.images) {
-          if (img.folderId != null && idSet.has(img.folderId)) {
-            pendingDeletedImageIds.add(img.imageId)
-          }
-        }
-        return {
-          ...prev,
-          folders: prev.folders.filter((f) => !idSet.has(f.id)),
-          bookmarks: prev.bookmarks.filter((b) => !idSet.has(b.folderId)),
-          notes: prev.notes.filter(
-            (n) => n.folderId == null || !idSet.has(n.folderId)
-          ),
-          images: prev.images.filter(
-            (i) => i.folderId == null || !idSet.has(i.folderId)
-          ),
-        }
-      })
+      const folderIds = new Set(state.folders.map((f) => f.id))
+      actions.deleteItems(ids.filter((id) => folderIds.has(id)))
     },
 
     createNote(x, y, folderId) {
@@ -547,14 +529,8 @@ export function createMarkxStore(
 
     deleteNotes(ids) {
       const idSet = new Set(ids)
-      let removed: Note[] = []
-      commit((prev) => {
-        removed = prev.notes.filter((n) => idSet.has(n.id))
-        return {
-          ...prev,
-          notes: prev.notes.filter((n) => !idSet.has(n.id)),
-        }
-      })
+      const removed = state.notes.filter((item) => idSet.has(item.id))
+      actions.deleteItems(removed.map((item) => item.id))
       return removed
     },
 
@@ -575,28 +551,16 @@ export function createMarkxStore(
 
     deleteImages(ids) {
       const idSet = new Set(ids)
-      let removed: BoardImage[] = []
-      commit((prev) => {
-        removed = prev.images.filter((i) => idSet.has(i.id))
-        // Track for R2 soft-delete on next sync.
-        for (const img of removed) {
-          pendingDeletedImageIds.add(img.imageId)
-        }
-        return {
-          ...prev,
-          images: prev.images.filter((i) => !idSet.has(i.id)),
-        }
-      })
+      const removed = state.images.filter((item) => idSet.has(item.id))
+      actions.deleteItems(removed.map((item) => item.id))
       return removed
     },
 
     createBookmark(folderId, url, x, y) {
-      let normalized = url.trim()
-      if (!/^https?:\/\//i.test(normalized)) {
-        normalized = `https://${normalized}`
-      }
-
-      const host = new URL(normalized).hostname
+      const parsed = parseBookmarkUrl(url)
+      if (!parsed.ok) return null
+      const normalized = parsed.url
+      const host = parsed.host
       const optimisticImage = youtubeOptimisticImageUrl(normalized)
       let created!: Bookmark
       commit((prev) => {
@@ -710,33 +674,16 @@ export function createMarkxStore(
       }))
     },
 
-    moveBookmarks(ids, folderId) {
-      const idSet = new Set(ids)
-      commit((prev) => ({
-        ...prev,
-        bookmarks: prev.bookmarks.map((b, index) =>
-          idSet.has(b.id)
-            ? {
-                ...b,
-                folderId,
-                x: 140 + (index % 5) * 24,
-                y: 140 + (index % 5) * 24,
-              }
-            : b
-        ),
-      }))
+    moveItems(ids, target) {
+      const result = moveBoardItems(state, ids, target)
+      if (result.moved > 0) commit(() => result.state)
+      return { moved: result.moved, skipped: result.skipped }
     },
 
     deleteBookmarks(ids) {
       const idSet = new Set(ids)
-      let removed: Bookmark[] = []
-      commit((prev) => {
-        removed = prev.bookmarks.filter((b) => idSet.has(b.id))
-        return {
-          ...prev,
-          bookmarks: prev.bookmarks.filter((b) => !idSet.has(b.id)),
-        }
-      })
+      const removed = state.bookmarks.filter((item) => idSet.has(item.id))
+      actions.deleteItems(removed.map((item) => item.id))
       return removed
     },
 

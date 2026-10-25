@@ -1,7 +1,7 @@
 import { createDemoState, createEmptyState } from "./seed"
 import { isGuestImported, loadState } from "./storage"
 import type { MarkxStorage } from "./storage"
-import type { Bookmark, Folder, MarkxState } from "./types"
+import type { Folder, MarkxState } from "./types"
 
 export { createEmptyState }
 
@@ -19,13 +19,6 @@ export function cloneState(source: MarkxState): MarkxState {
 export function nextZ(state: MarkxState): { z: number; zCounter: number } {
   const z = state.zCounter + 1
   return { z, zCounter: z }
-}
-
-export function countBookmarksInFolder(
-  bookmarks: Bookmark[],
-  folderId: string
-): number {
-  return bookmarks.filter((bookmark) => bookmark.folderId === folderId).length
 }
 
 export function getFolder(folders: Folder[], id: string): Folder | undefined {

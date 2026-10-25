@@ -37,11 +37,18 @@ import {
   findEmptySlot,
   getBoardItemRect,
 } from "@/lib/markx/geometry"
-import { countBookmarksInFolder } from "@/lib/markx/state"
+import {
+  clampIntoView,
+  contentsOfFolders,
+  describeContents,
+  describeContentsSentence,
+  folderContents,
+  hasContents,
+  moveTargets,
+  openIntent,
+} from "@/lib/markx/board-items"
 import {
   classifyItemIds,
-  countItemsInFolders,
-  folderHasItems,
   selectWorkspaceItems,
 } from "@/lib/markx/workspace-items"
 import { cn } from "@/lib/utils"
@@ -66,6 +73,7 @@ export function Workspace(props: WorkspaceProps) {
   const [linkOpen, setLinkOpen] = useState(false)
   const [moveOpen, setMoveOpen] = useState(false)
   const [confirmFolderOpen, setConfirmFolderOpen] = useState(false)
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([])
   const [shareOpen, setShareOpen] = useState(false)
   const [shareFolder, setShareFolder] = useState<Folder | null>(null)
   const [emptyStateMounted, setEmptyStateMounted] = useState(
@@ -147,17 +155,17 @@ export function Workspace(props: WorkspaceProps) {
     }
   }, [emptyStateMounted, items.length])
 
-  // Folder tiles show a bookmark count; computed once per bookmarks change so
-  // memoized board items get a primitive prop instead of the whole array.
-  const folderBookmarkCounts = useMemo(() => {
-    const counts = new Map<string, number>()
+  // Folder tiles show what they contain; computed once per state change so
+  // memoized board items get a primitive prop instead of the whole state.
+  const folderContentLabels = useMemo(() => {
+    const labels = new Map<string, string>()
     if (props.mode === "home") {
-      for (const bookmark of state.bookmarks) {
-        counts.set(bookmark.folderId, (counts.get(bookmark.folderId) ?? 0) + 1)
+      for (const f of state.folders) {
+        labels.set(f.id, describeContents(folderContents(state, f.id)))
       }
     }
-    return counts
-  }, [state.bookmarks, props.mode])
+    return labels
+  }, [state, props.mode])
 
   const exitNoteEdit = useCallback(() => setEditingNoteId(null), [])
   const commitNote = useCallback(
@@ -195,22 +203,27 @@ export function Workspace(props: WorkspaceProps) {
 
   const openItem = useCallback(
     (id: string) => {
-      const note = state.notes.find((n) => n.id === id)
-      if (note) {
-        setEditingNoteId(id)
-        setSelectedIds(new Set([id]))
-        actions.raiseZ([id])
-        return
+      const intent = openIntent(state, id)
+      switch (intent.type) {
+        case "edit-note":
+          setEditingNoteId(id)
+          setSelectedIds(new Set([id]))
+          actions.raiseZ([id])
+          return
+        case "open-folder":
+          void navigate({
+            to: "/folder/$folderId",
+            params: { folderId: intent.folderId },
+          })
+          return
+        case "open-url":
+          window.open(intent.url, "_blank", "noopener,noreferrer")
+          return
+        case "none":
+          return
       }
-
-      if (props.mode === "home") {
-        void navigate({ to: "/folder/$folderId", params: { folderId: id } })
-        return
-      }
-      const bookmark = state.bookmarks.find((b) => b.id === id)
-      if (bookmark) window.open(bookmark.url, "_blank", "noopener,noreferrer")
     },
-    [actions, navigate, props.mode, state.bookmarks, state.notes]
+    [actions, navigate, state]
   )
 
   /** Toast with an Undo that reverts exactly this step, if still latest. */
@@ -258,7 +271,9 @@ export function Workspace(props: WorkspaceProps) {
     (ids: string[]) => {
       if (ids.length === 0) return
       const { folderIds } = classifyItemIds(state, ids)
-      if (folderIds.some((id) => folderHasItems(state, id))) {
+      if (hasContents(contentsOfFolders(state, folderIds))) {
+        // Confirm deletes exactly these ids, even if the selection changes.
+        setPendingDeleteIds(ids)
         setConfirmFolderOpen(true)
         return
       }
@@ -268,8 +283,21 @@ export function Workspace(props: WorkspaceProps) {
   )
 
   const confirmDeleteFolders = () => {
-    performDelete([...selectedIds])
+    performDelete(pendingDeleteIds)
+    setPendingDeleteIds([])
   }
+
+  /** Context-menu creation: keep the new item inside the visible area. */
+  const pointInView = useCallback(
+    (
+      point: { x: number; y: number },
+      size: { width: number; height: number }
+    ) => {
+      const bounds = boardApiRef.current?.getViewBounds()
+      return bounds ? clampIntoView(point, size, bounds) : point
+    },
+    []
+  )
 
   /**
    * Where to drop an item the user did not point at. Resolved at the moment of
@@ -401,10 +429,8 @@ export function Workspace(props: WorkspaceProps) {
   const getItemLabel = useCallback(
     (item: BoardItemModel): string => {
       switch (item.kind) {
-        case "folder": {
-          const count = countBookmarksInFolder(state.bookmarks, item.data.id)
-          return `${item.data.name}, folder, ${count} ${count === 1 ? "bookmark" : "bookmarks"}`
-        }
+        case "folder":
+          return `${item.data.name}, ${describeContents(folderContents(state, item.data.id))}, folder`
         case "bookmark":
           return `${item.data.title}, bookmark`
         case "note": {
@@ -419,7 +445,7 @@ export function Workspace(props: WorkspaceProps) {
           return "Image"
       }
     },
-    [state.bookmarks]
+    [state]
   )
 
   const selectedItem = selectedItems.at(0)
@@ -433,6 +459,9 @@ export function Workspace(props: WorkspaceProps) {
     selectedItem != null &&
     selectedItem.kind !== "note" &&
     selectedItem.kind !== "image"
+
+  const moveOptions = moveTargets(state, [...selectedIds], props)
+  const canMoveSelection = moveOptions.home || moveOptions.folders.length > 0
 
   const renameTarget = (() => {
     const id = contextTargetId ?? [...selectedIds][0]
@@ -461,6 +490,10 @@ export function Workspace(props: WorkspaceProps) {
         point.x,
         point.y
       )
+      if (!bookmark) {
+        toast("That does not look like a link")
+        return
+      }
       setSelectedIds(new Set([bookmark.id]))
     },
     onDeleteSelection: deleteSelection,
@@ -556,9 +589,9 @@ export function Workspace(props: WorkspaceProps) {
                   shared={
                     item.kind === "folder" && sharedBoardByFolder.has(item.id)
                   }
-                  folderBookmarkCount={
+                  folderContentsLabel={
                     item.kind === "folder"
-                      ? (folderBookmarkCounts.get(item.id) ?? 0)
+                      ? folderContentLabels.get(item.id)
                       : undefined
                   }
                   onCommitNote={commitNote}
@@ -576,9 +609,14 @@ export function Workspace(props: WorkspaceProps) {
           selectedNotes={selectedNotes}
           selectedOpenable={selectedOpenable}
           selectedRenamable={selectedRenamable}
-          onCreateFolder={(point) => openNewFolderDialog(point)}
-          onCreateBookmark={(point) => openAddLinkDialog(point)}
-          onCreateNote={createNoteAt}
+          canMove={canMoveSelection}
+          onCreateFolder={(point) =>
+            openNewFolderDialog(pointInView(point, FOLDER_SIZE))
+          }
+          onCreateBookmark={(point) =>
+            openAddLinkDialog(pointInView(point, BOOKMARK_SIZE))
+          }
+          onCreateNote={(point) => createNoteAt(pointInView(point, NOTE_SIZE))}
           onDelete={deleteSelection}
           onMove={() => setMoveOpen(true)}
           onOpen={openItem}
@@ -716,6 +754,7 @@ export function Workspace(props: WorkspaceProps) {
             point.x,
             point.y
           )
+          if (!bookmark) return
           setSelectedIds(new Set([bookmark.id]))
           actions.raiseZ([bookmark.id])
           pendingCreateRef.current = null
@@ -724,26 +763,35 @@ export function Workspace(props: WorkspaceProps) {
 
       <MoveToDialog
         open={moveOpen}
-        folders={state.folders.filter((f) =>
-          props.mode === "folder" ? f.id !== props.folderId : true
-        )}
+        home={moveOptions.home}
+        folders={moveOptions.folders}
         onOpenChange={setMoveOpen}
-        onSubmit={(folderId) => {
-          actions.moveBookmarks([...selectedIds], folderId)
+        onSubmit={(target) => {
+          const { moved, skipped } = actions.moveItems([...selectedIds], target)
+          if (moved === 0) return
           setSelectedIds(new Set())
-          toast("Moved")
+          toastWithUndo(
+            skipped > 0
+              ? `Moved ${moved} of ${moved + skipped} items`
+              : moved === 1
+                ? "Moved"
+                : `Moved ${moved} items`
+          )
         }}
       />
 
       <ConfirmDeleteFolderDialog
         open={confirmFolderOpen}
-        count={countItemsInFolders(
-          state,
-          selectedItems.flatMap((item) =>
-            item.kind === "folder" ? [item.id] : []
+        contents={describeContentsSentence(
+          contentsOfFolders(
+            state,
+            classifyItemIds(state, pendingDeleteIds).folderIds
           )
         )}
-        onOpenChange={setConfirmFolderOpen}
+        onOpenChange={(open) => {
+          setConfirmFolderOpen(open)
+          if (!open) setPendingDeleteIds([])
+        }}
         onConfirm={confirmDeleteFolders}
       />
 

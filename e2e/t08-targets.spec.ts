@@ -12,7 +12,7 @@ import {
   touchDrag,
 } from "./helpers"
 
-test("MX-10 note toolbar buttons are at least 44px on a phone @phone", async ({
+test("MX-10 note toolbar buttons are at least 44px on a phone @phone @webkit", async ({
   page,
 }) => {
   await openBoard(page, "/folder/folder-vibe-coding")

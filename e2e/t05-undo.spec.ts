@@ -9,7 +9,7 @@ import {
   shotPath,
 } from "./helpers"
 
-test("MX-14 phones show Undo and Redo @phone", async ({ page }) => {
+test("MX-14 phones show Undo and Redo @phone @webkit", async ({ page }) => {
   await openBoard(page)
   await expect(
     page.getByRole("button", { name: "Undo" }).filter({ visible: true })

@@ -9,7 +9,7 @@
 
 - I read the domain, store, sync, board, and UI code.
 - I built a feedback loop for each suspected bug. A bug is CONFIRMED only when a test or script reproduced it. A bug is SUSPECTED when only code reading supports it.
-- Unit repros: `src/audit/markx-audit.repro.test.ts`. They assert the correct behavior, so they fail while the bug exists. They are skipped by default so CI stays green. Run them with `MARKX_AUDIT=1 bunx vitest run src/audit`. Last result: 11 of 11 fail as expected (`docs/audit/repro/unit-last-run.txt`).
+- Unit repros: `src/audit/markx-audit.repro.test.ts` at audit time. They asserted the correct behavior, so they failed while the bug existed (`docs/audit/repro/unit-last-run.txt`). In the fix branch each one moved into a normal, non-skipped test next to the code it covers, and the skipped file is gone.
 - Browser repros: `docs/audit/repro/mobile-audit.mjs` (Playwright, Chromium). It uses Pixel 7, iPhone 14, iPad (gen 7) with touch, and a 1280x800 desktop. Each check prints REPRODUCED or NOT REPRODUCED. Last result: `docs/audit/repro/last-run.txt`.
 - Accessibility scan: `docs/audit/repro/a11y-scan.mjs` (axe-core, Tab order, target sizes). Last result: `docs/audit/repro/a11y-last-run.txt`.
 - Working flows: `docs/audit/repro/mobile-sanity.mjs`.
@@ -27,46 +27,50 @@ node docs/audit/repro/mobile-audit.mjs MX-21      # one check
 
 ## Summary table
 
+File:line points at the audited commit `ac024f0`.
+
 Severity: P0 = data loss or a core flow is broken for most users. P1 = data loss in common cases, or a core flow is broken on one platform. P2 = a feature is wrong or missing, with a workaround. P3 = polish.
 
-| ID | Area | Sev | Status | Mobile-only | File:line | Symptom |
-| --- | --- | --- | --- | --- | --- | --- |
-| MX-21 | Touch | P0 | Confirmed | Yes | `board.tsx:1018`, `note-card.tsx:85` | Dragging a note with a finger makes it jump off-screen. |
-| MX-01 | Sync | P1 | Confirmed | No | `store.tsx:156-170` | An edit made just before a link preview loads never reaches the cloud. |
-| MX-03 | Sync | P1 | Confirmed | No | `sync.ts:566-571`, `store.tsx:659-664` | An edit made while a save is in flight disappears when the save returns. |
-| MX-10 | Touch, a11y | P1 | Confirmed | No (worst on phone) | `note-editor.tsx:106-114,242,267` | Note toolbar buttons are 16px on a phone. |
-| MX-12 | Notes | P1 | Confirmed | No (worst on phone) | `note-editor.tsx:72-81` | Note text is lost if the page reloads or closes while you type. |
-| MX-13 | Touch | P1 | Confirmed | Yes | `delete-dock.tsx:29`, `board.tsx:916-918` | Any drop in the bottom 120px of the screen deletes the item. |
-| MX-14 | Undo | P1 | Confirmed | Yes | `app-shell.tsx:352-375,555-567` | Phones have no Undo. Deleted notes, images, and folders cannot come back. |
-| MX-16 | Keyboard | P1 | Confirmed | No | `use-workspace-global-events.ts:68-71` | Backspace inside the Move dialog deletes the selected items behind it. |
-| MX-02 | Sync, undo | P2 | Confirmed | No | `store.tsx:659-664`, `sync.ts:571` | Every successful cloud save erases the undo history. |
-| MX-04 | Bookmarks | P2 | Confirmed | No | `store.tsx:526-541` | Moved bookmarks pile up at a fixed spot, under existing cards. |
-| MX-05 | Restore | P2 | Confirmed | No | `store.tsx:556-561`, `workspace.tsx:225-231` | Toast "Undo" can duplicate a bookmark or restore it into a deleted folder. |
-| MX-06 | Bookmarks | P2 | Confirmed | No | `store.tsx:411-417`, `dialogs.tsx:106-114` | Add link accepts junk text, or fails silently with an uncaught error. |
-| MX-11 | A11y | P2 | Confirmed | No | `note-editor.tsx:306-323` | Note color, font, and size menus do not open from the keyboard. |
-| MX-15 | Move | P2 | Confirmed | No | `workspace.tsx:711-722` | "Move to" skips selected notes and images but still says "Moved". |
-| MX-17 | Folders | P2 | Confirmed | No | `workspace.tsx:193-198,253-258` | Deleting a folder plus a note on Home deletes only the folder. |
-| MX-20 | Images | P2 | Confirmed | No | `workspace.tsx:164-176` | Opening an image on Home shows "Folder not found". |
-| MX-22 | Touch | P2 | Confirmed | Yes | `workspace.tsx:511-512` | A long-press menu held for about 1s closes when the finger lifts. |
-| MX-23 | Touch | P2 | Confirmed | Yes | `board.tsx:614-637` | You cannot select more than one item on a touch screen. |
-| MX-24 | Tap targets | P2 | Confirmed | Partly | `app-shell.tsx:588-602`, `ui/context-menu.tsx`, sonner | Many touch targets are smaller than 44px. |
-| MX-26 | Search | P2 | Confirmed | No | `app-shell.tsx:403-408,563-567` | The Search button does nothing. |
-| MX-27 | A11y | P2 | Confirmed | No | `workspace.tsx:672-688`, `workspace.tsx:184-250` | Focus falls to `<body>` after the rename dialog closes and after a delete. |
-| MX-29 | Guest data | P2 | Confirmed | No | `storage.ts:130-134` | Two open tabs overwrite each other's work in guest mode. |
-| MX-30 | Touch | P2 | Confirmed | Yes | `board.tsx:660-688`, `resize-handle.tsx:16-24` | An invisible resize zone takes over drags that start near a card corner. |
-| MX-33 | Mobile layout | P2 | Suspected | Yes | `ui/dialog.tsx:58`, `board.tsx` camera | The virtual keyboard can cover dialog inputs and the note being edited. |
-| MX-34 | Touch | P2 | Suspected | Yes (iOS) | `note-editor.tsx:72-81`, `board.tsx:614-618` | On iOS, a tap on the canvas may not end note editing. |
-| MX-07 | Undo | P3 | Confirmed | No | `store.tsx:445-468` | Redo can leave a bookmark with a loading shimmer that never stops. |
-| MX-08 | Sync | P3 | Confirmed | No | `board.tsx:749`, `store.tsx:225-251` | Every tap on an item writes and syncs the whole workspace. |
-| MX-18 | Counts | P3 | Confirmed | No | `folder-icon.tsx:56`, `dialogs.tsx:201` | Folder counts call notes and images "bookmarks", or skip them. |
-| MX-28 | Hover | P3 | Confirmed | No | sonner CSS, `ui/bubble.tsx` | A few vendor `:hover` rules are not gated. App code is fine. |
-| MX-31 | Mobile layout | P3 | Confirmed | Yes | `board.tsx:166-171`, `__root.tsx:16` | Items are off-screen at first paint. Safe-area padding has no effect. |
-| MX-35 | A11y | P3 | Confirmed | No | `workspace.tsx:628-629` | Hints show "⌘N" and "⌘V" on Windows, Android, and iOS. |
-| MX-36 | A11y | P3 | Confirmed | No | `board.tsx:1060-1066`, `app-shell.tsx:294-298` | axe reports name mismatches. Phones have no `h1`. |
-| MX-37 | Create | P3 | Confirmed | No | `workspace.tsx:279-286` | "New note" from the context menu near an edge lands mostly off-screen. |
-| MX-38 | Domain | P3 | Confirmed | No | `workspace-items.ts:14-45`, `app-shell.tsx:99-108` | Notes and images cannot move between Home and folders. Folders cannot nest. |
+| ID | Area | Sev | Audit | Fix status | Mobile-only | File:line | Symptom |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| MX-21 | Touch | P0 | Confirmed | Fixed | Yes | `board.tsx:1018`, `note-card.tsx:85` | Dragging a note with a finger makes it jump off-screen. |
+| MX-01 | Sync | P1 | Confirmed | Fixed | No | `store.tsx:156-170` | An edit made just before a link preview loads never reaches the cloud. |
+| MX-03 | Sync | P1 | Confirmed | Fixed | No | `sync.ts:566-571`, `store.tsx:659-664` | An edit made while a save is in flight disappears when the save returns. |
+| MX-10 | Touch, a11y | P1 | Confirmed | Fixed | No (worst on phone) | `note-editor.tsx:106-114,242,267` | Note toolbar buttons are 16px on a phone. |
+| MX-12 | Notes | P1 | Confirmed | Fixed | No (worst on phone) | `note-editor.tsx:72-81` | Note text is lost if the page reloads or closes while you type. |
+| MX-13 | Touch | P1 | Confirmed | Fixed | Yes | `delete-dock.tsx:29`, `board.tsx:916-918` | Any drop in the bottom 120px of the screen deletes the item. |
+| MX-14 | Undo | P1 | Confirmed | Fixed | Yes | `app-shell.tsx:352-375,555-567` | Phones have no Undo. Deleted notes, images, and folders cannot come back. |
+| MX-16 | Keyboard | P1 | Confirmed | Fixed | No | `use-workspace-global-events.ts:68-71` | Backspace inside the Move dialog deletes the selected items behind it. |
+| MX-02 | Sync, undo | P2 | Confirmed | Fixed | No | `store.tsx:659-664`, `sync.ts:571` | Every successful cloud save erases the undo history. |
+| MX-04 | Bookmarks | P2 | Confirmed | Fixed | No | `store.tsx:526-541` | Moved bookmarks pile up at a fixed spot, under existing cards. |
+| MX-05 | Restore | P2 | Confirmed | Fixed | No | `store.tsx:556-561`, `workspace.tsx:225-231` | Toast "Undo" can duplicate a bookmark or restore it into a deleted folder. |
+| MX-06 | Bookmarks | P2 | Confirmed | Fixed | No | `store.tsx:411-417`, `dialogs.tsx:106-114` | Add link accepts junk text, or fails silently with an uncaught error. |
+| MX-11 | A11y | P2 | Confirmed | Fixed | No | `note-editor.tsx:306-323` | Note color, font, and size menus do not open from the keyboard. |
+| MX-15 | Move | P2 | Confirmed | Fixed | No | `workspace.tsx:711-722` | "Move to" skips selected notes and images but still says "Moved". |
+| MX-17 | Folders | P2 | Confirmed | Fixed | No | `workspace.tsx:193-198,253-258` | Deleting a folder plus a note on Home deletes only the folder. |
+| MX-20 | Images | P2 | Confirmed | Fixed | No | `workspace.tsx:164-176` | Opening an image on Home shows "Folder not found". |
+| MX-22 | Touch | P2 | Confirmed | Fixed | Yes | `workspace.tsx:511-512` | A long-press menu held for about 1s closes when the finger lifts. |
+| MX-23 | Touch | P2 | Confirmed | Fixed | Yes | `board.tsx:614-637` | You cannot select more than one item on a touch screen. |
+| MX-24 | Tap targets | P2 | Confirmed | Fixed | Partly | `app-shell.tsx:588-602`, `ui/context-menu.tsx`, sonner | Many touch targets are smaller than 44px. |
+| MX-26 | Search | P2 | Confirmed | Fixed | No | `app-shell.tsx:403-408,563-567` | The Search button does nothing. |
+| MX-27 | A11y | P2 | Confirmed | Fixed | No | `workspace.tsx:672-688`, `workspace.tsx:184-250` | Focus falls to `<body>` after the rename dialog closes and after a delete. |
+| MX-29 | Guest data | P2 | Confirmed | Fixed | No | `storage.ts:130-134` | Two open tabs overwrite each other's work in guest mode. |
+| MX-30 | Touch | P2 | Confirmed | Fixed | Yes | `board.tsx:660-688`, `resize-handle.tsx:16-24` | An invisible resize zone takes over drags that start near a card corner. |
+| MX-33 | Mobile layout | P2 | Suspected | Needs real device | Yes | `ui/dialog.tsx:58`, `board.tsx` camera | The virtual keyboard can cover dialog inputs and the note being edited. |
+| MX-34 | Touch | P2 | Suspected | Needs real device | Yes (iOS) | `note-editor.tsx:72-81`, `board.tsx:614-618` | On iOS, a tap on the canvas may not end note editing. |
+| MX-07 | Undo | P3 | Confirmed | Fixed | No | `store.tsx:445-468` | Redo can leave a bookmark with a loading shimmer that never stops. |
+| MX-08 | Sync | P3 | Confirmed | Fixed | No | `board.tsx:749`, `store.tsx:225-251` | Every tap on an item writes and syncs the whole workspace. |
+| MX-18 | Counts | P3 | Confirmed | Fixed | No | `folder-icon.tsx:56`, `dialogs.tsx:201` | Folder counts call notes and images "bookmarks", or skip them. |
+| MX-28 | Hover | P3 | Confirmed | Fixed | No | sonner CSS, `ui/bubble.tsx` | A few vendor `:hover` rules are not gated. App code is fine. |
+| MX-31 | Mobile layout | P3 | Confirmed | Fixed | Yes | `board.tsx:166-171`, `__root.tsx:16` | Items are off-screen at first paint. Safe-area padding has no effect. |
+| MX-35 | A11y | P3 | Confirmed | Fixed | No | `workspace.tsx:628-629` | Hints show "⌘N" and "⌘V" on Windows, Android, and iOS. |
+| MX-36 | A11y | P3 | Confirmed | Fixed | No | `board.tsx:1060-1066`, `app-shell.tsx:294-298` | axe reports name mismatches. Phones have no `h1`. |
+| MX-37 | Create | P3 | Confirmed | Fixed | No | `workspace.tsx:279-286` | "New note" from the context menu near an edge lands mostly off-screen. |
+| MX-38 | Domain | P3 | Confirmed | Partially fixed | No | `workspace-items.ts:14-45`, `app-shell.tsx:99-108` | Notes and images cannot move between Home and folders. Folders cannot nest. |
 
 Counts by severity: P0 1, P1 7, P2 17, P3 9 (34 total, 32 confirmed, 2 suspected).
+
+Fix status (2026-10-25, branch `julianromli/markx-audit-fixes-9d7d`): 31 fixed, 1 partially fixed (MX-38), 2 need a real device to confirm (MX-33, MX-34). See "Fix status" at the end of this report for the test that covers each finding.
 
 Counts by area: folder, note, and bookmark logic 11; touch and mobile gestures 7; accessibility and keyboard 6; sync and persistence 5; tap targets and mobile layout 4; search 1.
 
@@ -431,3 +435,57 @@ Each ticket is a thin end-to-end slice with its repro as the regression test.
 - The virtual keyboard and notched-screen safe areas (MX-33, MX-31). Emulation shows neither.
 - Screen readers (VoiceOver, TalkBack). Only axe-core and DOM checks ran.
 - Shared boards, billing, image upload to R2, and multi-device sync were out of scope.
+
+
+## Fix status
+
+All fixes are on branch `julianromli/markx-audit-fixes-9d7d`, one commit per ticket (T1 to T12, each commit message lists its MX ids). Every test below was red before its fix and green after.
+
+- Unit tests run with `bun run test` (277 tests).
+- Browser tests run with `bun run test:e2e` against `bun run dev` (67 tests on Pixel 7, iPhone 14 in Chromium, iPhone 14 in WebKit, iPad, and desktop). Last run: `docs/audit/repro/e2e-final-run.txt`.
+- The original audit script rerun against the fixed app: `docs/audit/repro/after-fix-audit-run.txt`. Every check prints NOT REPRODUCED except three, which are expected: MX-23 (that check only tests a blank-space drag outside select mode, which still pans by design), MX-28 (it counts rules in the dev server's stale CSS; the production build has none), and MX-06 (the old script expects the dialog to close on bad input; it now stays open with an inline error).
+- After screenshots: `docs/audit/img/fixed/`. Before screenshots stay in `docs/audit/img/`.
+
+| ID | Fix status | Tests (file: name) |
+| --- | --- | --- |
+| MX-01 | Fixed | `store-sync.test.ts`: MX-01 a user edit reaches the sync engine even when an enrich result lands inside the 120ms persist debounce |
+| MX-02 | Fixed | `store-sync.test.ts`: MX-02 a successful cloud save keeps the local undo history; MX-02 a save ack never emits an authoritative state |
+| MX-03 | Fixed | `store-sync.test.ts`: MX-03 an edit made while a cloud save is in flight is not reverted when the save returns |
+| MX-04 | Fixed | `board-items.test.ts`: MX-04 moved bookmarks get distinct spots and are raised |
+| MX-05 | Fixed | `undo.test.ts`: MX-05 toast Undo after Cmd+Z does not duplicate a deleted bookmark; MX-05 toast Undo restores the delete when it is still the latest step; MX-05b toast Undo does not restore a bookmark into a folder that no longer exists |
+| MX-06 | Fixed | `board-items.test.ts`: MX-06 parseBookmarkUrl (8 cases); `undo.test.ts`: MX-06 createBookmark returns null instead of throwing; `e2e/t07-items.spec.ts`: MX-06 Add link rejects text that is not a URL with a visible message |
+| MX-07 | Fixed | `undo.test.ts`: MX-07 redo of a bookmark created while enrich was pending does not leave a stuck loading shimmer |
+| MX-08 | Fixed | `store-sync.test.ts`: MX-08 a plain tap (raiseZ) does not schedule a cloud save; MX-08 tapping an item that another item covers still raises it |
+| MX-10 | Fixed | `e2e/t08-targets.spec.ts`: MX-10 note toolbar buttons are at least 44px on a phone (Pixel 7, iPhone 14, WebKit) |
+| MX-11 | Fixed | `e2e/t09-keyboard.spec.ts`: MX-11 note toolbar menus work from the keyboard and have names |
+| MX-12 | Fixed | `note-autosave.test.ts` (5 tests); `e2e/t03-note-editing.spec.ts`: MX-12 survives a reload while typing, an immediate reload, and the tab going to the background |
+| MX-13 | Fixed | `board-gesture.test.ts`: MX-13 delete dock (3 tests); `e2e/t06-delete-dock.spec.ts`: bottom-left drop does not delete; holding on the pill deletes |
+| MX-14 | Fixed | `e2e/t05-undo.spec.ts`: MX-14 phones show Undo and Redo; a deleted note comes back from the toast Undo and the header Undo |
+| MX-15 | Fixed | `board-items.test.ts`: MX-15 moves notes and bookmarks together; `undo.test.ts`: MX-15 moveItems; `e2e/t07-items.spec.ts`: MX-15 Move to… moves the selected note together with the bookmark |
+| MX-16 | Fixed | `use-workspace-global-events.test.tsx`: MX-16 (4 tests); `e2e/t02-shortcuts.spec.ts`: MX-16 Backspace inside the Move dialog does not delete the selection |
+| MX-17 | Fixed | `board-items.test.ts`: MX-17 deletes every selected kind; `e2e/t07-items.spec.ts`: MX-17 MX-18 mixed delete on Home |
+| MX-18 | Fixed | `board-items.test.ts`: MX-18 counts and labels every kind; `e2e/t07-items.spec.ts`: MX-17 MX-18 |
+| MX-20 | Fixed | `board-items.test.ts`: MX-20 opening an image does nothing; `e2e/t07-items.spec.ts`: MX-20 opening an image on Home stays on Home |
+| MX-21 | Fixed | `board-gesture.test.ts`: MX-21 (3 tests); `e2e/t01-gestures.spec.ts`: MX-21 a touch-dragged note follows the finger; a drag ended by touchcancel reverts |
+| MX-22 | Fixed | `e2e/t10-touch-menu-select.spec.ts`: MX-22 the long-press menu stays open after a 700ms and a 1500ms hold |
+| MX-23 | Fixed | `board-gesture.test.ts`: MX-23 touch select mode (4 tests); `e2e/t10-touch-menu-select.spec.ts`: MX-23 phones can select several items and delete them together |
+| MX-24 | Fixed | `e2e/t08-targets.spec.ts`: MX-24 phone header, Tools sheet, long-press menu, and toast targets; MX-24 iPad header targets |
+| MX-26 | Fixed | `e2e/t12-polish.spec.ts`: MX-26 Search finds a bookmark and opens its folder; MX-26 Search opens from the phone More sheet |
+| MX-27 | Fixed | `e2e/t09-keyboard.spec.ts`: MX-27 (3 tests: rename dialog, keyboard delete, folder delete confirm) |
+| MX-28 | Fixed | `e2e/t12-polish.spec.ts`: MX-28 no ungated :hover rule applies to an element on the page |
+| MX-29 | Fixed | `guest-tabs.test.ts` (2 tests); `e2e/t11-guest-tabs.spec.ts`: MX-29 two guest tabs keep each other's work |
+| MX-30 | Fixed | `board-gesture.test.ts`: MX-30 resize zone on touch, MX-09, MX-09b; `e2e/t08-targets.spec.ts`: MX-30 (2 tests) |
+| MX-31 | Fixed | `geometry.test.ts`: MX-31 first paint fit; `e2e/t12-polish.spec.ts`: MX-31 phones see every item at first paint (Pixel 7, iPhone 14, WebKit) |
+| MX-33 | Needs real device | `visual-viewport.test.ts`: MX-33; `geometry.test.ts`: MX-33 cameraToReveal; `e2e/t12-polish.spec.ts`: MX-33 dialogs stay inside the visible area (emulated keyboard) |
+| MX-34 | Needs real device | `board-gesture.test.ts`: reports a press on empty canvas; `e2e/t03-note-editing.spec.ts`: MX-34 a tap on blank canvas ends note editing (Chromium and WebKit passed before and after the fix) |
+| MX-35 | Fixed | `platform.test.ts`: MX-35; `e2e/t12-polish.spec.ts`: MX-35 (desktop Ctrl hint, no hints on touch) |
+| MX-36 | Fixed | `e2e/t12-polish.spec.ts`: MX-36 axe finds no violations on Home and in a folder (phone, WebKit, desktop) |
+| MX-37 | Fixed | `board-items.test.ts`: MX-37 clamps a new item into the visible area; `e2e/t07-items.spec.ts`: MX-37 |
+| MX-38 | Partially fixed | `board-items.test.ts`: MX-38 offers Home as a target; `e2e/t07-items.spec.ts`: MX-38 a note on Home can move into a folder and back. Folder nesting is not built. |
+
+### Left open
+
+- MX-38 folder nesting. Folders still live on Home only. Nesting changes the stored data model (a parent id on folders), recursive delete and move, breadcrumbs, and the server's shared-board model, which lifts one folder into a board. That needs a product decision and a data migration, so it is out of scope for this fix branch.
+- MX-33 and MX-34 have defensive fixes, but only a real iPhone can confirm them. Playwright cannot show a virtual keyboard, and its WebKit is not iOS Safari. Check: open Add link and a low note with the keyboard up, and tap blank canvas while editing a note.
+- MX-21 and MX-22 were reproduced and fixed in Chromium mobile emulation. A quick check on a real Android phone and a real iPhone is still worth doing.
+- Logged-in sync (MX-01 to MX-03, MX-08) is covered by unit tests with fake server adapters only. There was no database or auth in this environment.

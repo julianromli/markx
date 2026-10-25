@@ -27,7 +27,7 @@ test("MX-26 Search finds a bookmark and opens its folder with it selected @deskt
   )
 })
 
-test("MX-26 Search opens from the phone More sheet @phone", async ({
+test("MX-26 Search opens from the phone More sheet @phone @webkit", async ({
   page,
 }) => {
   await openBoard(page)
@@ -37,7 +37,7 @@ test("MX-26 Search opens from the phone More sheet @phone", async ({
   await expect(page.getByRole("combobox")).toBeVisible()
 })
 
-test("MX-31 phones see every item at first paint, and the viewport covers safe areas @phone", async ({
+test("MX-31 phones see every item at first paint, and the viewport covers safe areas @phone @webkit", async ({
   page,
 }) => {
   await openBoard(page)
@@ -62,7 +62,7 @@ test("MX-31 phones see every item at first paint, and the viewport covers safe a
   expect(meta).toContain("viewport-fit=cover")
 })
 
-test("MX-33 dialogs stay inside the visible area when the keyboard shrinks it @phone", async ({
+test("MX-33 dialogs stay inside the visible area when the keyboard shrinks it @phone @webkit", async ({
   page,
 }) => {
   await openBoard(page, "/folder/folder-vibe-coding")
@@ -110,7 +110,7 @@ test("MX-35 touch devices get no keyboard shortcut hints @phone", async ({
   expect(text).not.toMatch(/⌘|Ctrl/)
 })
 
-for (const tag of ["@phone", "@desktop"]) {
+for (const tag of ["@phone @webkit", "@desktop"]) {
   test(`MX-36 axe finds no violations on Home and in a folder ${tag}`, async ({
     page,
   }) => {

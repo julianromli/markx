@@ -23,6 +23,7 @@ bun run build    # production build
 bun run preview  # preview the build
 bun run typecheck
 bun run test
+bun run test:e2e # Playwright phone, tablet, and desktop flows (needs bun run dev)
 ```
 
 ## Adding shadcn components

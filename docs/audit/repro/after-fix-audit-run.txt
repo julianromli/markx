@@ -1,0 +1,22 @@
+MX-10: NOT REPRODUCED :: toolbar buttons on Pixel 7: Note color=48x44, Font=48x44, Text size: Medium=78x44, Bold=44x44, Italic=44x44, Underline=44x44
+MX-11: NOT REPRODUCED :: dropdown trigger names=["Note color","Font","Text size: Medium"]; menu open after Enter=true, after Space=false
+MX-12: NOT REPRODUCED :: note labels after reload: ["Note: Call the dentist on Monday"]
+MX-13: NOT REPRODUCED :: finger released at x=24,y=779; dock pill spans x=151..262; armed=false; bookmark exists after drop=true; toast=[]
+MX-14: NOT REPRODUCED :: visible Undo buttons=1; More sheet items=["Undo","Redo","Help","Search","Close"]
+MX-15: NOT REPRODUCED :: toast=["Moved 2 items\nUndo"]; note still in source=false; target items=["Cursor, The AI code editor, bookmark","OpenAI, bookmark","Note: Move me too"]
+MX-16: NOT REPRODUCED :: Linear bookmark exists after Backspace in dialog=true
+MX-17: NOT REPRODUCED :: folder tile text="Vibe Coding |  | 3 bookmarks, 1 note"; dialog="Delete folder?  This deletes 3 bookmarks and 1 note inside the folder, together with the other selected items.  Cancel Delete"; folder deleted=true; selected home note still exists=false
+MX-20: NOT REPRODUCED :: url after double-click on image=/
+MX-21: NOT REPRODUCED :: note dragged down 120px: box (270,508) -> (270,628); events=pointerdown@340,578 pointerup@340,698 | folder drag then touchcancel: y 442 -> 442 (expected revert)
+MX-22: NOT REPRODUCED :: [{"hold":700,"during":true,"afterLift":true},{"hold":1500,"during":true,"afterLift":true}]
+MX-23: REPRODUCED :: blank drag panned=240px; marquee shown=false; items selected=0. No other multi-select path on touch.
+MX-24: NOT REPRODUCED :: phone folder view: none | phone tools sheet: none | iPad (touch, desktop layout): 
+MX-26: NOT REPRODUCED :: after Search click: dialogs=1, search inputs=1
+MX-27: NOT REPRODUCED :: focus after rename dialog Escape=Cursor, The AI code editor, bookmark; focus after keyboard Delete=shadcn/ui, The Foundation for your Design System. Beautifully designed components you can customize., bookmark
+MX-28: REPRODUCED :: ungated :hover rules=7 [".\\[\\&\\>\\[data-slot\\=bubble-content\\]\\:is\\(button\\,a\\)\\:hover\\]\\:bg-\\[oklch\\(from",".\\[\\&\\>\\[data-slot\\=bubble-content\\]\\:is\\(button\\,a\\)\\:hover\\]\\:bg-muted > [data",".\\[\\&\\>\\[data-slot\\=bubble-content\\]\\:is\\(button\\,a\\)\\:hover\\]\\:text-foreground ",".dark\\:\\[\\&\\>\\[data-slot\\=bubble-content\\]\\:is\\(button\\,a\\)\\:hover\\]\\:bg-\\[oklch",".\\[\\&\\>a\\:hover\\]\\:text-primary > a:hover","[data-sonner-toast][data-styled=\"true\"]:hover [data-close-button]:hover","[data-sonner-toaster][data-sonner-theme=\"dark\"] [data-sonner-toast] [data-close-"]
+MX-29: NOT REPRODUCED :: after reload: tab A folder kept=true, tab B folder kept=true
+MX-30: NOT REPRODUCED :: visible handle=44x44px; card 224x118 -> 224x118 (resized=false, moved=-60,80)
+MX-31: NOT REPRODUCED :: items cut off at first paint=[]; viewport meta="width=device-width, initial-scale=1, viewport-fit=cover"
+MX-06: ERROR :: locator.click: Timeout 30000ms exceeded.
+MX-37: NOT REPRODUCED :: new note visible area=100%
+MX-32: NOT REPRODUCED :: first board item reached by Tab={"label":"AI Coding Agent for Building Ambitious Software | Cursor, Built to make you extraordinarily productive, agents turn ideas into code. Accelerate development by handing off tasks to Cursor., bookmark","tabs":12}; Shift+F10 opens menu=true at 449,301

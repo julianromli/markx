@@ -196,6 +196,8 @@ export function Board({
   const previousItemsRef = useRef(items)
   /** Board item that last had focus (kept while focus is "nowhere"). */
   const focusedIdRef = useRef<string | null>(null)
+  /** True while the board itself moves focus (no selection change). */
+  const restoringFocusRef = useRef(false)
   const [exitingItems, setExitingItems] = useState<BoardItemModel[]>([])
   const [exitingIds, setExitingIds] = useState<Set<string>>(new Set())
   const exitTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
@@ -452,7 +454,14 @@ export function Board({
       if (nearest) {
         const id = nearest.id
         setTabStopId(id)
-        requestAnimationFrame(() => focusItem(id))
+        requestAnimationFrame(() => {
+          // Only focus moves; the selection stays empty. Selecting here
+          // opened the phone Selection toolbar under the delete toast, and
+          // a second Delete press would delete the neighbour too.
+          restoringFocusRef.current = true
+          focusItem(id)
+          restoringFocusRef.current = false
+        })
       }
     }
 
@@ -917,6 +926,7 @@ export function Board({
                 setTabStopId(item.id)
                 if (
                   modalityRef.current === "keyboard" &&
+                  !restoringFocusRef.current &&
                   !selectedRef.current.has(item.id)
                 ) {
                   onSelectedIdsChange(new Set([item.id]))

@@ -62,6 +62,8 @@ import {
 } from "@/lib/markx/workspace-items"
 import { cn } from "@/lib/utils"
 
+const UNDO_TOAST_ID = "markx-undo"
+
 type WorkspaceProps = { mode: "home" } | { mode: "folder"; folderId: string }
 
 export function Workspace(props: WorkspaceProps) {
@@ -321,7 +323,10 @@ export function Workspace(props: WorkspaceProps) {
   const toastWithUndo = useCallback(
     (message: string) => {
       const entry = actions.lastEntryId()
+      // One Undo toast at a time: only the latest step can be undone, so a
+      // new delete or move replaces the previous toast instead of stacking.
       toast(message, {
+        id: UNDO_TOAST_ID,
         action: {
           label: "Undo",
           onClick: () => {

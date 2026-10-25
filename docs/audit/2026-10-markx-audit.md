@@ -442,7 +442,7 @@ Each ticket is a thin end-to-end slice with its repro as the regression test.
 All fixes are on branch `julianromli/markx-audit-fixes-9d7d`, one commit per ticket (T1 to T12, each commit message lists its MX ids). Every test below was red before its fix and green after.
 
 - Unit tests run with `bun run test` (277 tests).
-- Browser tests run with `bun run test:e2e` against `bun run dev` (67 tests on Pixel 7, iPhone 14 in Chromium, iPhone 14 in WebKit, iPad, and desktop). Last run: `docs/audit/repro/e2e-final-run.txt`.
+- Browser tests run with `bun run test:e2e` against `bun run dev` (77 tests on Pixel 7, iPhone 14 in Chromium, iPhone 14 in WebKit, iPad, and desktop). Last run: `docs/audit/repro/e2e-final-run.txt`.
 - The original audit script rerun against the fixed app: `docs/audit/repro/after-fix-audit-run.txt`. Every check prints NOT REPRODUCED except three, which are expected: MX-23 (that check only tests a blank-space drag outside select mode, which still pans by design), MX-28 (it counts rules in the dev server's stale CSS; the production build has none), and MX-06 (the old script expects the dialog to close on bad input; it now stays open with an inline error).
 - After screenshots: `docs/audit/img/fixed/`. Before screenshots stay in `docs/audit/img/`.
 
@@ -482,6 +482,12 @@ All fixes are on branch `julianromli/markx-audit-fixes-9d7d`, one commit per tic
 | MX-36 | Fixed | `e2e/t12-polish.spec.ts`: MX-36 axe finds no violations on Home and in a folder (phone, WebKit, desktop) |
 | MX-37 | Fixed | `board-items.test.ts`: MX-37 clamps a new item into the visible area; `e2e/t07-items.spec.ts`: MX-37 |
 | MX-38 | Partially fixed | `board-items.test.ts`: MX-38 offers Home as a target; `e2e/t07-items.spec.ts`: MX-38 a note on Home can move into a folder and back. Folder nesting is not built. |
+
+### Follow-up: toast design and the stacked box
+
+- Toasts now use the markx floating surface (shared with the phone Selection toolbar), 13px medium ink text, and the shared secondary pill Button for actions. Covered by `e2e/t13-toast.spec.ts`. Screenshots: `docs/audit/img/fixed/toast-undo-mobile-*.png` and `toast-above-selection-bar-*.png`.
+- The box under the "Note deleted" toast was not a second toast. It was the phone Selection toolbar: after a delete, the board moved focus to a neighbour card (MX-27), and a keyboard-modality focus selected that card, which opened the toolbar under the toast. A focus restore no longer changes the selection, and toasts now sit above the toolbar when it is open.
+- Undo toasts share one id, so a second delete replaces the first toast (only the latest step can be undone). Other toasts keep Sonner's default stack.
 
 ### Left open
 

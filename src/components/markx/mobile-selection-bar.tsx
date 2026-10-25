@@ -2,7 +2,13 @@ import { ArrowBendUpRightIcon } from "@phosphor-icons/react/dist/csr/ArrowBendUp
 import { CheckSquareIcon } from "@phosphor-icons/react/dist/csr/CheckSquare"
 import { PencilSimpleIcon } from "@phosphor-icons/react/dist/csr/PencilSimple"
 import { TrashIcon } from "@phosphor-icons/react/dist/csr/Trash"
+import { useLayoutEffect, useRef } from "react"
 import type { ReactNode } from "react"
+
+import {
+  BOTTOM_CHROME_VAR,
+  floatingSurface,
+} from "@/components/markx/floating-surface"
 
 import { cn } from "@/lib/utils"
 
@@ -31,11 +37,40 @@ export function MobileSelectionBar({
   onDelete: () => void
   onDone: () => void
 }) {
+  const barRef = useRef<HTMLDivElement>(null)
+
+  // Reserve the bar's space at the bottom so toasts stack above it.
+  useLayoutEffect(() => {
+    const bar = barRef.current
+    if (!bar) return
+    const root = document.documentElement
+    const update = () => {
+      const top = bar.getBoundingClientRect().top
+      root.style.setProperty(
+        BOTTOM_CHROME_VAR,
+        `${Math.max(0, window.innerHeight - top + 8)}px`
+      )
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(bar)
+    window.addEventListener("resize", update)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener("resize", update)
+      root.style.removeProperty(BOTTOM_CHROME_VAR)
+    }
+  }, [])
+
   return (
     <div
       role="toolbar"
       aria-label="Selection"
-      className="absolute inset-x-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] z-30 flex items-center gap-1 rounded-2xl border border-black/10 bg-white/95 p-1 shadow-[0_8px_28px_rgba(0,0,0,0.14)] backdrop-blur-xl md:hidden"
+      ref={barRef}
+      className={cn(
+        "absolute inset-x-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] z-30 flex items-center gap-1 p-1 md:hidden",
+        floatingSurface
+      )}
     >
       <span
         className="min-w-0 flex-1 truncate px-2 text-[13px] font-medium text-ink/80 tabular-nums"

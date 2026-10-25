@@ -64,6 +64,7 @@ export default function NoteEditor({
 }: NoteEditorProps) {
   const committedRef = useRef(false)
   const [openMenu, setOpenMenu] = useState<string | null>(null)
+  const toolbarRef = useRef<HTMLDivElement>(null)
   const [session] = useState(() => Math.random().toString(36).slice(2))
   const latestHtmlRef = useRef(note.content)
   const savedHtmlRef = useRef(note.content)
@@ -102,7 +103,10 @@ export default function NoteEditor({
     onBlur: ({ editor: ed, event }) => {
       if (committedRef.current) return
       const related = event.relatedTarget
-      if (related instanceof Node && container?.contains(related)) {
+      if (
+        related instanceof Node &&
+        (container?.contains(related) || toolbarRef.current?.contains(related))
+      ) {
         return
       }
       committedRef.current = true
@@ -152,14 +156,53 @@ export default function NoteEditor({
     return () => window.removeEventListener("keydown", onKeyDown, true)
   }, [editor, openMenu, onExitEdit])
 
+  // The toolbar lives in screen space (portaled to <body>), not inside the
+  // zoomed board, so its controls keep their real size at any zoom. It
+  // follows the note every frame while editing.
+  useEffect(() => {
+    if (!container) return
+    let frame = 0
+    const place = () => {
+      frame = requestAnimationFrame(place)
+      const toolbarEl = toolbarRef.current
+      if (!toolbarEl) return
+      const note = container.getBoundingClientRect()
+      const bar = toolbarEl.getBoundingClientRect()
+      const vv = window.visualViewport
+      const viewTop = vv?.offsetTop ?? 0
+      const viewLeft = vv?.offsetLeft ?? 0
+      const viewWidth = vv?.width ?? window.innerWidth
+      const viewHeight = vv?.height ?? window.innerHeight
+      const gap = 8
+      let top = isMobile ? note.bottom + gap : note.top - bar.height - 12
+      if (isMobile && top + bar.height > viewTop + viewHeight - gap) {
+        top = note.top - bar.height - gap
+      }
+      if (!isMobile && top < viewTop + gap) top = note.bottom + gap
+      top = Math.max(
+        viewTop + gap,
+        Math.min(top, viewTop + viewHeight - bar.height - gap)
+      )
+      let left = isMobile
+        ? note.left
+        : note.left + note.width / 2 - bar.width / 2
+      left = Math.max(
+        viewLeft + gap,
+        Math.min(left, viewLeft + viewWidth - bar.width - gap)
+      )
+      toolbarEl.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`
+      toolbarEl.style.visibility = "visible"
+    }
+    place()
+    return () => cancelAnimationFrame(frame)
+  }, [container, isMobile])
+
   const toolbar = (
     <div
-      className={cn(
-        "note-toolbar-in absolute z-10 flex items-center gap-0.5 rounded-[13px] border border-black/10 bg-white px-1.5 py-1 shadow-[0_2px_6px_rgba(0,0,0,0.08),0_8px_24px_rgba(0,0,0,0.12)]",
-        isMobile
-          ? "top-full left-0 mt-2 max-w-[88vw] overflow-x-auto overscroll-x-contain"
-          : "-top-[52px] left-1/2 -translate-x-1/2"
-      )}
+      ref={toolbarRef}
+      data-note-toolbar=""
+      className="note-toolbar-in fixed top-0 left-0 z-50 flex max-w-[calc(100vw-16px)] flex-wrap items-center gap-0.5 rounded-[13px] border border-black/10 bg-white px-1.5 py-1 shadow-[0_2px_6px_rgba(0,0,0,0.08),0_8px_24px_rgba(0,0,0,0.12)]"
+      style={{ visibility: "hidden" }}
       onPointerDown={(e) => e.stopPropagation()}
     >
       <ToolbarDropdown
@@ -210,7 +253,7 @@ export default function NoteEditor({
                   close()
                 }}
                 className={cn(
-                  "flex h-8 w-full items-center rounded-md px-3 text-[13px] text-ink transition-colors hover:bg-black/5",
+                  "flex h-8 w-full items-center rounded-md px-3 text-[13px] text-ink transition-colors hover:bg-black/5 pointer-coarse:h-11",
                   note.font === option.value && "bg-black/5"
                 )}
                 style={{ fontFamily: NOTE_FONTS[option.value] }}
@@ -249,7 +292,7 @@ export default function NoteEditor({
                   close()
                 }}
                 className={cn(
-                  "flex h-8 w-full items-center rounded-md px-3 text-[13px] text-ink transition-colors hover:bg-black/5",
+                  "flex h-8 w-full items-center rounded-md px-3 text-[13px] text-ink transition-colors hover:bg-black/5 pointer-coarse:h-11",
                   note.fontSize === option.value && "bg-black/5"
                 )}
               >
@@ -288,7 +331,7 @@ export default function NoteEditor({
 
   return (
     <>
-      {container ? createPortal(toolbar, container) : null}
+      {container ? createPortal(toolbar, document.body) : null}
       <EditorContent editor={editor} />
     </>
   )
@@ -313,7 +356,7 @@ function ToolbarButton({
       onPointerDown={(e) => e.preventDefault()}
       onClick={onClick}
       className={cn(
-        "flex size-8 items-center justify-center rounded-lg text-[13px] font-semibold text-ink transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96]",
+        "flex size-8 items-center justify-center rounded-lg text-[13px] font-semibold text-ink transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96] pointer-coarse:size-11",
         active ? "bg-black/10" : "hover:bg-black/5"
       )}
     >
@@ -363,7 +406,7 @@ function ToolbarDropdown({
           onOpenMenuChange(open ? null : id)
         }}
         className={cn(
-          "flex h-8 items-center gap-1 rounded-lg px-2 text-ink transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96]",
+          "flex h-8 items-center gap-1 rounded-lg px-2 text-ink transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] active:scale-[0.96] pointer-coarse:h-11 pointer-coarse:min-w-11 pointer-coarse:justify-center",
           open ? "bg-black/5" : "hover:bg-black/5"
         )}
       >

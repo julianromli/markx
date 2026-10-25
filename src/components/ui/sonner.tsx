@@ -31,6 +31,11 @@ const Toaster = ({ theme = "system", ...props }: ToasterProps) => {
       toastOptions={{
         classNames: {
           toast: "cn-toast",
+          // Sonner's own styles size buttons for a mouse (24px tall).
+          actionButton:
+            "pointer-coarse:!h-11 pointer-coarse:!min-w-11 pointer-coarse:!px-4",
+          cancelButton:
+            "pointer-coarse:!h-11 pointer-coarse:!min-w-11 pointer-coarse:!px-4",
         },
       }}
       {...props}

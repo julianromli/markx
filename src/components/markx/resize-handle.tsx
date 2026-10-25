@@ -1,7 +1,12 @@
-import { useIsMobile } from "@/hooks/use-mobile"
+import { useCoarsePointer } from "@/hooks/use-coarse-pointer"
 import { RESIZE_HANDLE_SIZE } from "@/lib/markx/geometry"
 import { cn } from "@/lib/utils"
 
+/**
+ * Bottom-right resize affordance. On touch it is drawn at the same size as
+ * the hit zone in `resizeZoneSize` (44 screen px, at most 45% of the card)
+ * and only on the selected card, because only the selected card can resize.
+ */
 export function ResizeHandle({
   selected,
   className,
@@ -9,7 +14,11 @@ export function ResizeHandle({
   selected?: boolean
   className?: string
 }) {
-  const isMobile = useIsMobile()
+  const coarse = useCoarsePointer()
+  if (coarse && !selected) return null
+  const size = coarse
+    ? "min(var(--resize-zone, 44px), 45%)"
+    : `${RESIZE_HANDLE_SIZE}px`
   return (
     <div
       className={cn(
@@ -17,15 +26,15 @@ export function ResizeHandle({
         selected && "opacity-100",
         className
       )}
-      style={{
-        width: isMobile ? 32 : RESIZE_HANDLE_SIZE,
-        height: isMobile ? 32 : RESIZE_HANDLE_SIZE,
-      }}
+      style={{ width: size, height: size }}
       aria-hidden
     >
       <svg
         viewBox="0 0 16 16"
-        className="mr-1.5 mb-1.5 size-3.5 text-black/35"
+        className={cn(
+          "text-black/35",
+          coarse ? "mr-[12%] mb-[12%] size-[45%]" : "mr-1.5 mb-1.5 size-3.5"
+        )}
         fill="none"
       >
         <path

@@ -7,12 +7,14 @@ import {
   useState,
 } from "react"
 import type {
+  CSSProperties,
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent as ReactPointerEvent,
   ReactNode,
 } from "react"
 
 import { DeleteDock } from "@/components/markx/delete-dock"
+import { useCoarsePointer } from "@/hooks/use-coarse-pointer"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { vibrateDeleteFeedback } from "@/lib/markx/delete-dock"
 import { cn } from "@/lib/utils"
@@ -27,6 +29,7 @@ import {
   DIRECTION_VECTORS,
   MAX_ZOOM,
   MIN_ZOOM,
+  RESIZE_HANDLE_SIZE,
   cameraFitContent,
   cameraZoomAroundViewportCenter,
   findNearestInDirection,
@@ -133,6 +136,7 @@ export function Board({
   const viewportRef = useRef<HTMLDivElement>(null)
   const deleteDockHitRef = useRef<HTMLDivElement>(null)
   const isMobile = useIsMobile()
+  const coarse = useCoarsePointer()
   const [moveDockOpen, setMoveDockOpen] = useState(false)
   const [trashArmed, setTrashArmed] = useState(false)
   const [dragItemCount, setDragItemCount] = useState(1)
@@ -517,7 +521,7 @@ export function Board({
         width: viewport.width,
         height: viewport.height,
       },
-      coarse: isMobile,
+      coarse,
       mobileDock: isMobile,
       trashRect: isMobile ? null : screenRectOf(trashRef.current),
       dockRect: isMobile ? screenRectOf(deleteDockHitRef.current) : null,
@@ -747,9 +751,13 @@ export function Board({
       <div
         className="absolute top-0 left-0 origin-top-left will-change-transform"
         suppressHydrationWarning
-        style={{
-          transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})`,
-        }}
+        style={
+          {
+            transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})`,
+            // Resize handles size themselves to 44 screen px on touch.
+            "--resize-zone": `${Math.max(RESIZE_HANDLE_SIZE, 44 / camera.zoom)}px`,
+          } as CSSProperties
+        }
       >
         {renderedItems.map((item) => {
           const live = liveOffsets.get(item.id)

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
-import { BoardGesture } from "./board-gesture"
+import { BoardGesture, resizeZoneSize } from "./board-gesture"
+import { MIN_NOTE_SIZE, MIN_ZOOM } from "./geometry"
 import type {
   GestureContext,
   GestureEffect,
@@ -186,6 +187,46 @@ describe("BoardGesture", () => {
       expect(away).toContainEqual({ type: "trashArmed", armed: false })
       const effects = g.pointerUp(input({ x: 30, y: 740, time: 470 }), phone())
       expect(types(effects)).not.toContain("trashDrop")
+    })
+  })
+
+  describe("MX-30 resize zone on touch", () => {
+    it("a corner press on an unselected card moves it instead of resizing", () => {
+      const g = new BoardGesture()
+      const c = ctx({ coarse: true })
+      g.pointerDown(input({ x: 390, y: 390 }), c)
+      expect(g.mode).toBe("pending")
+    })
+
+    it("a corner press on a selected card resizes it", () => {
+      const g = new BoardGesture()
+      const c = ctx({ coarse: true, selectedIds: new Set(["n1"]) })
+      g.pointerDown(input({ x: 390, y: 390 }), c)
+      expect(g.mode).toBe("resize")
+    })
+
+    it("MX-09 at minimum zoom a minimum-size note still has a move area", () => {
+      const note = { ...MIN_NOTE_SIZE }
+      const zone = resizeZoneSize(note, true, MIN_ZOOM)
+      expect(zone.width).toBeLessThan(note.width - 10)
+      expect(zone.height).toBeLessThan(note.height - 10)
+    })
+
+    it("MX-09b the zone covers less than a quarter of a minimum-size note at any zoom", () => {
+      for (const zoom of [MIN_ZOOM, 0.5, 1, 2]) {
+        const zone = resizeZoneSize(MIN_NOTE_SIZE, true, zoom)
+        const ratio =
+          (zone.width * zone.height) /
+          (MIN_NOTE_SIZE.width * MIN_NOTE_SIZE.height)
+        expect(ratio).toBeLessThan(0.25)
+      }
+    })
+
+    it("keeps the small desktop zone for fine pointers", () => {
+      expect(resizeZoneSize({ width: 480, height: 252 }, false, 0.5)).toEqual({
+        width: 20,
+        height: 20,
+      })
     })
   })
 })

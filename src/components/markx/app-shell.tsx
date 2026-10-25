@@ -264,7 +264,7 @@ export function AppShell({
                         <Link
                           to={crumb.to}
                           className={cn(
-                            "flex h-8 max-w-full items-center gap-1.5 rounded-[3px] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.04] active:scale-[0.96] md:h-7",
+                            "flex h-8 max-w-full items-center gap-1.5 rounded-[3px] transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] hover:bg-black/[0.04] active:scale-[0.96] md:h-7 pointer-coarse:h-11 pointer-coarse:md:h-11",
                             index === 0
                               ? "px-1.5 md:pr-[7px] md:pl-0"
                               : "px-1.5 md:px-[7px]"
@@ -303,7 +303,7 @@ export function AppShell({
             {typeof zoomPercent === "number" && onZoomPreset && onZoomFit ? (
               <DropdownMenu>
                 <DropdownMenuTrigger
-                  className="mr-1 hidden h-8 items-center gap-0.5 rounded-md px-2 text-[12px] leading-none text-ink/80 transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] outline-none hover:bg-black/[0.04] focus-visible:ring-2 focus-visible:ring-black/10 active:scale-[0.96] md:flex"
+                  className="mr-1 hidden h-8 items-center gap-0.5 rounded-md px-2 text-[12px] leading-none text-ink/80 transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] outline-none hover:bg-black/[0.04] focus-visible:ring-2 focus-visible:ring-black/10 active:scale-[0.96] md:flex pointer-coarse:h-11"
                   aria-label="Zoom"
                 >
                   <span className="min-w-[2rem] text-right tabular-nums">
@@ -620,7 +620,7 @@ function HeaderIconButton({
       onClick={onClick}
       className={cn(
         // Match AccountMenu trigger: compact rounded chip, not a full-height strip.
-        "flex items-center rounded-md p-1.5 text-ink/80 transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] outline-none active:scale-[0.96] disabled:pointer-events-none disabled:opacity-20 disabled:active:scale-100",
+        "flex items-center justify-center rounded-md p-1.5 text-ink/80 transition-[background-color,transform] duration-150 ease-[var(--ease-out-strong)] outline-none active:scale-[0.96] disabled:pointer-events-none disabled:opacity-20 disabled:active:scale-100 pointer-coarse:min-h-11 pointer-coarse:min-w-11",
         !disabled &&
           "hover:bg-black/[0.04] focus-visible:ring-2 focus-visible:ring-black/10"
       )}

@@ -9,7 +9,6 @@ import {
   getBoardItemRect,
   hitTestBoardItems,
   intersects,
-  isInBottomRightResizeZone,
   normalizeRect,
   pointInRect,
   pointerCentroid,
@@ -123,8 +122,22 @@ function inScreenRect(x: number, y: number, r: ScreenRect | null): boolean {
   return !!r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
 }
 
-export function resizeZoneSize(coarse: boolean, zoom: number): number {
-  return coarse ? Math.max(RESIZE_HANDLE_SIZE, 44 / zoom) : RESIZE_HANDLE_SIZE
+/**
+ * Bottom-right resize hit zone in board units. Fine pointers keep the small
+ * desktop zone. Coarse pointers get a 44 CSS px zone, capped at 45% of each
+ * side so a small card at low zoom still has room to be moved.
+ */
+export function resizeZoneSize(
+  rect: { width: number; height: number },
+  coarse: boolean,
+  zoom: number
+): { width: number; height: number } {
+  if (!coarse) return { width: RESIZE_HANDLE_SIZE, height: RESIZE_HANDLE_SIZE }
+  const size = Math.max(RESIZE_HANDLE_SIZE, 44 / zoom)
+  return {
+    width: Math.min(size, rect.width * 0.45),
+    height: Math.min(size, rect.height * 0.45),
+  }
 }
 
 export class BoardGesture {
@@ -184,10 +197,18 @@ export class BoardGesture {
 
     if (hit.id === ctx.editingId) return []
 
-    if (hit.kind !== "folder") {
+    // On touch, only a selected card shows its handle, so only a selected
+    // card can be resized; a press near another card's corner moves it.
+    if (hit.kind !== "folder" && (!ctx.coarse || ctx.selectedIds.has(hit.id))) {
       const rect = getBoardItemRect(hit)
-      const zone = resizeZoneSize(ctx.coarse, cam.zoom)
-      if (isInBottomRightResizeZone(boardPoint.x, boardPoint.y, rect, zone)) {
+      const zone = resizeZoneSize(rect, ctx.coarse, cam.zoom)
+      if (
+        pointInRect(boardPoint.x, boardPoint.y, {
+          x: rect.x + rect.width - zone.width,
+          y: rect.y + rect.height - zone.height,
+          ...zone,
+        })
+      ) {
         if (!ctx.selectedIds.has(hit.id)) {
           effects.push({ type: "select", ids: new Set([hit.id]) })
           this.anchorId = hit.id

@@ -298,7 +298,10 @@ export function createMarkxStore(
   }
 
   let pendingSave: (() => void) | null = null
-  const instanceId = nanoid()
+  // Lazy: Workers forbid random values in global scope, and the app-wide
+  // store below is created when the server bundle loads.
+  let instanceIdValue: string | null = null
+  const instanceId = () => (instanceIdValue ??= nanoid())
   let hydrated = false
 
   /**
@@ -307,7 +310,7 @@ export function createMarkxStore(
    * A tab with its own unsaved edits keeps them (last writer wins).
    */
   dependencies.channel?.subscribe((message) => {
-    if (message.from === instanceId) return
+    if (message.from === instanceId()) return
     if (!hydrated || syncEngine || saveTimer) return
     void dependencies.storage.load().then((next) => {
       if (!hydrated || syncEngine || saveTimer) return
@@ -336,7 +339,7 @@ export function createMarkxStore(
       void dependencies.storage
         .save(state)
         .then(() =>
-          dependencies.channel?.post({ type: "guest-saved", from: instanceId })
+          dependencies.channel?.post({ type: "guest-saved", from: instanceId() })
         )
     }
     pendingSave = run

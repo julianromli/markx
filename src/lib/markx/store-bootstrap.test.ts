@@ -312,6 +312,7 @@ describe("runMarkxBootstrap", () => {
 
     store.actions.createFolder(0, 0, "Later")
     store.flush()
+    expect(save).toHaveBeenCalled()
     for (const [saved] of save.mock.calls) {
       expect(saved.folders.some((folder) => folder.id === user.id)).toBe(false)
     }

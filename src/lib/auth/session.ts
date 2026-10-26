@@ -4,14 +4,30 @@ import { NEON_IDLE_POLL_MS } from "@/lib/neon-compute"
 
 export type AuthSessionUser = AuthUser
 
+/**
+ * `pending` — no definitive server answer yet.
+ * `authenticated` / `guest` — the server answered.
+ * `unavailable` — the last check failed in transit. Not published.
+ */
+export type AuthSessionOutcome =
+  "pending" | "authenticated" | "guest" | "unavailable"
+
 export type AuthSessionSnapshot = {
   user: AuthSessionUser | null
   token: string | null
   isPending: boolean
   checkedAt: number
+  outcome: AuthSessionOutcome
 }
 
 const SESSION_FRESH_MS = 5000
+/**
+ * Neon Auth's client caches get-session until the JWT expires. The JWT
+ * plugin default is 15 minutes. After that, a foreground check must hit
+ * the server so Better Auth can roll `expiresAt` (updateAge) and re-set
+ * the session cookie.
+ */
+export const SESSION_NETWORK_REFRESH_MS = 15 * 60 * 1000
 /** Fallback revalidation. Longer than Neon autosuspend so idle tabs can sleep. */
 export const SESSION_POLL_MS = NEON_IDLE_POLL_MS
 const serverSnapshot: AuthSessionSnapshot = {
@@ -19,6 +35,7 @@ const serverSnapshot: AuthSessionSnapshot = {
   token: null,
   isPending: true,
   checkedAt: 0,
+  outcome: "pending",
 }
 
 let snapshot = serverSnapshot
@@ -40,15 +57,29 @@ function refreshIfVisible(): void {
   void refreshAuthSession()
 }
 
-function handleVisibilityChange(): void {
-  if (typeof document === "undefined") return
-  if (document.visibilityState !== "visible") return
-  // Coalesce with the 5s freshness window; do not force a Neon Auth round-trip.
+function refreshSessionForForeground(): void {
+  const age =
+    snapshot.checkedAt > 0
+      ? Date.now() - snapshot.checkedAt
+      : Number.POSITIVE_INFINITY
+  // Inside the JWT cache window a normal get-session is enough. Past it,
+  // skip both the client cache and the 5-minute session_data cookie so
+  // the server can extend the session and send a new Set-Cookie.
+  if (age >= SESSION_NETWORK_REFRESH_MS) {
+    void getAuthSession({ force: true, forceNetwork: true })
+    return
+  }
   void getAuthSession()
 }
 
+function handleVisibilityChange(): void {
+  if (typeof document === "undefined") return
+  if (document.visibilityState !== "visible") return
+  refreshSessionForForeground()
+}
+
 function handleWindowFocus(): void {
-  void getAuthSession()
+  refreshSessionForForeground()
 }
 
 function bindBrowserSessionListeners(): void {
@@ -83,12 +114,53 @@ function publish(next: AuthSessionSnapshot): AuthSessionSnapshot {
  * Resolve the browser session once and share the in-flight request between
  * bootstrap, header consumers, and authenticated server functions.
  */
+type SessionProbeResponse = {
+  data?: {
+    user?: { id: string; email: string } | null
+    session?: { token?: string | null } | null
+  } | null
+  error?: { status?: number; message?: string } | null
+}
+
+function statusOf(value: unknown): number | undefined {
+  if (!value || typeof value !== "object" || !("status" in value)) return
+  const status = (value as { status?: unknown }).status
+  return typeof status === "number" ? status : undefined
+}
+
+function isUnauthenticatedStatus(status: number | undefined): boolean {
+  return status === 401
+}
+
+function publishGuest(): AuthSessionSnapshot {
+  return publish({
+    user: null,
+    token: null,
+    isPending: false,
+    checkedAt: Date.now(),
+    outcome: "guest",
+  })
+}
+
+/**
+ * A transport failure must not sign the user out. Keep the last definitive
+ * snapshot. On the first check, leave the published snapshot pending.
+ */
+function keepOrUnavailable(): AuthSessionSnapshot {
+  if (snapshot.checkedAt > 0 && snapshot.outcome !== "pending") return snapshot
+  return { ...snapshot, outcome: "unavailable" }
+}
+
 export function getAuthSession(opts?: {
   force?: boolean
+  /** Bypass Neon Auth's memory cache and the session_data cookie. */
+  forceNetwork?: boolean
 }): Promise<AuthSessionSnapshot> {
   const force = opts?.force ?? false
+  const forceNetwork = opts?.forceNetwork ?? false
   if (
     !force &&
+    !forceNetwork &&
     !snapshot.isPending &&
     Date.now() - snapshot.checkedAt < SESSION_FRESH_MS
   ) {
@@ -101,31 +173,41 @@ export function getAuthSession(opts?: {
   const request = (async () => {
     try {
       const authClient = await getAuthClient()
-      const { data } = await authClient.getSession()
+      const sessionResult = (await authClient.getSession(
+        forceNetwork
+          ? {
+              query: { disableCookieCache: true },
+              fetchOptions: { headers: { "X-Force-Fetch": "1" } },
+            }
+          : undefined
+      )) as SessionProbeResponse
       if (requestGeneration !== generation) return snapshot
-      const runtimeData = data as {
-        user?: { id: string; email: string } | null
-        session?: { token?: string | null } | null
-      } | null
+      if (
+        sessionResult.error &&
+        !isUnauthenticatedStatus(sessionResult.error.status)
+      ) {
+        console.warn("[markx init] getSession unavailable", sessionResult.error)
+        return keepOrUnavailable()
+      }
+      const runtimeData = sessionResult.data
+      if (
+        isUnauthenticatedStatus(sessionResult.error?.status) ||
+        !runtimeData?.user
+      ) {
+        return publishGuest()
+      }
       return publish({
-        user: runtimeData?.user
-          ? { id: runtimeData.user.id, email: runtimeData.user.email }
-          : null,
-        token: runtimeData?.session?.token ?? null,
+        user: { id: runtimeData.user.id, email: runtimeData.user.email },
+        token: runtimeData.session?.token ?? null,
         isPending: false,
         checkedAt: Date.now(),
+        outcome: "authenticated",
       })
-    } catch {
+    } catch (err) {
       if (requestGeneration !== generation) return snapshot
-      // Keep a previously confirmed session during transient failures. On the
-      // initial check there is no safe identity to retain, so resolve as guest.
-      if (snapshot.checkedAt > 0) return snapshot
-      return publish({
-        user: null,
-        token: null,
-        isPending: false,
-        checkedAt: Date.now(),
-      })
+      if (isUnauthenticatedStatus(statusOf(err))) return publishGuest()
+      console.warn("[markx init] getSession unavailable", err)
+      return keepOrUnavailable()
     } finally {
       if (activeRequestId === requestId) {
         inFlight = null
@@ -156,6 +238,7 @@ export function setAuthSessionGuest(): void {
     token: null,
     isPending: false,
     checkedAt: Date.now(),
+    outcome: "guest",
   })
 }
 

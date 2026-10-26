@@ -50,10 +50,11 @@ function fakeEngine(
 
 function createTestStore(guest = workspace("guest")) {
   const load = vi.fn(async () => guest)
+  const save = vi.fn(async (_state: MarkxState) => {})
   const store = createMarkxStore({
     storage: {
       load,
-      save: vi.fn(async () => {}),
+      save,
     },
     enrich: vi.fn(async () => ({
       title: "",
@@ -63,7 +64,7 @@ function createTestStore(guest = workspace("guest")) {
     })),
     sweepOrphanImages: vi.fn(async () => {}),
   })
-  return { store, load }
+  return { store, load, save }
 }
 
 describe("runMarkxBootstrap", () => {
@@ -243,5 +244,106 @@ describe("runMarkxBootstrap", () => {
     expect(first.destroy).toHaveBeenCalled()
     expect(store.getSyncEngine()).toBe(second)
     expect(store.getState().folders[0]?.id).toBe(other.id)
+  })
+
+  it("does not keep or save the previous user's board when the new cache read fails", async () => {
+    const first = fakeEngine(user.id, true)
+    const demo = workspace("demo")
+    const { store, save } = createTestStore()
+
+    await runMarkxBootstrap({
+      store,
+      isCancelled: () => false,
+      probeSession: async () => ({ status: "user", user: other }),
+      getLastUserId: async () => user.id,
+      createEngineFromCache: async (userId) => {
+        if (userId === user.id) return first
+        throw new Error("cache read failed")
+      },
+      sleep: async () => {},
+      clearLastUserId: vi.fn(async () => {}),
+      resetGuestState: vi.fn(async () => demo),
+      onShellReady: () => {},
+      onCachedUserConfirmed: vi.fn(),
+      onCloudLoad: vi.fn(),
+    })
+
+    expect(store.getSyncEngine()).toBeNull()
+    expect(
+      store.getState().folders.some((folder) => folder.id === user.id)
+    ).toBe(false)
+    expect(store.getState().folders[0]?.id).toBe("demo")
+
+    store.actions.createFolder(0, 0, "Later")
+    store.flush()
+
+    expect(save).toHaveBeenCalled()
+    for (const [saved] of save.mock.calls) {
+      expect(saved.folders.some((folder) => folder.id === user.id)).toBe(false)
+    }
+  })
+
+  it("does not leave the cached user on screen when cleanup fails after a rejected session", async () => {
+    const first = fakeEngine(user.id, true)
+    const demo = workspace("demo")
+    const { store, save } = createTestStore()
+    const resetGuestState = vi.fn(async () => demo)
+
+    await runMarkxBootstrap({
+      store,
+      isCancelled: () => false,
+      probeSession: async () => ({ status: "guest" }),
+      getLastUserId: async () => user.id,
+      createEngineFromCache: async () => first,
+      sleep: async () => {},
+      clearLastUserId: vi.fn(async () => {
+        throw new Error("could not clear last user")
+      }),
+      resetGuestState,
+      onShellReady: () => {},
+      onCachedUserConfirmed: vi.fn(),
+      onCloudLoad: vi.fn(),
+    })
+
+    expect(store.getSyncEngine()).toBeNull()
+    expect(
+      store.getState().folders.some((folder) => folder.id === user.id)
+    ).toBe(false)
+
+    store.actions.createFolder(0, 0, "Later")
+    store.flush()
+    for (const [saved] of save.mock.calls) {
+      expect(saved.folders.some((folder) => folder.id === user.id)).toBe(false)
+    }
+  })
+
+  it("detaches an engine when attach fails before the shell is ready", async () => {
+    const engine = fakeEngine(user.id, true)
+    engine.subscribe = () => {
+      throw new Error("attach failed")
+    }
+    const guest = workspace("guest-board")
+    const { store, save } = createTestStore(guest)
+
+    await runMarkxBootstrap({
+      store,
+      isCancelled: () => false,
+      probeSession: async () => ({ status: "user", user }),
+      getLastUserId: async () => user.id,
+      createEngineFromCache: async () => engine,
+      sleep: async () => {},
+      clearLastUserId: vi.fn(async () => {}),
+      resetGuestState: vi.fn(async () => workspace("demo")),
+      onShellReady: () => {},
+      onCachedUserConfirmed: vi.fn(),
+      onCloudLoad: vi.fn(),
+    })
+
+    expect(store.getSyncEngine()).toBeNull()
+    expect(store.getState().folders[0]?.id).toBe("guest-board")
+    store.actions.createFolder(0, 0, "Later")
+    store.flush()
+    expect(save).toHaveBeenCalled()
+    expect(engine.destroy).toHaveBeenCalled()
   })
 })

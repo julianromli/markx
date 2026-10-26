@@ -177,6 +177,8 @@ export function getAuthSession(opts?: {
         forceNetwork
           ? {
               query: { disableCookieCache: true },
+              // Honored by @neondatabase/auth customFetchImpl (FORCE_FETCH_HEADER).
+              // It skips that client's in-memory session cache.
               fetchOptions: { headers: { "X-Force-Fetch": "1" } },
             }
           : undefined

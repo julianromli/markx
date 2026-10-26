@@ -186,6 +186,10 @@ export async function runMarkxBootstrap(
 
   let prepared: BootstrapEngine | null = null
   let painted = false
+  // True after an account switch or a rejected session detaches the engine
+  // that was on screen. The catch must clear that workspace. Otherwise the
+  // next edit saves it into the shared guest store.
+  let detachedPrevious = false
   const ready = (branch: string) => {
     painted = true
     onShellReady(branch)
@@ -254,10 +258,14 @@ export async function runMarkxBootstrap(
     if (session.status === "guest") {
       if (prepared && isAttached(store, prepared)) {
         console.info("[markx init] session rejected, returning to guest")
+        detachedPrevious = true
         await releaseRejectedSession(store, prepared)
         if (isCancelled()) return
-        await forgetLastUser()
+        // Replace the board before any later await. A throw after detach
+        // must not leave the previous account on screen.
         store.replaceState(await loadGuestDemo(), { persist: false })
+        detachedPrevious = false
+        await forgetLastUser()
         return
       }
       prepared?.destroy()
@@ -280,7 +288,10 @@ export async function runMarkxBootstrap(
         from: prepared.getUserId(),
         to: session.user.id,
       })
-      if (isAttached(store, prepared)) store.detachSync()
+      if (isAttached(store, prepared)) {
+        store.detachSync()
+        detachedPrevious = true
+      }
       prepared.destroy()
     }
 
@@ -292,7 +303,26 @@ export async function runMarkxBootstrap(
     await useEngine(engine)
   } catch (err) {
     console.error("[markx init] auth/sync error, falling back to guest", err)
-    if (isCancelled() || painted) return
+    if (isCancelled()) return
+    if (detachedPrevious) {
+      // The new account never took over. Drop a half-attached engine, then
+      // clear the previous workspace without writing it to guest storage.
+      const lingering = store.getSyncEngine()
+      if (lingering) {
+        lingering.destroy()
+        store.detachSync()
+      }
+      store.replaceState(await loadGuestDemo(), { persist: false })
+      return
+    }
+    if (painted) return
+    // Attach can store the engine before a later step throws. Do not hydrate
+    // guest state over that engine: the next edit would sync it to the account.
+    const lingering = store.getSyncEngine()
+    if (lingering) {
+      lingering.destroy()
+      store.detachSync()
+    }
     await store.hydrate()
     if (isCancelled()) return
     ready("sync-error-guest-fallback")

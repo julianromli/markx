@@ -86,6 +86,8 @@ async function setupProvider(opts: {
     },
     nextZ: vi.fn(() => 2),
     sweepOrphanImageBlobs: vi.fn(async () => {}),
+    clearLastUserId: vi.fn(async () => {}),
+    resetGuestState: vi.fn(async () => emptyState),
   }))
   vi.doMock("@/lib/markx/sync", () => ({
     isGuestModified: vi.fn(() => opts.guestModified ?? false),
@@ -103,6 +105,7 @@ async function setupProvider(opts: {
   return {
     ...module,
     getSessionUserWithTimeout: bootstrap.getSessionUserWithTimeout,
+    SESSION_RETRY_DELAYS_MS: bootstrap.SESSION_RETRY_DELAYS_MS,
     getAuthSession,
     getLastUserId,
     setLastUserId,
@@ -120,7 +123,7 @@ afterEach(() => {
 })
 
 describe("MarkxProvider authenticated bootstrap", () => {
-  it("returns timeout without adopting a late session completion", async () => {
+  it("returns unavailable when the session check times out", async () => {
     vi.useFakeTimers()
     const session = deferred<{
       user: { id: string; email: string } | null
@@ -135,7 +138,7 @@ describe("MarkxProvider authenticated bootstrap", () => {
 
     const result = getSessionUserWithTimeout()
     await vi.advanceTimersByTimeAsync(3000)
-    await expect(result).resolves.toEqual({ status: "timeout" })
+    await expect(result).resolves.toEqual({ status: "unavailable" })
 
     session.resolve({
       user: { id: "late-user", email: "late@example.com" },
@@ -144,7 +147,50 @@ describe("MarkxProvider authenticated bootstrap", () => {
       checkedAt: Date.now(),
     })
     await session.promise
-    await expect(result).resolves.toEqual({ status: "timeout" })
+    await expect(result).resolves.toEqual({ status: "unavailable" })
+  })
+
+  it("attaches the user when the session resolves after a timeout", async () => {
+    vi.useFakeTimers()
+    const session = deferred<{
+      user: { id: string; email: string } | null
+      token: string | null
+      isPending: boolean
+      checkedAt: number
+    }>()
+    const engine: EngineStub = {
+      getUserId: () => "late-user",
+      getLoadedState: () => populatedState,
+      hasCachedState: () => false,
+      refreshFromCloud: vi.fn(async () => populatedState),
+      checkRemoteVersion: vi.fn(async () => {}),
+      destroy: vi.fn(),
+      subscribe: vi.fn(() => () => {}),
+    }
+    const { MarkxProvider, SESSION_RETRY_DELAYS_MS } = await setupProvider({
+      session: session.promise,
+      lastUserId: Promise.resolve(null),
+      engine,
+    })
+
+    render(<MarkxProvider>late-workspace</MarkxProvider>)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000)
+    })
+    expect(engine.refreshFromCloud).not.toHaveBeenCalled()
+
+    session.resolve({
+      user: { id: "late-user", email: "late@example.com" },
+      token: "token",
+      isPending: false,
+      checkedAt: Date.now(),
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(SESSION_RETRY_DELAYS_MS[0] ?? 1000)
+    })
+
+    expect(engine.refreshFromCloud).toHaveBeenCalled()
+    expect(screen.getByText("late-workspace")).toBeTruthy()
   })
 
   it("starts session restore before the IndexedDB cache lookup settles", async () => {

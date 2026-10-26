@@ -55,4 +55,24 @@ describe("auth proxy helpers", () => {
       )
     ).toBe("session=abc; Path=/; SameSite=Lax; Secure")
   })
+
+  it("keeps a persistent session cookie persistent", () => {
+    expect(
+      rewriteAuthCookie(
+        "better-auth.session_token=abc; Max-Age=604800; Expires=Thu, 01 Jan 2026 00:00:00 GMT; Path=/; HttpOnly; Secure; SameSite=None; Domain=ep-example.neon.tech"
+      )
+    ).toBe(
+      "better-auth.session_token=abc; Max-Age=604800; Expires=Thu, 01 Jan 2026 00:00:00 GMT; Path=/; HttpOnly; Secure; SameSite=Lax"
+    )
+  })
+
+  it("does not turn a browser-session cookie into a persistent one", () => {
+    expect(
+      rewriteAuthCookie(
+        "better-auth.session_token=abc; Path=/; HttpOnly; Secure; SameSite=Lax"
+      )
+    ).toBe(
+      "better-auth.session_token=abc; Path=/; HttpOnly; Secure; SameSite=Lax"
+    )
+  })
 })

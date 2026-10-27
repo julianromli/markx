@@ -32,7 +32,7 @@ function makeSnapshot(): SharedBoardSnapshot {
 }
 
 const cta = () =>
-  screen.queryByRole("button", { name: "Make your own board on markx" })
+  screen.queryByRole("button", { name: "Make yours: make your own board on markx" })
 const duplicate = () =>
   screen.queryByRole("button", { name: /duplicate to my workspace/i })
 

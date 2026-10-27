@@ -13,7 +13,7 @@ export function ShareCta({ onClick }: { onClick: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      aria-label="Make your own board on markx"
+      aria-label="Make yours: make your own board on markx"
       className="share-cta-in group absolute top-3 right-3 z-30 flex h-11 items-center gap-2 rounded-xl bg-white/85 pr-1.5 pl-2.5 text-sm shadow-sm outline outline-1 outline-black/5 backdrop-blur transition-[background-color] duration-150 ease-out focus-visible:ring-3 focus-visible:ring-ring/30 sm:h-10 sm:gap-2.5 sm:pl-3 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-white/95"
     >
       <span className="flex items-center gap-1.5">

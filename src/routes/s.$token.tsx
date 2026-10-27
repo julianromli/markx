@@ -133,6 +133,7 @@ function SharedBoardRoute() {
         snapshot={snapshot}
         token={token}
         mode={canEdit ? "edit" : "view"}
+        showCreateCta={!canEdit}
       />
       <AuthDialog
         open={authOpen}

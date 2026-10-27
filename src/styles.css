@@ -273,6 +273,28 @@
     }
   }
 
+  /* Share page "Make your own" pill: fade + 6px slide down once, after the
+   * board has painted. Reduced motion keeps the fade only. */
+  .share-cta-in {
+    animation: share-cta-in 260ms var(--ease-out-strong) 700ms both;
+  }
+  @keyframes share-cta-in {
+    from {
+      opacity: 0;
+      translate: 0 -6px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .share-cta-in {
+      animation-name: share-cta-fade;
+    }
+    @keyframes share-cta-fade {
+      from {
+        opacity: 0;
+      }
+    }
+  }
+
   .shared-board-list-item-in {
     opacity: 1;
     translate: 0 0;

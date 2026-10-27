@@ -3,6 +3,8 @@ import { toast } from "sonner"
 
 import { Board } from "@/components/markx/board"
 import type { BoardApi } from "@/components/markx/board"
+import { AuthDialog } from "@/components/markx/auth-dialog"
+import { ShareCta } from "@/components/markx/share-cta"
 import { WorkspaceBoardItem } from "@/components/markx/workspace-board-item"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
@@ -13,6 +15,7 @@ import { nextZ } from "@/lib/markx/state"
 import { SharedBoardSyncEngine } from "@/lib/markx/shared-board-sync"
 import type { SharedBoardSnapshot } from "@/lib/markx/shared-board"
 import { useAuthSession } from "@/lib/markx/hooks"
+import { cn } from "@/lib/utils"
 import type {
   MarkxState,
   Note,
@@ -35,6 +38,11 @@ type SharedBoardViewProps = {
   onRequestEdit?: () => void
   /** When set, shows a back button (top-left) that calls this. */
   onBack?: () => void
+  /**
+   * Show the "Make your own" pill (top-right) to anonymous viewers. It opens
+   * the sign-in dialog, then offers to duplicate this board.
+   */
+  showCreateCta?: boolean
 }
 
 /**
@@ -42,7 +50,7 @@ type SharedBoardViewProps = {
  * In "view" mode all edit callbacks are no-ops (read-only). In "edit"
  * mode a SharedBoardSyncEngine debounces optimistic saves.
  */
-export function SharedBoardView({ snapshot, token, mode, showDuplicate = true, onRequestEdit, onBack }: SharedBoardViewProps) {
+export function SharedBoardView({ snapshot, token, mode, showDuplicate = true, onRequestEdit, onBack, showCreateCta = false }: SharedBoardViewProps) {
   const folderId = snapshot.state.folders.at(0)?.id ?? ""
   const [state, setState] = useState<MarkxState>(() => snapshot.state)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -241,6 +249,16 @@ export function SharedBoardView({ snapshot, token, mode, showDuplicate = true, o
     }
   }, [session.user, token])
 
+  // The toast action fires after the post-login re-render, so read the
+  // latest handleDuplicate (with the signed-in session) through a ref.
+  const duplicateRef = useRef(handleDuplicate)
+  useEffect(() => {
+    duplicateRef.current = handleDuplicate
+  }, [handleDuplicate])
+  const [ctaAuthOpen, setCtaAuthOpen] = useState(false)
+  const showCta =
+    showCreateCta && !onRequestEdit && !session.isPending && !session.user
+
   const renderItem = useCallback(
     (item: BoardItemModel, selected: boolean, dragging: boolean) => (
       <WorkspaceBoardItem
@@ -259,7 +277,15 @@ export function SharedBoardView({ snapshot, token, mode, showDuplicate = true, o
 
   return (
     <div className="relative h-svh w-svw overflow-hidden bg-white">
-      <div className="absolute left-3 top-3 z-30 flex items-center gap-2 rounded-xl bg-white/85 px-3 py-2 text-sm shadow-sm outline outline-1 outline-black/5 backdrop-blur">
+      <div
+        className={cn(
+          "absolute top-3 left-3 z-30 flex max-w-[calc(100%-1.5rem)] items-center gap-2 rounded-xl bg-white/85 px-3 py-2 text-sm shadow-sm outline outline-1 outline-black/5 backdrop-blur",
+          // Leave room for the CTA pill (its width + an 8px gap) so a long
+          // title truncates instead of sliding under it.
+          showCta &&
+            "max-w-[calc(100%-1.5rem-var(--share-cta-w)-0.5rem)] [--share-cta-w:10rem] sm:[--share-cta-w:15.5rem]"
+        )}
+      >
         {onBack ? (
           <Button
             variant="ghost"
@@ -271,8 +297,10 @@ export function SharedBoardView({ snapshot, token, mode, showDuplicate = true, o
             <ArrowLeftIcon className="size-4" weight="regular" />
           </Button>
         ) : null}
-        <span className="text-base font-medium">{snapshot.title}</span>
-        <span className="text-ink-muted">
+        <span className="min-w-0 truncate text-base font-medium">
+          {snapshot.title}
+        </span>
+        <span className="shrink-0 whitespace-nowrap text-ink-muted">
           {editable ? "· shared board" : "· read-only"}
         </span>
       </div>
@@ -298,6 +326,23 @@ export function SharedBoardView({ snapshot, token, mode, showDuplicate = true, o
           <SignInIcon className="size-4" weight="regular" />
           Log in to edit
         </Button>
+      ) : null}
+      {showCta ? <ShareCta onClick={() => setCtaAuthOpen(true)} /> : null}
+      {showCreateCta ? (
+        <AuthDialog
+          open={ctaAuthOpen}
+          onOpenChange={setCtaAuthOpen}
+          title="Create your free board"
+          description="Enter your email and we'll send you a one-time code."
+          onLoggedIn={() => {
+            toast.success("You're in. Start from a copy of this board?", {
+              action: {
+                label: "Duplicate",
+                onClick: () => void duplicateRef.current(),
+              },
+            })
+          }}
+        />
       ) : null}
       <Board
         items={items}

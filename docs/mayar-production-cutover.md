@@ -71,7 +71,7 @@ Prefer `wrangler versions secret put` / `secret bulk`, then **deploy** so the li
 | `MAYAR_ENV` | `production` |
 | `MAYAR_PRO_PRICE_IDR` | `49000` (var or default; not a secret) |
 | `DATABASE_URL` | Already set (do not overwrite unless intentional) |
-| `NEON_AUTH_COOKIE_SECRET` | Already set |
+| `BETTER_AUTH_SECRET` | Set at the auth cutover (see docs/self-hosted-auth.md) |
 
 ### Suggested commands
 
@@ -95,7 +95,7 @@ rm -f /tmp/markx-mayar-prod-secrets.json
 bun run deploy
 
 bunx wrangler secret list
-# Expect: APP_URL, MAYAR_*, DATABASE_URL, NEON_AUTH_COOKIE_SECRET
+# Expect: APP_URL, MAYAR_*, DATABASE_URL, BETTER_AUTH_SECRET
 ```
 
 - [ ] Secrets uploaded  

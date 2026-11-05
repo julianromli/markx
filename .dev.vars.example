@@ -2,26 +2,26 @@
 # In dev the Cloudflare Vite plugin reads these via the `cloudflare:workers`
 # `env` object.
 
-# Neon Postgres pooler connection string.
+# Postgres connection string (local Postgres or the rehearsal DB).
 # `bun run dev` maps this to CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE
 # (Wrangler requires that process env var to emulate the Hyperdrive binding locally).
-#
-# Use a Neon *development branch* pooler URL, not the production compute.
-# A long local `bun run dev` session keeps that compute awake and burns
-# the project's monthly CU-hour allowance.
-DATABASE_URL="postgresql://USER:PASSWORD@HOST-pooler.REGION.aws.neon.tech/DBNAME?sslmode=require"
+# Never point local dev at the production database.
+# A fresh DB needs the app migrations (bun run db:migrate) and
+# scripts/sql/auth-schema.sql (psql "$DATABASE_URL" -f scripts/sql/auth-schema.sql).
+DATABASE_URL="postgresql://USER:PASSWORD@localhost:5432/markx_dev"
 
 # Optional override for Hyperdrive local emulation. If unset, `bun run dev` uses
 # DATABASE_URL above. Must be exported in the process env (not only as a Worker
 # secret) — the launch script handles that for you.
 # CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE="<same as DATABASE_URL>"
 
-# Neon Auth — non-secret, also declared as `vars` in wrangler.jsonc.
-# NEON_AUTH_BASE_URL and NEON_AUTH_JWKS_URL are read from vars, not secrets.
-
-# Cookie secret for Neon Auth server-side session caching (32+ chars).
+# Better Auth. Secret signs session cookies (32+ chars).
 # Generate with: openssl rand -base64 32
-NEON_AUTH_COOKIE_SECRET="dev-only-secret-replace-in-production-32chars"
+BETTER_AUTH_SECRET="dev-only-secret-replace-in-production-32chars"
+# Overrides the wrangler.jsonc var for local dev.
+BETTER_AUTH_URL="http://localhost:3000"
+# OTP mail uses the EMAIL send_email binding. `bun run dev` simulates it
+# locally and prints where the message was saved.
 
 # Mayar billing (Markx Pro, custom QRIS checkout). Use sandbox key locally.
 # Feature flag (also in wrangler.jsonc vars). "true" enables limits + checkout UI.

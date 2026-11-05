@@ -28,6 +28,7 @@ import {
   isEditableEventTarget,
   isOverlayActive,
 } from "@/components/markx/use-workspace-global-events"
+import { ReloginBanner } from "@/components/markx/relogin-banner"
 import { StaleWorkspaceBanner } from "@/components/markx/stale-workspace-banner"
 import {
   DropdownMenu,
@@ -495,6 +496,7 @@ export function AppShell({
       </aside>
 
       <main className="relative col-start-1 row-start-2 flex min-h-0 min-w-0 flex-col md:col-start-2">
+        <ReloginBanner />
         <StaleWorkspaceBanner />
         <div className="relative min-h-0 min-w-0 flex-1">
           {typeof zoomPercent === "number" && onZoomPreset && onZoomFit ? (

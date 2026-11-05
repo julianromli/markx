@@ -1,74 +1,28 @@
 /// <reference types="@cloudflare/vite-plugin" />
 import handler from "@tanstack/react-start/server-entry"
+import { createAuth } from "@/lib/auth/server"
+import { withDb } from "@/lib/db/client"
 import { cleanupExpiredAssets } from "@/lib/server/assets.server"
-import {
-  buildAuthProxyHeaders,
-  buildAuthTargetUrl,
-  isAuthProxyPath,
-  isEmailOtpSendPath,
-  rewriteAuthCookie,
-} from "@/lib/server/auth-proxy"
+import { isAuthPath, isEmailOtpSendPath } from "@/lib/server/auth-routes"
 import { checkOtpSendRateLimit } from "@/lib/server/otp-send-rate-limit"
 import { serveOgPreview } from "@/lib/server/og-preview"
 import { serveSharedBoardAsset } from "@/lib/server/shared-board-asset"
 
 /**
- * Same-origin reverse proxy for Neon Auth (Better Auth).
- *
- * The browser calls `/api/auth/*` on the Worker origin. We forward each
- * request to the managed Neon Auth service, then rewrite Set-Cookie headers
- * so the session cookies become first-party (no Domain attribute). This
- * avoids Safari ITP blocking third-party cookies on the cross-origin auth
- * host while keeping JWT verification against the Neon JWKS endpoint.
+ * Self-hosted Better Auth on the Worker origin (`/api/auth/*`). Session
+ * cookies are first-party. Data lives in the `auth` schema of the app DB.
  */
-async function proxyAuth(request: Request, env: Env): Promise<Response | null> {
+async function handleAuth(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url)
-  if (!isAuthProxyPath(url.pathname)) return null
+  if (!isAuthPath(url.pathname)) return null
 
-  // Throttle OTP email sends before they hit Neon Auth / SMTP.
-  if (
-    request.method === "POST" &&
-    isEmailOtpSendPath(url.pathname)
-  ) {
+  // Throttle OTP email sends before they reach the mailer.
+  if (request.method === "POST" && isEmailOtpSendPath(url.pathname)) {
     const limited = checkOtpSendRateLimit(request)
     if (limited) return limited
   }
 
-  const target = buildAuthTargetUrl(request.url, env.NEON_AUTH_BASE_URL)
-
-  // Build a minimal header set for the upstream request. We deliberately do
-  // NOT copy all request headers — the browser/dev-server sends headers
-  // (Host, X-Forwarded-*, Referer, …) that Better Auth's hostname validation
-  // rejects. The Workers runtime auto-sets `Host` from the target URL.
-  const headers = buildAuthProxyHeaders(request.headers)
-
-  const upstream = await fetch(target, {
-    method: request.method,
-    headers,
-    body:
-      request.method === "GET" || request.method === "HEAD"
-        ? undefined
-        : request.body,
-    redirect: "manual",
-  })
-
-  const response = new Response(upstream.body, {
-    status: upstream.status,
-    statusText: upstream.statusText,
-    headers: upstream.headers,
-  })
-
-  // Strip Domain so cookies are first-party, and normalize an existing
-  // SameSite attribute to Lax.
-  const setCookies = response.headers.getSetCookie()
-  if (setCookies.length > 0) {
-    response.headers.delete("set-cookie")
-    for (const cookie of setCookies) {
-      response.headers.append("set-cookie", rewriteAuthCookie(cookie))
-    }
-  }
-
-  return response
+  return withDb(({ db }) => createAuth(db, env).handler(request))
 }
 
 export default {
@@ -77,7 +31,7 @@ export default {
     env: Env,
     _ctx: ExecutionContext
   ): Promise<Response> {
-    const authResponse = await proxyAuth(request, env)
+    const authResponse = await handleAuth(request, env)
     if (authResponse) return authResponse
 
     const ogPreview = await serveOgPreview(request, env)

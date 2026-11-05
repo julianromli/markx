@@ -11,7 +11,7 @@ import {
 } from "drizzle-orm/pg-core"
 
 /**
- * One workspace row per Neon Auth user.
+ * One workspace row per auth user (`auth.user.id`).
  *
  * The entire board state (folders, bookmarks, notes, image metadata) is
  * stored as a single versioned JSONB snapshot. This mirrors the in-memory
@@ -68,7 +68,7 @@ export type Asset = typeof assets.$inferSelect
 export type NewAsset = typeof assets.$inferInsert
 
 /**
- * Billing state for a Neon Auth user (one row per user).
+ * Billing state for an auth user (one row per user).
  *
  * `plan` is derived from Mayar membership status and webhook events.
  * `email` is denormalized for webhook matching when only the Mayar

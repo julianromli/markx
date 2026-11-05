@@ -9,8 +9,8 @@
     "head_sampling_rate": 1
   },
   "vars": {
-    "NEON_AUTH_BASE_URL": "https://ep-lingering-dust-azywq1po.neonauth.c-3.ap-southeast-1.aws.neon.tech/neondb/auth",
-    "NEON_AUTH_JWKS_URL": "https://ep-lingering-dust-azywq1po.neonauth.c-3.ap-southeast-1.aws.neon.tech/neondb/auth/.well-known/jwks.json",
+    // Better Auth public URL. Secret BETTER_AUTH_SECRET: wrangler secret put.
+    "BETTER_AUTH_URL": "https://markx.app",
     // Pro limits + Mayar checkout UI. Set "true" to enable (dashboard vars or deploy).
     "MAYAR_BILLING_ENABLED": "true"
   },
@@ -23,7 +23,16 @@
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
+      // TODO(cutover): replace with the `markx-vps` Hyperdrive id
+      // (db `markx` on the VPS). Still the Neon config until then.
       "id": "e350ce8b19b44756ad877e79b4c0675f"
+    }
+  ],
+  // Cloudflare Email Service: sign-in OTP mail.
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_sender_addresses": ["welcome@markx.faizintifada.com"]
     }
   ],
   "triggers": {

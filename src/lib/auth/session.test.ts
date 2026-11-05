@@ -282,7 +282,6 @@ describe("shared auth session", () => {
 
     expect(authMocks.getSession.mock.calls.at(-1)?.[0]).toEqual({
       query: { disableCookieCache: true },
-      fetchOptions: { headers: { "X-Force-Fetch": "1" } },
     })
     unsubscribe()
   })

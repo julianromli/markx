@@ -16,6 +16,11 @@ const config = defineConfig({
     viteReact(),
     clientNodeGuard(),
   ],
+  server: {
+    // Local send_email writes each OTP mail under .wrangler/tmp. Watching
+    // it reloads the page and closes the sign-in dialog mid-flow.
+    watch: { ignored: ["**/.wrangler/**"] },
+  },
   build: {
     rolldownOptions: {
       // `cloudflare:workers` is a runtime-provided module by the

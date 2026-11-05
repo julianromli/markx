@@ -823,7 +823,7 @@ export class SyncEngine {
   }
 
   /**
-   * Version poll while visible, on an interval longer than Neon autosuspend.
+   * Version poll while visible, on a slow idle interval.
    * Returning to the tab also probes. Full reload is user-driven via the
    * stale banner ({@link reloadFromCloud}).
    */

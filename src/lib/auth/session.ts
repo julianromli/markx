@@ -1,6 +1,6 @@
 import { getAuthClient } from "@/lib/auth/client"
 import type { AuthUser } from "@/lib/auth/types"
-import { NEON_IDLE_POLL_MS } from "@/lib/neon-compute"
+import { IDLE_POLL_MS } from "@/lib/poll-timings"
 
 export type AuthSessionUser = AuthUser
 
@@ -22,14 +22,14 @@ export type AuthSessionSnapshot = {
 
 const SESSION_FRESH_MS = 5000
 /**
- * Neon Auth's client caches get-session until the JWT expires. The JWT
- * plugin default is 15 minutes. After that, a foreground check must hit
- * the server so Better Auth can roll `expiresAt` (updateAge) and re-set
- * the session cookie.
+ * get-session is usually answered from the 5-minute session_data cookie
+ * cache. After this window, a foreground check skips that cache so Better
+ * Auth reads the DB session, rolls `expiresAt` (updateAge) and re-sets the
+ * session cookie.
  */
 export const SESSION_NETWORK_REFRESH_MS = 15 * 60 * 1000
-/** Fallback revalidation. Longer than Neon autosuspend so idle tabs can sleep. */
-export const SESSION_POLL_MS = NEON_IDLE_POLL_MS
+/** Fallback revalidation for idle open tabs. */
+export const SESSION_POLL_MS = IDLE_POLL_MS
 const serverSnapshot: AuthSessionSnapshot = {
   user: null,
   token: null,
@@ -62,9 +62,9 @@ function refreshSessionForForeground(): void {
     snapshot.checkedAt > 0
       ? Date.now() - snapshot.checkedAt
       : Number.POSITIVE_INFINITY
-  // Inside the JWT cache window a normal get-session is enough. Past it,
-  // skip both the client cache and the 5-minute session_data cookie so
-  // the server can extend the session and send a new Set-Cookie.
+  // Inside the refresh window a normal get-session is enough. Past it,
+  // skip the 5-minute session_data cookie so the server can extend the
+  // session and send a new Set-Cookie.
   if (age >= SESSION_NETWORK_REFRESH_MS) {
     void getAuthSession({ force: true, forceNetwork: true })
     return
@@ -153,7 +153,7 @@ function keepOrUnavailable(): AuthSessionSnapshot {
 
 export function getAuthSession(opts?: {
   force?: boolean
-  /** Bypass Neon Auth's memory cache and the session_data cookie. */
+  /** Bypass the session_data cookie cache and read the DB session. */
   forceNetwork?: boolean
 }): Promise<AuthSessionSnapshot> {
   const force = opts?.force ?? false
@@ -175,12 +175,7 @@ export function getAuthSession(opts?: {
       const authClient = await getAuthClient()
       const sessionResult = (await authClient.getSession(
         forceNetwork
-          ? {
-              query: { disableCookieCache: true },
-              // Honored by @neondatabase/auth customFetchImpl (FORCE_FETCH_HEADER).
-              // It skips that client's in-memory session cache.
-              fetchOptions: { headers: { "X-Force-Fetch": "1" } },
-            }
+          ? { query: { disableCookieCache: true } }
           : undefined
       )) as SessionProbeResponse
       if (requestGeneration !== generation) return snapshot
@@ -225,10 +220,6 @@ export function getAuthSession(opts?: {
 
 export function refreshAuthSession(): Promise<AuthSessionSnapshot> {
   return getAuthSession({ force: true })
-}
-
-export async function getAuthToken(): Promise<string | null> {
-  return (await getAuthSession()).token
 }
 
 export function setAuthSessionGuest(): void {

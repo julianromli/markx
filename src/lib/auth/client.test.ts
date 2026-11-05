@@ -8,12 +8,12 @@ import { resolveAuthBaseURL } from "@/lib/auth/client"
  * Better Auth's client runs `new URL(baseURL)` and rejects relative URLs.
  * `resolveAuthBaseURL` must therefore ALWAYS return an absolute URL
  * (http/https) so the client can be constructed in production, where
- * `VITE_NEON_AUTH_URL` is typically unset and the code previously fell
+ * `VITE_AUTH_URL` is typically unset and the code previously fell
  * back to the bare relative path `/api/auth`.
  */
 
 describe("resolveAuthBaseURL", () => {
-  it("uses an absolute VITE_NEON_AUTH_URL as-is (local dev case)", () => {
+  it("uses an absolute VITE_AUTH_URL as-is (local dev case)", () => {
     expect(
       resolveAuthBaseURL({
         envUrl: "http://localhost:3000/api/auth",
@@ -31,8 +31,8 @@ describe("resolveAuthBaseURL", () => {
     ).toBe("https://markx.app/api/auth")
   })
 
-  it("defaults to the same-origin /api/auth proxy when no env URL is set", () => {
-    // `envUrl: undefined` simulates an unset VITE_NEON_AUTH_URL (the
+  it("defaults to the same-origin /api/auth handler when no env URL is set", () => {
+    // `envUrl: undefined` simulates an unset VITE_AUTH_URL (the
     // production case), since the local .env populates it in tests.
     expect(
       resolveAuthBaseURL({ envUrl: undefined, origin: "https://markx.app" })

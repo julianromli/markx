@@ -8,7 +8,7 @@ import { clearLastUserId, resetGuestState } from "@/lib/markx/storage"
 /**
  * Send a one-time password to the given email address.
  *
- * Neon Auth (Better Auth) uses the `emailOtp.sendVerificationOtp` endpoint
+ * Better Auth uses the `emailOtp.sendVerificationOtp` endpoint
  * with `type: "sign-in"` for both sign-up and sign-in: if the email is not
  * yet registered, a new user is created automatically when the OTP is
  * verified. Returns `{ error }` on failure.
@@ -34,7 +34,7 @@ export async function sendOtp(email: string): Promise<{ error?: string }> {
 /**
  * Verify the one-time password and complete the sign-in/sign-up.
  *
- * Neon Auth's `signIn.emailOtp` endpoint both verifies the OTP and creates
+ * Better Auth's `signIn.emailOtp` endpoint both verifies the OTP and creates
  * the session in a single call. On success, the user is authenticated.
  * The caller (UI) should then call {@link onLoginSuccess} to create the
  * SyncEngine and switch from guest mode to cloud sync.
@@ -95,7 +95,7 @@ export async function signOut(): Promise<void> {
     }
   }
 
-  // Tell Neon Auth to revoke the session.
+  // Tell the server to revoke the session.
   try {
     const authClient = await getAuthClient()
     await authClient.signOut()

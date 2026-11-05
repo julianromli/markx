@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react"
 import { getAuthSession } from "@/lib/auth/session"
 import type { AuthSessionSnapshot } from "@/lib/auth/session"
 import type { AuthUser } from "@/lib/auth/types"
+import { markReloginNeeded } from "./relogin-notice"
 import { clearLastUserId, getLastUserId, resetGuestState } from "./storage"
 import {
   attachEngineAndPaint,
@@ -256,6 +257,9 @@ export async function runMarkxBootstrap(
     }
 
     if (session.status === "guest") {
+      // A remembered user came back without a valid session. After the
+      // auth move this is expected once: ask them to sign in again.
+      if (lastUserId) markReloginNeeded()
       if (prepared && isAttached(store, prepared)) {
         console.info("[markx init] session rejected, returning to guest")
         detachedPrevious = true

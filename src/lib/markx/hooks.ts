@@ -9,7 +9,7 @@ import { useMarkxStore } from "@/lib/markx/store"
 import type { SyncEngine, SyncStatus, ConflictData } from "@/lib/markx/sync"
 
 /**
- * React hook for the current Neon Auth session.
+ * React hook for the current auth session.
  *
  * Returns `{ user, isPending }` where `user` is `null` when logged out
  * (guest mode). All consumers share one initial request and polling loop.

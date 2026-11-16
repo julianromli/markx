@@ -1,6 +1,10 @@
 import type { SaveResult, WorkspaceSnapshot } from "@/lib/server/workspace"
 import { blobToDataUrl, dataUrlToBlob } from "@/lib/data-url"
-import { createEmptyState } from "@/lib/markx/state"
+import {
+  filterDeletedImageIdsForState,
+  threeWayMergeWorkspaceStates,
+} from "@/lib/markx/merge-workspace"
+import { cloneState, createEmptyState } from "@/lib/markx/state"
 import {
   addDeletedImageIds,
   clearDeletedImageIds,
@@ -172,16 +176,18 @@ const defaultSyncEngineDependencies: SyncEngineDependencies = {
  * SyncEngine orchestrates local ↔ cloud sync for one logged-in user.
  * It is created on login and destroyed on sign-out.
  *
- * Personal sync uses last-writer-wins (LWW): optimistic saves, and on
- * version conflict the engine overwrites the cloud with the local state
- * instead of opening a conflict dialog. When another device moves the
- * cloud version ahead, a stale banner can prompt a full reload.
+ * Personal sync uses optimistic versioning. On conflict the engine
+ * 3-way-merges against the last adopted snapshot (keeps concurrent
+ * additions such as an extension bookmark, honors local and remote
+ * deletes) and writes the result. No conflict dialog. When another
+ * device moves the cloud version ahead, a stale banner can prompt a
+ * full reload.
  *
  * Responsibilities:
  *  1. Hydrate from the per-user IndexedDB cache for instant revisit paint.
  *  2. Full-load from the cloud on bootstrap / first load (always adopt).
- *  3. Debounce local edits and push coalesced snapshots; LWW overwrite
- *     on optimistic-version conflict.
+ *  3. Debounce local edits and push coalesced snapshots; 3-way merge
+ *     then overwrite on optimistic-version conflict.
  *  4. Queue writes when offline and flush them on reconnect.
  *  5. Cheap version poll while visible; surface a dismissible stale banner
  *     when remote version is ahead (Reload adopts cloud via reloadFromCloud).
@@ -191,6 +197,8 @@ export class SyncEngine {
   private userId: string
   private cloudVersion = 0
   private currentState: MarkxState | null = null
+  /** Last snapshot known to be in the cloud (or the cache at hydrate). */
+  private lastAdoptedState: MarkxState | null = null
   private status: SyncStatus = "saving"
   private conflict: ConflictData | undefined
   private debounceTimer: ReturnType<typeof setTimeout> | null = null
@@ -304,6 +312,7 @@ export class SyncEngine {
     if (cached) {
       this.hadCachedState = true
       this.currentState = cached
+      this.lastAdoptedState = cloneState(cached)
       console.info("[markx sync] hydrated from per-user cache")
     } else {
       this.hadCachedState = false
@@ -433,6 +442,7 @@ export class SyncEngine {
       snapshot.version
     )
     this.currentState = snapshot.state
+    this.lastAdoptedState = cloneState(snapshot.state)
     await this.dependencies.storage.saveUserState(this.userId, snapshot.state)
     await this.finalizeFirstLoginBootstrap()
     this.localEditsSinceLoad = false
@@ -477,8 +487,8 @@ export class SyncEngine {
   }
 
   /**
-   * Push the current state to the cloud. On optimistic conflict, overwrite
-   * with the local state (last-writer-wins). Never sets status `conflict`.
+   * Push the current state to the cloud. On optimistic conflict, 3-way
+   * merge and overwrite. Never sets status `conflict`.
    */
   private async sync(): Promise<void> {
     if (this.isSyncing || this.destroyed || !this.currentState) return
@@ -501,20 +511,40 @@ export class SyncEngine {
         deletedImageIds,
       })
 
-      // Last-writer-wins: conflict → overwrite with current local state.
+      // 3-way merge on conflict so an open tab does not wipe additions
+      // made elsewhere (chrome extension, another device).
+      let adoptedMerged: MarkxState | undefined
       if (!result.ok && result.reason === "conflict") {
-        const overwriteState = this.currentState ?? sentState
-        result = await this.dependencies.workspace.overwrite({
-          state: overwriteState,
+        const localState = this.currentState
+        const base = this.lastAdoptedState ?? sentState
+        const merged = threeWayMergeWorkspaceStates(
+          base,
+          localState,
+          result.cloudState
+        )
+        const mergedDeletes = filterDeletedImageIdsForState(
           deletedImageIds,
+          merged
+        )
+        result = await this.dependencies.workspace.overwrite({
+          state: merged,
+          deletedImageIds: mergedDeletes,
         })
+        if (result.ok) {
+          this.currentState = merged
+          adoptedMerged = merged
+          await this.dependencies.storage.saveUserState(this.userId, merged)
+        }
       }
 
       if (result.ok) {
+        const written = adoptedMerged ?? sentState
+        this.lastAdoptedState = cloneState(written)
         await this.applySuccessfulSave(
           result,
           generationAtStart,
-          deletedImageIds
+          deletedImageIds,
+          adoptedMerged
         )
       } else if (result.reason === "entity_limit") {
         await this.dependencies.storage.setPendingSnapshot(
@@ -557,19 +587,20 @@ export class SyncEngine {
   private async applySuccessfulSave(
     result: Extract<SaveResult, { ok: true }>,
     generationAtStart: number,
-    deletedImageIds: string[]
+    deletedImageIds: string[],
+    authoritativeState?: MarkxState
   ): Promise<void> {
     this.cloudVersion = result.version
     await this.dependencies.storage.setCloudVersion(this.userId, result.version)
     await this.retireDeletedImageIds(deletedImageIds)
     this.clearStale(false)
 
-    // The ack only confirms the version. Local state stays the source of
-    // truth: the store is never handed the echoed snapshot.
+    // The ack only confirms the version unless a conflict merge produced a
+    // new snapshot the store must adopt (so an extension card appears).
     if (this.editGeneration === generationAtStart) {
       await this.dependencies.storage.setPendingSnapshot(this.userId, null)
       this.localEditsSinceLoad = false
-      this.setStatus("saved")
+      this.setStatus("saved", authoritativeState)
     } else {
       // Mid-save edits: keep local state, re-queue, and flush again.
       await this.dependencies.storage.setPendingSnapshot(
@@ -684,6 +715,7 @@ export class SyncEngine {
     await this.dependencies.storage.setPendingSnapshot(this.userId, null)
     await this.dependencies.storage.clearDeletedImageIds(this.userId)
     this.currentState = state
+    this.lastAdoptedState = cloneState(state)
     await this.dependencies.storage.saveUserState(this.userId, state)
     this.conflict = undefined
     this.clearStale(false)
@@ -742,6 +774,7 @@ export class SyncEngine {
     if (this.destroyed) return
     this.cloudVersion = newVersion
     this.currentState = newState
+    this.lastAdoptedState = cloneState(newState)
     this.localEditsSinceLoad = false
     await this.dependencies.storage.setCloudVersion(this.userId, newVersion)
     await this.dependencies.storage.saveUserState(this.userId, newState)

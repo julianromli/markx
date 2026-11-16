@@ -447,3 +447,26 @@
 [data-keyboard-toggle] [data-slot="sidebar-menu-action"] {
   transition: none !important;
 }
+
+
+/*
+ * One-shot pulse for a bookmark saved from the Chrome extension, played
+ * when the folder opens. Honored by the reduced-motion block above
+ * (animation-duration: 0.001ms).
+ */
+@keyframes markx-bookmark-highlight {
+  0% {
+    box-shadow:
+      0 0 0 0 rgba(0, 0, 0, 0.28),
+      3px 3px 8px rgba(0, 0, 0, 0.1);
+  }
+  100% {
+    box-shadow:
+      0 0 0 10px rgba(0, 0, 0, 0),
+      3px 3px 8px rgba(0, 0, 0, 0.1);
+  }
+}
+
+.markx-bookmark-highlight {
+  animation: markx-bookmark-highlight 800ms var(--ease-out-strong);
+}

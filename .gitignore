@@ -25,3 +25,6 @@ todos.json
 # Playwright
 test-results/
 playwright-report/
+
+# Chrome extension build output
+extension/dist/

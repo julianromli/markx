@@ -29,6 +29,7 @@ const bookmarkSchema = z.object({
   z: z.number(),
   width: z.number().optional(),
   height: z.number().optional(),
+  highlight: z.boolean().optional(),
 })
 
 const noteColorSchema = z.enum([

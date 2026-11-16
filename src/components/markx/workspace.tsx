@@ -187,6 +187,31 @@ export function Workspace(props: WorkspaceProps) {
     requestAnimationFrame(() => boardApiRef.current?.centerOn(id))
   }, [items])
 
+  // Extension saves mark the new card so it pulses when the folder opens.
+  const consumedHighlights = useRef(new Set<string>())
+  useEffect(() => {
+    if (props.mode !== "folder") return
+    const ids = state.bookmarks
+      .filter(
+        (bookmark) =>
+          bookmark.folderId === props.folderId &&
+          bookmark.highlight &&
+          !consumedHighlights.current.has(bookmark.id)
+      )
+      .map((bookmark) => bookmark.id)
+    if (ids.length === 0) return
+    for (const id of ids) consumedHighlights.current.add(id)
+    const focusId = ids[ids.length - 1]
+    if (focusId) {
+      setSelectedIds(new Set(ids))
+      requestAnimationFrame(() => boardApiRef.current?.centerOn(focusId))
+    }
+    const timer = window.setTimeout(() => {
+      actions.clearBookmarkHighlights(ids)
+    }, 900)
+    return () => window.clearTimeout(timer)
+  }, [actions, props, state.bookmarks])
+
   const handleSearchSelect = useCallback(
     (result: SearchResult) => {
       if (result.kind === "folder") {

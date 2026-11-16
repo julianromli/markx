@@ -1,0 +1,215 @@
+/*
+  Copy URL motion — markx Chrome extension popup
+  Paper: 01M7HQ6VXNACPWAC934XFZKP1H / p-1-0 / artboard OX-0 (D · Copy URL motion)
+
+  Sources
+  - markx share-dialog.tsx: CopyIcon → CheckCircleIcon fill text-green-600,
+    copy-pop 200ms var(--ease-out-strong), reverts after 1500ms
+  - markx src/styles.css: --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1)
+  - emil-animations: Contextual Icon Swaps + Press Feedback
+
+  The extension has no Motion. CSS transitions stand in for
+  spring { type: "spring", duration: 0.35, bounce: 0 }.
+
+  Departures from share-dialog's copy-pop (scale 0.8, no blur, 200ms):
+  icon enter is scale 0.3 → 1, blur 3px → 0, 250ms, as specified for this control.
+  Exit is 200ms (~20% faster than enter).
+
+  Usage: set data-state to "idle" | "copied" | "error".
+  See the timer helper at the bottom — re-clicks must restart the hold
+  without remounting or toggling data-state, or the enter animation restacks.
+*/
+
+:root {
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+  --copy-url-check: #16a34a;
+}
+
+.copy-url {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--color-foreground, oklch(14.5% 0 0));
+  font-family: "Geist", "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: pointer;
+  scale: 1;
+  transition: scale 150ms var(--ease-out-strong);
+}
+
+.copy-url:focus-visible {
+  outline: none;
+  border-radius: 8px;
+  box-shadow: 0 0 0 2px var(--color-background, #fff), 0 0 0 4px rgba(0, 0, 0, 0.1);
+}
+
+.copy-url:active:not(:disabled) {
+  scale: 0.96;
+}
+
+/* --- Icon swap: both icons stay mounted, stacked, cross-fade --- */
+
+.copy-url__icons {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.copy-url__icon {
+  position: absolute;
+  inset: 0;
+  width: 16px;
+  height: 16px;
+  display: block;
+  opacity: 0;
+  transform: scale(0.3);
+  filter: blur(3px);
+  pointer-events: none;
+  /* Exit default (leaving copied/error → idle is 200ms). Enter overrides below. */
+  transition:
+    opacity 200ms var(--ease-out-strong),
+    transform 200ms var(--ease-out-strong),
+    filter 200ms var(--ease-out-strong);
+}
+
+.copy-url__icon--check {
+  color: var(--copy-url-check);
+}
+
+.copy-url__icon--warning {
+  color: var(--color-destructive, oklch(57.7% 0.245 27.3));
+}
+
+.copy-url[data-state="copied"] .copy-url__icon,
+.copy-url[data-state="error"] .copy-url__icon {
+  transition-duration: 250ms;
+}
+
+.copy-url[data-state="idle"] .copy-url__icon--copy,
+.copy-url:not([data-state]) .copy-url__icon--copy,
+.copy-url[data-state="copied"] .copy-url__icon--check,
+.copy-url[data-state="error"] .copy-url__icon--warning {
+  opacity: 1;
+  transform: scale(1);
+  filter: blur(0);
+}
+
+/* --- Label swap: sizer locks width to the widest string, including error --- */
+
+.copy-url__labels {
+  position: relative;
+  display: inline-grid;
+  justify-items: start;
+}
+
+.copy-url__sizer {
+  visibility: hidden;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.copy-url__label {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 150ms var(--ease-out-strong);
+  white-space: nowrap;
+}
+
+.copy-url[data-state="idle"] .copy-url__label[data-label="idle"],
+.copy-url:not([data-state]) .copy-url__label[data-label="idle"],
+.copy-url[data-state="copied"] .copy-url__label[data-label="copied"],
+.copy-url[data-state="error"] .copy-url__label[data-label="error"] {
+  opacity: 1;
+}
+
+/* Visually hidden live region. Keep it in the DOM; swap textContent only. */
+.copy-url-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .copy-url {
+    transition: none;
+  }
+
+  .copy-url:active:not(:disabled) {
+    scale: 1;
+  }
+
+  .copy-url__icon,
+  .copy-url__label {
+    transform: none;
+    filter: none;
+    transition: opacity 100ms linear;
+  }
+
+  .copy-url[data-state="copied"] .copy-url__icon,
+  .copy-url[data-state="error"] .copy-url__icon {
+    transition-duration: 100ms;
+  }
+}
+
+/*
+  Markup (icons are Phosphor: Copy regular, CheckCircle fill, Warning regular):
+
+  <button type="button" class="copy-url" data-state="idle" aria-label="Copy URL">
+    <span class="copy-url__icons" aria-hidden="true">
+      <svg class="copy-url__icon copy-url__icon--copy" viewBox="0 0 256 256" fill="currentColor">
+        <path d="M216,32H88a8,8,0,0,0-8,8V80H40a8,8,0,0,0-8,8V216a8,8,0,0,0,8,8H168a8,8,0,0,0,8-8V176h40a8,8,0,0,0,8-8V40A8,8,0,0,0,216,32ZM160,208H48V96H160Zm48-48H176V88a8,8,0,0,0-8-8H96V48H208Z"/>
+      </svg>
+      <svg class="copy-url__icon copy-url__icon--check" viewBox="0 0 256 256" fill="currentColor">
+        <path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm45.66,85.66-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32Z"/>
+      </svg>
+      <svg class="copy-url__icon copy-url__icon--warning" viewBox="0 0 256 256" fill="currentColor">
+        <path d="M236.8,188.09,149.35,36.22h0a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8ZM120,144V104a8,8,0,0,1,16,0v40a8,8,0,0,1-16,0Zm20,36a12,12,0,1,1-12-12A12,12,0,0,1,140,180Z"/>
+      </svg>
+    </span>
+    <span class="copy-url__labels">
+      <span class="copy-url__sizer" aria-hidden="true">Couldn't copy</span>
+      <span class="copy-url__label" data-label="idle">Copy URL</span>
+      <span class="copy-url__label" data-label="copied">Copied</span>
+      <span class="copy-url__label" data-label="error">Couldn't copy</span>
+    </span>
+  </button>
+  <span id="copy-url-live" class="copy-url-live" aria-live="polite"></span>
+
+  Timer helper (not CSS — paste into the popup script):
+
+  let copyUrlTimer;
+  const live = document.getElementById("copy-url-live");
+
+  async function onCopyUrlClick(button, url) {
+    const already = button.dataset.state === "copied";
+    try {
+      await navigator.clipboard.writeText(url);
+      if (!already) button.dataset.state = "copied";
+      if (live) live.textContent = "URL copied";
+    } catch {
+      button.dataset.state = "error";
+      if (live) live.textContent = "Couldn't copy";
+    }
+    clearTimeout(copyUrlTimer);
+    copyUrlTimer = setTimeout(() => {
+      button.dataset.state = "idle";
+      if (live) live.textContent = "";
+    }, 1500);
+  }
+*/

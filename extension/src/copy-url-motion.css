@@ -26,10 +26,10 @@
 }
 
 .copy-url {
-  display: inline-flex;
+  position: relative;
+  display: inline-grid;
   align-items: center;
-  justify-content: flex-start;
-  gap: 6px;
+  justify-items: center;
   height: 32px;
   padding: 0 12px;
   border: 0;
@@ -45,10 +45,38 @@
   transition: scale 150ms var(--ease-out-strong);
 }
 
+/* Locks the button to the widest state (icon + 6px + "Couldn't copy").
+   The visible cluster is a tight icon+label group, centered in that width. */
+.copy-url__lock {
+  grid-area: 1 / 1;
+  visibility: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.copy-url__lock-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.copy-url__cluster {
+  grid-area: 1 / 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
 .copy-url:focus-visible {
   outline: none;
   border-radius: 8px;
-  box-shadow: 0 0 0 2px var(--color-background, #fff), 0 0 0 4px rgba(0, 0, 0, 0.1);
+  box-shadow:
+    0 0 0 2px var(--color-background, #fff),
+    0 0 0 4px rgba(0, 0, 0, 0.1);
 }
 
 .copy-url:active:not(:disabled) {
@@ -107,20 +135,16 @@
 
 .copy-url__labels {
   position: relative;
-  display: inline-grid;
-  justify-items: start;
-}
-
-.copy-url__sizer {
-  visibility: hidden;
-  pointer-events: none;
-  white-space: nowrap;
+  display: flex;
+  align-items: center;
 }
 
 .copy-url__label {
   position: absolute;
-  inset: 0;
+  left: 0;
+  top: 0;
   opacity: 0;
+  pointer-events: none;
   transition: opacity 150ms var(--ease-out-strong);
   white-space: nowrap;
 }
@@ -129,7 +153,9 @@
 .copy-url:not([data-state]) .copy-url__label[data-label="idle"],
 .copy-url[data-state="copied"] .copy-url__label[data-label="copied"],
 .copy-url[data-state="error"] .copy-url__label[data-label="error"] {
+  position: static;
   opacity: 1;
+  pointer-events: auto;
 }
 
 /* Visually hidden live region. Keep it in the DOM; swap textContent only. */

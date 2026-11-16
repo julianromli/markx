@@ -104,6 +104,22 @@ export function listFoldersLastUsedFirst(state: MarkxState): ExtensionFolder[] {
     .map(({ folder }) => ({ id: folder.id, name: folder.name }))
 }
 
+/**
+ * Pin a known last-used folder at the top of an already-sorted list
+ * (e.g. the extension's last successful save, which may be ahead of
+ * a slightly stale server snapshot).
+ */
+export function prioritizeLastUsedFolder<T extends { id: string }>(
+  folders: readonly T[],
+  lastFolderId: string | null | undefined
+): T[] {
+  if (!lastFolderId) return [...folders]
+  const index = folders.findIndex((folder) => folder.id === lastFolderId)
+  if (index <= 0) return [...folders]
+  const selected = folders[index]
+  return [selected, ...folders.slice(0, index), ...folders.slice(index + 1)]
+}
+
 /** True when adding one more entity would exceed the free-plan cap. */
 export function wouldExceedFreeLimit(state: MarkxState): boolean {
   return countMarkxEntities(state) >= FREE_TIER_ENTITY_LIMIT

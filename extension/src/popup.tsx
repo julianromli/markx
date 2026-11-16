@@ -1,6 +1,15 @@
 import { StrictMode, useEffect, useMemo, useRef, useState } from "react"
 import type { KeyboardEvent as ReactKeyboardEvent } from "react"
 import { createRoot } from "react-dom/client"
+import { ArrowClockwiseIcon } from "@phosphor-icons/react/dist/csr/ArrowClockwise"
+import { CheckIcon } from "@phosphor-icons/react/dist/csr/Check"
+import { CheckCircleIcon } from "@phosphor-icons/react/dist/csr/CheckCircle"
+import { CloudWarningIcon } from "@phosphor-icons/react/dist/csr/CloudWarning"
+import { CopyIcon } from "@phosphor-icons/react/dist/csr/Copy"
+import { CrownIcon } from "@phosphor-icons/react/dist/csr/Crown"
+import { MagnifyingGlassIcon } from "@phosphor-icons/react/dist/csr/MagnifyingGlass"
+import { SignInIcon } from "@phosphor-icons/react/dist/csr/SignIn"
+import { WarningIcon } from "@phosphor-icons/react/dist/csr/Warning"
 import "@fontsource-variable/geist"
 import "./popup.css"
 import "./copy-url-motion.css"
@@ -13,12 +22,13 @@ import {
   getSession,
   setLastFolderId,
 } from "./lib/config"
+import { isMacPlatform, prioritizeLastUsedFolder, tabHost } from "./lib/folders"
 
 type View =
   | { kind: "loading" }
   | { kind: "signed-out" }
   | { kind: "picker"; folders: ExtensionFolder[] }
-  | { kind: "saved"; folderName: string }
+  | { kind: "saved"; folderName: string; folderId: string }
   | { kind: "board-full"; count: number; limit: number }
   | {
       kind: "error"
@@ -26,48 +36,10 @@ type View =
       message?: string
     }
 
-function CopyIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 256 256" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M216,32H88a8,8,0,0,0-8,8V80H40a8,8,0,0,0-8,8V216a8,8,0,0,0,8,8H168a8,8,0,0,0,8-8V176h40a8,8,0,0,0,8-8V40A8,8,0,0,0,216,32ZM160,208H48V96H160Zm48-48H176V88a8,8,0,0,0-8-8H96V48H208Z"
-      />
-    </svg>
-  )
-}
-
-function CheckIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 256 256" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm45.66,85.66-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32Z"
-      />
-    </svg>
-  )
-}
-
-function WarningIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 256 256" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M236.8,188.09,149.35,36.22h0a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8ZM120,144V104a8,8,0,0,1,16,0v40a8,8,0,0,1-16,0Zm20,36a12,12,0,1,1-12-12A12,12,0,0,1,140,180Z"
-      />
-    </svg>
-  )
-}
-
-function SearchIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 256 256" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M229.66,218.34l-50.07-50.06a88.11,88.11,0,1,0-11.31,11.31l50.06,50.07a8,8,0,0,0,11.32-11.32ZM40,112a72,72,0,1,1,72,72A72.08,72.08,0,0,1,40,112Z"
-      />
-    </svg>
-  )
+type TabInfo = {
+  url: string | null
+  title: string
+  favIconUrl: string | null
 }
 
 function CopyUrlButton({ url }: { url: string }) {
@@ -109,29 +81,32 @@ function CopyUrlButton({ url }: { url: string }) {
         onClick={() => void onClick()}
         aria-label="Copy URL"
       >
-        <span className="copy-url__icons" aria-hidden="true">
-          <span className="copy-url__icon copy-url__icon--copy">
-            <CopyIcon />
-          </span>
-          <span className="copy-url__icon copy-url__icon--check">
-            <CheckIcon />
-          </span>
-          <span className="copy-url__icon copy-url__icon--warning">
-            <WarningIcon />
-          </span>
+        <span className="copy-url__lock" aria-hidden="true">
+          <span className="copy-url__lock-icon" />
+          Couldn't copy
         </span>
-        <span className="copy-url__labels">
-          <span className="copy-url__sizer" aria-hidden="true">
-            Couldn't copy
+        <span className="copy-url__cluster">
+          <span className="copy-url__icons" aria-hidden="true">
+            <span className="copy-url__icon copy-url__icon--copy">
+              <CopyIcon size={16} weight="regular" />
+            </span>
+            <span className="copy-url__icon copy-url__icon--check">
+              <CheckCircleIcon size={16} weight="fill" />
+            </span>
+            <span className="copy-url__icon copy-url__icon--warning">
+              <WarningIcon size={16} weight="fill" />
+            </span>
           </span>
-          <span className="copy-url__label" data-label="idle">
-            Copy URL
-          </span>
-          <span className="copy-url__label" data-label="copied">
-            Copied
-          </span>
-          <span className="copy-url__label" data-label="error">
-            Couldn't copy
+          <span className="copy-url__labels">
+            <span className="copy-url__label" data-label="idle">
+              Copy URL
+            </span>
+            <span className="copy-url__label" data-label="copied">
+              Copied
+            </span>
+            <span className="copy-url__label" data-label="error">
+              Couldn't copy
+            </span>
           </span>
         </span>
       </button>
@@ -141,6 +116,57 @@ function CopyUrlButton({ url }: { url: string }) {
         aria-live="polite"
       />
     </>
+  )
+}
+
+function TabFavicon({ tab }: { tab: TabInfo }) {
+  const [broken, setBroken] = useState(false)
+  const letter = (tab.title || tabHost(tab.url) || "?").charAt(0).toUpperCase()
+  if (!tab.favIconUrl || broken) {
+    return (
+      <span className="favicon-fallback" aria-hidden="true">
+        {letter}
+      </span>
+    )
+  }
+  return (
+    <img
+      className="favicon"
+      src={tab.favIconUrl}
+      alt=""
+      width={20}
+      height={20}
+      onError={() => setBroken(true)}
+    />
+  )
+}
+
+function TabHeader({ tab }: { tab: TabInfo }) {
+  const host = tabHost(tab.url)
+  return (
+    <header className="tab-header">
+      <TabFavicon tab={tab} />
+      <div className="tab-meta">
+        <div className="tab-title" title={tab.title || host}>
+          {tab.title || host || "Untitled"}
+        </div>
+        {host ? <div className="tab-url">{host}</div> : null}
+      </div>
+    </header>
+  )
+}
+
+function ShortcutHint({ enterLabel = "Save" }: { enterLabel?: string }) {
+  const mod = isMacPlatform() ? "Cmd" : "Ctrl"
+  return (
+    <footer className="hint">
+      <span>Enter {enterLabel} · esc Close</span>
+      <span className="hint-keys">
+        <kbd>{mod}</kbd>
+        <kbd>⇧</kbd>
+        <kbd>S</kbd>
+      </span>
+    </footer>
   )
 }
 
@@ -161,10 +187,15 @@ function PopupApp() {
   const [query, setQuery] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const [tabUrl, setTabUrl] = useState<string | null>(null)
+  const [tab, setTab] = useState<TabInfo>({
+    url: null,
+    title: "",
+    favIconUrl: null,
+  })
   const [baseUrl, setBaseUrlState] = useState("https://markx.app")
   const searchRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  const closeTimer = useRef<number | null>(null)
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -181,14 +212,24 @@ function PopupApp() {
     void bootstrap()
   }, [])
 
+  useEffect(() => {
+    return () => {
+      if (closeTimer.current) window.clearTimeout(closeTimer.current)
+    }
+  }, [])
+
   async function bootstrap() {
-    const [base, tab] = await Promise.all([
+    const [base, tabs] = await Promise.all([
       getBaseUrl(),
       chrome.tabs.query({ active: true, currentWindow: true }),
     ])
     setBaseUrlState(base)
-    const url = tab[0]?.url ?? null
-    setTabUrl(url)
+    const active = tabs[0]
+    setTab({
+      url: active?.url ?? null,
+      title: active?.title ?? "",
+      favIconUrl: active?.favIconUrl ?? null,
+    })
 
     const localSession = await getSession()
     if (!localSession) {
@@ -205,23 +246,24 @@ function PopupApp() {
       setView({ kind: "error", variant: "network" })
       return
     }
-    const folders = await fetchFolders()
-    if (!folders.ok && folders.reason === "unauthorized") {
+    const foldersResult = await fetchFolders()
+    if (!foldersResult.ok && foldersResult.reason === "unauthorized") {
       await clearSession()
       setView({ kind: "error", variant: "session" })
       return
     }
-    if (!folders.ok) {
+    if (!foldersResult.ok) {
       setView({ kind: "error", variant: "network" })
       return
     }
     const lastId = await getLastFolderId()
+    const folders = prioritizeLastUsedFolder(foldersResult.folders, lastId)
     const initial =
-      (lastId && folders.folders.some((folder) => folder.id === lastId)
+      (lastId && folders.some((folder) => folder.id === lastId)
         ? lastId
-        : folders.folders[0]?.id) ?? null
+        : folders[0]?.id) ?? null
     setSelectedId(initial)
-    setView({ kind: "picker", folders: folders.folders })
+    setView({ kind: "picker", folders })
   }
 
   const visibleFolders = useMemo(() => {
@@ -248,9 +290,26 @@ function PopupApp() {
     }
   }, [view.kind, visibleFolders, selectedId])
 
+  useEffect(() => {
+    if (!selectedId || !listRef.current) return
+    const row = listRef.current.querySelector(
+      `[data-folder-id="${CSS.escape(selectedId)}"]`
+    )
+    if (row instanceof HTMLElement) {
+      row.scrollIntoView({ block: "nearest" })
+    }
+  }, [selectedId])
+
+  useEffect(() => {
+    if (view.kind !== "saved") return
+    closeTimer.current = window.setTimeout(() => window.close(), 1200)
+    return () => {
+      if (closeTimer.current) window.clearTimeout(closeTimer.current)
+    }
+  }, [view])
+
   async function openSignIn() {
-    const url = `${baseUrl}/`
-    await chrome.tabs.create({ url })
+    await chrome.tabs.create({ url: `${baseUrl}/` })
     window.close()
   }
 
@@ -258,9 +317,15 @@ function PopupApp() {
     await chrome.tabs.create({ url: `${baseUrl}/?upgrade=1` })
   }
 
+  async function openFolder(folderId: string) {
+    if (closeTimer.current) window.clearTimeout(closeTimer.current)
+    await chrome.tabs.create({ url: `${baseUrl}/folder/${folderId}` })
+    window.close()
+  }
+
   async function saveTo(folderId: string) {
-    if (!tabUrl || saving) return
-    if (!/^https?:/i.test(tabUrl)) {
+    if (!tab.url || saving) return
+    if (!/^https?:/i.test(tab.url)) {
       setView({
         kind: "error",
         variant: "generic",
@@ -270,11 +335,15 @@ function PopupApp() {
       return
     }
     setSaving(true)
-    const result: SaveBookmarkResult = await saveBookmark(folderId, tabUrl)
+    const result: SaveBookmarkResult = await saveBookmark(folderId, tab.url)
     setSaving(false)
     if (result.ok) {
       await setLastFolderId(folderId)
-      setView({ kind: "saved", folderName: result.folder.name })
+      setView({
+        kind: "saved",
+        folderName: result.folder.name,
+        folderId: result.folder.id,
+      })
       return
     }
     if (result.reason === "board_full") {
@@ -327,94 +396,88 @@ function PopupApp() {
     }
   }
 
-  useEffect(() => {
-    if (!selectedId || !listRef.current) return
-    const row = listRef.current.querySelector(
-      `[data-folder-id="${CSS.escape(selectedId)}"]`
-    )
-    if (row instanceof HTMLElement) {
-      row.scrollIntoView({ block: "nearest" })
-    }
-  }, [selectedId])
-
   if (view.kind === "loading") {
     return (
-      <div className="popup">
-        <div className="brand">
-          <img
-            src={chrome.runtime.getURL("markx-logo-flat.svg")}
-            alt=""
-            width={36}
-            height={36}
-          />
-          <div className="brand-name">markx</div>
-        </div>
-        <p className="muted">Loading…</p>
+      <div className="popup popup--status">
+        <p className="lede lede-tight">Loading…</p>
       </div>
     )
   }
 
   if (view.kind === "signed-out") {
     return (
-      <div className="popup">
-        <div className="brand">
-          <img
-            src={chrome.runtime.getURL("markx-logo-flat.svg")}
-            alt=""
-            width={36}
-            height={36}
-          />
-          <div className="brand-name">markx</div>
-        </div>
-        <h1 className="title">Sign in to markx</h1>
-        <p className="lede">
-          Save this tab to a folder on your board. Sign in with the same account
-          you use in the markx app.
-        </p>
+      <div className="popup popup--status">
+        <img
+          className="brand-mark"
+          src={chrome.runtime.getURL("markx-logo-flat.svg")}
+          alt=""
+          width={36}
+          height={36}
+        />
+        <div className="wordmark">markx</div>
+        <p className="lede">Save this site to your markx board</p>
         <button
           type="button"
           className="btn btn-primary"
           onClick={() => void openSignIn()}
         >
-          Sign in
+          <SignInIcon size={16} weight="regular" />
+          Sign in to markx
         </button>
+        <p className="signup">
+          Don't have an account?{" "}
+          <button
+            type="button"
+            className="text-link"
+            onClick={() => void openSignIn()}
+          >
+            Create one free
+          </button>
+        </p>
       </div>
     )
   }
 
   if (view.kind === "saved") {
     return (
-      <div className="popup">
-        <div className="status-block">
-          <div className="status-icon status-icon--ok">
-            <CheckIcon />
-          </div>
-          <h1 className="title">Saved</h1>
-          <p className="lede lede-clip" title={`Saved to ${view.folderName}`}>
-            Saved to {view.folderName}
-          </p>
+      <div className="popup popup--status">
+        <div className="status-icon status-icon--ok">
+          <CheckCircleIcon size={32} weight="fill" />
         </div>
+        <h1 className="title lede-clip" title={`Saved to ${view.folderName}`}>
+          Saved to {view.folderName}
+        </h1>
+        <button
+          type="button"
+          className="text-link open-folder"
+          onClick={() => void openFolder(view.folderId)}
+        >
+          Open folder
+        </button>
       </div>
     )
   }
 
   if (view.kind === "board-full") {
     return (
-      <div className="popup">
-        <h1 className="title">Board is full</h1>
-        <p className="lede">
-          Free plan is limited to {view.limit} items. This tab was not saved (
-          {view.count}/{view.limit}).
-        </p>
+      <div className="popup popup--status">
+        <div className="status-icon">
+          <WarningIcon size={32} weight="regular" />
+        </div>
+        <h1 className="title">
+          Your board is full ({view.count}/{view.limit} items)
+        </h1>
+        <p className="lede">Free plan is limited to {view.limit} items.</p>
         <div className="actions">
           <button
             type="button"
             className="btn btn-primary"
             onClick={() => void openUpgrade()}
           >
+            <CrownIcon size={16} weight="fill" />
             Upgrade to Pro
           </button>
-          {tabUrl ? <CopyUrlButton url={tabUrl} /> : null}
+          {tab.url ? <CopyUrlButton url={tab.url} /> : null}
         </div>
       </div>
     )
@@ -423,43 +486,50 @@ function PopupApp() {
   if (view.kind === "error") {
     const title =
       view.variant === "session"
-        ? "Session expired"
+        ? "Your session expired"
         : view.variant === "network"
-          ? "Can't reach markx"
+          ? "Couldn't reach markx"
           : "Couldn't save"
     const lede =
       view.message ??
       (view.variant === "session"
-        ? "Sign in again to keep saving tabs to your board."
+        ? "Sign in again to save this page."
         : view.variant === "network"
           ? "Check your connection, then try again."
           : "Something went wrong. Try again.")
     return (
-      <div className="popup">
-        <div className="status-block status-block--start">
-          <h1 className="title">{title}</h1>
-          <p className="lede">{lede}</p>
-          {view.variant === "session" ? (
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => void openSignIn()}
-            >
-              Sign in
-            </button>
+      <div className="popup popup--status">
+        <div className="status-icon">
+          {view.variant === "network" ? (
+            <CloudWarningIcon size={32} weight="regular" />
           ) : (
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => {
-                setView({ kind: "loading" })
-                void bootstrap()
-              }}
-            >
-              Try again
-            </button>
+            <WarningIcon size={32} weight="regular" />
           )}
         </div>
+        <h1 className="title">{title}</h1>
+        <p className="lede">{lede}</p>
+        {view.variant === "session" ? (
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => void openSignIn()}
+          >
+            <SignInIcon size={16} weight="regular" />
+            Sign in again
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => {
+              setView({ kind: "loading" })
+              void bootstrap()
+            }}
+          >
+            <ArrowClockwiseIcon size={16} weight="regular" />
+            Try again
+          </button>
+        )}
       </div>
     )
   }
@@ -467,80 +537,83 @@ function PopupApp() {
   const empty = visibleFolders.length === 0
 
   return (
-    <div className="popup">
-      <form
-        onSubmit={(event) => {
-          event.preventDefault()
-          if (selectedId) void saveTo(selectedId)
-        }}
-      >
-        <div className="search">
-          <span className="search-icon">
-            <SearchIcon />
-          </span>
-          <label htmlFor="folder-search" className="sr-only">
-            Search folders
-          </label>
-          <input
-            id="folder-search"
-            ref={searchRef}
-            type="search"
-            spellCheck={false}
-            autoComplete="off"
-            autoCorrect="off"
-            data-1p-ignore="true"
-            placeholder="Search folders"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={onSearchKeyDown}
-            disabled={saving}
-          />
-        </div>
-        {empty ? (
-          <div className="empty-search">
-            <p className="title">No folders match</p>
-            <p className="muted muted-clip" title={query.trim() || undefined}>
-              {query.trim()
-                ? `Nothing named “${query.trim()}”.`
-                : "Create a folder in markx first, then save to it here."}
-            </p>
+    <div className="popup popup--picker">
+      <TabHeader tab={tab} />
+      <div className="picker-body">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (selectedId) void saveTo(selectedId)
+          }}
+        >
+          <div className="search">
+            <span className="search-icon">
+              <MagnifyingGlassIcon size={16} weight="regular" />
+            </span>
+            <label htmlFor="folder-search" className="sr-only">
+              Search folders
+            </label>
+            <input
+              id="folder-search"
+              ref={searchRef}
+              type="text"
+              spellCheck={false}
+              autoComplete="off"
+              autoCorrect="off"
+              data-1p-ignore="true"
+              placeholder="Search folders..."
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={onSearchKeyDown}
+              disabled={saving}
+            />
           </div>
-        ) : (
-          <div
-            className="folder-list"
-            role="listbox"
-            aria-label="Folders"
-            ref={listRef}
-          >
-            {visibleFolders.map((folder) => (
-              <button
-                key={folder.id}
-                type="button"
-                role="option"
-                data-folder-id={folder.id}
-                className={
-                  folder.id === selectedId
-                    ? "folder-row selected"
-                    : "folder-row"
-                }
-                aria-selected={folder.id === selectedId}
-                title={folder.name}
-                disabled={saving}
-                onMouseEnter={() => setSelectedId(folder.id)}
-                onClick={() => void saveTo(folder.id)}
-              >
-                <img
-                  src={chrome.runtime.getURL("pixel-folder.svg")}
-                  alt=""
-                  width={18}
-                  height={18}
-                />
-                <span className="name">{folder.name}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </form>
+          {empty ? (
+            <div className="empty-search">
+              <p className="empty-title">No folders found</p>
+            </div>
+          ) : (
+            <div
+              className="folder-list"
+              role="listbox"
+              aria-label="Folders"
+              ref={listRef}
+            >
+              {visibleFolders.map((folder) => {
+                const selected = folder.id === selectedId
+                return (
+                  <button
+                    key={folder.id}
+                    type="button"
+                    role="option"
+                    data-folder-id={folder.id}
+                    className={selected ? "folder-row selected" : "folder-row"}
+                    aria-selected={selected}
+                    title={folder.name}
+                    disabled={saving}
+                    onMouseEnter={() => setSelectedId(folder.id)}
+                    onClick={() => void saveTo(folder.id)}
+                  >
+                    <img
+                      src={chrome.runtime.getURL("pixel-folder.svg")}
+                      alt=""
+                      width={18}
+                      height={18}
+                    />
+                    <span className="name">{folder.name}</span>
+                    {selected ? (
+                      <span className="check" aria-hidden="true">
+                        <CheckIcon size={16} weight="bold" />
+                      </span>
+                    ) : null}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </form>
+      </div>
+      <ShortcutHint />
     </div>
   )
 }

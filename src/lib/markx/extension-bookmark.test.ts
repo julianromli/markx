@@ -13,6 +13,7 @@ import {
   boardFullResult,
   findSlotFromTopLeft,
   listFoldersLastUsedFirst,
+  prioritizeLastUsedFolder,
   wouldExceedFreeLimit,
 } from "@/lib/markx/extension-bookmark"
 import { createEmptyState } from "@/lib/markx/seed"
@@ -112,6 +113,56 @@ describe("listFoldersLastUsedFirst", () => {
       "a",
       "b",
     ])
+  })
+
+  it("places the folder a new bookmark was added to first", () => {
+    const state = stateWith(
+      [folder("home", "Home", 1), folder("work", "Work", 2)],
+      [bookmark({ id: "existing", folderId: "home", z: 8, y: 0 })]
+    )
+    expect(listFoldersLastUsedFirst(state).map((item) => item.id)).toEqual([
+      "home",
+      "work",
+    ])
+    const result = addBookmarkToFolderState(state, {
+      id: "new",
+      folderId: "work",
+      url: "https://example.com/new",
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(
+      listFoldersLastUsedFirst(result.state).map((item) => item.id)
+    ).toEqual(["work", "home"])
+  })
+})
+
+describe("prioritizeLastUsedFolder", () => {
+  const folders = [
+    { id: "reading", name: "Reading list" },
+    { id: "work", name: "Work" },
+    { id: "personal", name: "Personal" },
+  ]
+
+  it("moves the last-used folder first and keeps the rest stable", () => {
+    expect(
+      prioritizeLastUsedFolder(folders, "work").map((item) => item.id)
+    ).toEqual(["work", "reading", "personal"])
+  })
+
+  it("leaves the list unchanged when last-used is already first", () => {
+    expect(
+      prioritizeLastUsedFolder(folders, "reading").map((item) => item.id)
+    ).toEqual(["reading", "work", "personal"])
+  })
+
+  it("leaves the list unchanged when last-used is missing", () => {
+    expect(
+      prioritizeLastUsedFolder(folders, "missing").map((item) => item.id)
+    ).toEqual(["reading", "work", "personal"])
+    expect(
+      prioritizeLastUsedFolder(folders, null).map((item) => item.id)
+    ).toEqual(["reading", "work", "personal"])
   })
 })
 

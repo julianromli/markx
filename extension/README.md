@@ -23,12 +23,21 @@ does not change cookie SameSite (that would affect the main app).
 
 The extension instead uses the existing Bearer JWT path:
 
-- A content script on the configured markx origin calls
-  `/api/auth/get-session` (same-origin, cookies work) and forwards the
-  session token to the extension.
-- API calls to `/api/extension/*` send `Authorization: Bearer <token>`.
-  The Worker verifies the JWT with the Neon Auth JWKS, the same way
+- A content script on the configured markx origin fetches
+  `/api/auth/token` (same-origin, cookies work) for a Neon Auth JWT,
+  falling back to the `set-auth-jwt` header on `/api/auth/get-session`.
+  Better Auth's opaque `session.token` is not a JWT and is not used.
+- API calls to `/api/extension/*` send `Authorization: Bearer <jwt>`.
+  The Worker verifies it with the Neon Auth JWKS, the same way
   server functions already do.
+- The JWT is short-lived (~15 minutes). On a 401 the popup asks the
+  background to refresh once: it tries `/api/auth/token` from the
+  service worker, then asks any open markx tab to recapture same-origin.
+  A fetch from `chrome-extension://` may not attach SameSite=Lax
+  cookies, so a worker 401 is not treated as signed out. A markx tab
+  also recaptures the JWT on focus or visibility. Storage is cleared
+  only when a markx tab (or the content script) confirms signed out,
+  not on a network error.
 
 ## Production
 

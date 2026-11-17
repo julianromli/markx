@@ -17,7 +17,7 @@
     "mayar:bootstrap": "node scripts/mayar-bootstrap.mjs",
     "deploy": "bun run build && wrangler deploy",
     "test:e2e": "playwright test",
-    "extension:build": "vite build --config extension/vite.config.ts",
+    "extension:build": "vite build --config extension/vite.config.ts && vite build --config extension/vite.content.config.ts",
     "extension:dev": "vite build --config extension/vite.config.ts --watch"
   },
   "dependencies": {

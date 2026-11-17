@@ -309,7 +309,15 @@ function PopupApp() {
   }, [view])
 
   async function openSignIn() {
-    await chrome.tabs.create({ url: `${baseUrl}/` })
+    const origin = new URL(baseUrl).origin
+    const existing = await chrome.tabs.query({ url: `${origin}/*` })
+    const existingTab = existing.at(0)
+    if (existingTab != null && existingTab.id != null) {
+      await chrome.tabs.update(existingTab.id, { active: true })
+      await chrome.windows.update(existingTab.windowId, { focused: true })
+    } else {
+      await chrome.tabs.create({ url: `${baseUrl}/` })
+    }
     window.close()
   }
 

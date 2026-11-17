@@ -10,6 +10,7 @@ import {
 } from "@/lib/server/auth-proxy"
 import { checkOtpSendRateLimit } from "@/lib/server/otp-send-rate-limit"
 import { serveOgPreview } from "@/lib/server/og-preview"
+import { handleExtensionApi } from "@/lib/server/extension-api"
 import { serveSharedBoardAsset } from "@/lib/server/shared-board-asset"
 
 /**
@@ -26,10 +27,7 @@ async function proxyAuth(request: Request, env: Env): Promise<Response | null> {
   if (!isAuthProxyPath(url.pathname)) return null
 
   // Throttle OTP email sends before they hit Neon Auth / SMTP.
-  if (
-    request.method === "POST" &&
-    isEmailOtpSendPath(url.pathname)
-  ) {
+  if (request.method === "POST" && isEmailOtpSendPath(url.pathname)) {
     const limited = checkOtpSendRateLimit(request)
     if (limited) return limited
   }
@@ -75,10 +73,13 @@ export default {
   async fetch(
     request: Request,
     env: Env,
-    _ctx: ExecutionContext
+    ctx: ExecutionContext
   ): Promise<Response> {
     const authResponse = await proxyAuth(request, env)
     if (authResponse) return authResponse
+
+    const extensionResponse = await handleExtensionApi(request, env, ctx)
+    if (extensionResponse) return extensionResponse
 
     const ogPreview = await serveOgPreview(request, env)
     if (ogPreview) return ogPreview

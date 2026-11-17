@@ -110,8 +110,12 @@ export async function saveWorkspaceForUser(
       }
 
       const current = currentRows[0]
-      // Last-writer-wins: always write the client's snapshot. A stale
-      // baseVersion does not merge with cloud; this save replaces it.
+      // Optimistic version check: a stale baseVersion must not replace
+      // concurrent additions (e.g. an extension bookmark). The client
+      // 3-way-merges against this snapshot and retries.
+      if (current.version !== input.baseVersion) {
+        return { kind: "conflict" as const, workspace: current }
+      }
       const stateToWrite = input.state
 
       const limit = assertWorkspaceEntityLimit(entitlements, stateToWrite)
@@ -170,6 +174,9 @@ export async function saveWorkspaceForUser(
         limit: outcome.limit,
         message: `Free plan is limited to ${outcome.limit} items. Upgrade to Pro or remove items.`,
       }
+    }
+    if (outcome.kind === "conflict") {
+      return toConflictResult(outcome.workspace)
     }
     if (outcome.kind === "race") {
       // Another writer changed the row between SELECT FOR UPDATE and UPDATE.

@@ -23,6 +23,8 @@ export type Bookmark = {
   z: number
   width?: number
   height?: number
+  /** One-shot pulse when the folder next opens (e.g. extension save). */
+  highlight?: boolean
 }
 
 export type NoteColor =

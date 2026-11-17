@@ -189,6 +189,7 @@ export const BookmarkCard = memo(function BookmarkCard({
                 "group relative overflow-hidden rounded-[25px] border-[3px] border-white/50",
                 "shadow-[3px_3px_8px_rgba(0,0,0,0.1),11px_10px_15px_rgba(0,0,0,0.09),24px_24px_20px_rgba(0,0,0,0.05)]",
                 selected && "border-black",
+                bookmark.highlight && "markx-bookmark-highlight",
                 brandFallback ? "bg-ink" : "bg-white",
                 triggerClassName,
                 className

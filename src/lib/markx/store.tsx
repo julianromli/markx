@@ -24,6 +24,7 @@ import type {
 } from "./types"
 import type { WorkspaceLocation } from "./workspace-items"
 import { youtubeOptimisticImageUrl } from "./youtube"
+import { applyBookmarkMetadata } from "./bookmark-meta"
 
 type Listener = () => void
 type PositionUpdate = { id: string; x: number; y: number; z?: number }
@@ -57,20 +58,6 @@ function isAlreadyOnTop(state: MarkxState, ids: readonly string[]): boolean {
     previous = z
   }
   return true
-}
-
-function applyBookmarkMetadata(
-  bookmark: Bookmark,
-  metadata: LinkMetadata
-): Bookmark {
-  return {
-    ...bookmark,
-    title: metadata.title || bookmark.title,
-    description: metadata.description ?? bookmark.description,
-    imageUrl: metadata.imageUrl ?? bookmark.imageUrl,
-    faviconUrl: metadata.faviconUrl || bookmark.faviconUrl,
-    enrichStatus: "done",
-  }
 }
 
 /** Pending enrich flags are session-local; never resume a shimmer after reload. */
@@ -127,6 +114,7 @@ export type MarkxActions = {
     y: number
   ) => Bookmark | null
   renameBookmark: (id: string, title: string) => void
+  clearBookmarkHighlights: (ids: readonly string[]) => void
   resizeItem: (
     id: string,
     rect: { x: number; width: number; height: number }
@@ -706,6 +694,16 @@ export function createMarkxStore(
         ...prev,
         bookmarks: prev.bookmarks.map((b) =>
           b.id === id ? { ...b, title } : b
+        ),
+      }))
+    },
+
+    clearBookmarkHighlights(ids) {
+      const idSet = new Set(ids)
+      commit((prev) => ({
+        ...prev,
+        bookmarks: prev.bookmarks.map((b) =>
+          b.highlight && idSet.has(b.id) ? { ...b, highlight: undefined } : b
         ),
       }))
     },

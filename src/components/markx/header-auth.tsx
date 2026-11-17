@@ -1,10 +1,11 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 import { AccountMenu } from "@/components/markx/account-menu"
 import { AuthDialog } from "@/components/markx/auth-dialog"
 import { SyncStatusBadge } from "@/components/markx/sync-status"
 import { Button } from "@/components/ui/button"
 import { useAuthSession } from "@/lib/markx/hooks"
+import { hasUpgradeParam } from "@/lib/markx/upgrade-query"
 
 /**
  * Header auth cluster.
@@ -15,6 +16,14 @@ import { useAuthSession } from "@/lib/markx/hooks"
 export function HeaderAuth() {
   const { user, isPending } = useAuthSession()
   const [authOpen, setAuthOpen] = useState(false)
+
+  // Signed-out visitors landing on /?upgrade=1 are sent to sign-in.
+  // The query stays in the URL so AccountMenu can open the upgrade
+  // dialog after a successful login.
+  useEffect(() => {
+    if (isPending || user) return
+    if (hasUpgradeParam()) setAuthOpen(true)
+  }, [isPending, user])
 
   if (isPending) {
     return null

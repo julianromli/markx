@@ -123,7 +123,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe("SyncEngine last-writer-wins", () => {
+describe("SyncEngine optimistic sync", () => {
   it("uses injected workspace and storage adapters", async () => {
     const { dependencies } = createDependencies()
     const engine = await SyncEngine.createFromCache("user-1", dependencies)
@@ -254,22 +254,17 @@ describe("SyncEngine last-writer-wins", () => {
     engine.destroy()
   })
 
-  it("overwrites cloud when save returns conflict", async () => {
+  it("merges local and cloud additions when save returns conflict", async () => {
     vi.useFakeTimers()
     const local = stateWithFolder("laptop-folder")
+    const cloud = stateWithFolder("extension-folder")
     const { dependencies, save, overwrite } = createDependencies()
     save.mockResolvedValueOnce({
       ok: false,
       reason: "conflict",
       cloudVersion: 4,
-      cloudState: stateWithFolder("mobile-folder"),
+      cloudState: cloud,
       cloudUpdatedAt: "later",
-    })
-    overwrite.mockResolvedValueOnce({
-      ok: true,
-      version: 5,
-      updatedAt: "now",
-      state: local,
     })
 
     const engine = await SyncEngine.createFromCache("user-1", dependencies)
@@ -277,10 +272,17 @@ describe("SyncEngine last-writer-wins", () => {
     await vi.advanceTimersByTimeAsync(1500)
 
     expect(overwrite).toHaveBeenCalledTimes(1)
+    const written = overwrite.mock.calls[0][0].state
+    expect(written.folders.map((folder) => folder.id)).toEqual([
+      "extension-folder",
+      "laptop-folder",
+    ])
     expect(engine.getStatus()).toBe("saved")
     expect(engine.getConflict()).toBeUndefined()
-    expect(engine.getLoadedState()?.folders[0]?.id).toBe("laptop-folder")
-    expect(engine.getCloudVersion()).toBe(5)
+    expect(engine.getLoadedState()?.folders.map((folder) => folder.id)).toEqual(
+      ["extension-folder", "laptop-folder"]
+    )
+    expect(engine.getCloudVersion()).toBe(3)
     engine.destroy()
   })
 

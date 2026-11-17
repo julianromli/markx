@@ -3,9 +3,10 @@ import { describe, expect, it } from "vitest"
 import {
   filterDeletedImageIdsForState,
   mergeWorkspaceStates,
+  threeWayMergeWorkspaceStates,
 } from "@/lib/markx/merge-workspace"
 import { createEmptyState } from "@/lib/markx/seed"
-import type { MarkxState } from "@/lib/markx/types"
+import type { Bookmark, MarkxState } from "@/lib/markx/types"
 
 function stateWithFolder(id: string, name = id): MarkxState {
   return {
@@ -74,14 +75,65 @@ describe("mergeWorkspaceStates", () => {
 describe("filterDeletedImageIdsForState", () => {
   it("drops delete ids that the written state still references", () => {
     const state = stateWithImage("keep-me")
-    expect(
-      filterDeletedImageIdsForState(["keep-me", "gone"], state)
-    ).toEqual(["gone"])
+    expect(filterDeletedImageIdsForState(["keep-me", "gone"], state)).toEqual([
+      "gone",
+    ])
   })
 
   it("returns an empty list when nothing was queued", () => {
     expect(
       filterDeletedImageIdsForState(undefined, createEmptyState())
     ).toEqual([])
+  })
+})
+
+function bookmark(id: string, folderId = "f1"): Bookmark {
+  return {
+    id,
+    folderId,
+    url: `https://example.com/${id}`,
+    title: id,
+    x: 0,
+    y: 0,
+    z: 1,
+  }
+}
+
+function stateWithBookmarks(ids: string[]): MarkxState {
+  return {
+    ...createEmptyState(),
+    folders: [{ id: "f1", name: "F", x: 0, y: 0, z: 1 }],
+    bookmarks: ids.map((id) => bookmark(id)),
+    zCounter: 1,
+  }
+}
+
+describe("threeWayMergeWorkspaceStates", () => {
+  it("keeps a cloud-only add (extension bookmark) and a local-only add", () => {
+    const base = stateWithBookmarks(["shared"])
+    const local = stateWithBookmarks(["shared", "local-add"])
+    const cloud = stateWithBookmarks(["shared", "extension-add"])
+    const merged = threeWayMergeWorkspaceStates(base, local, cloud)
+    expect(merged.bookmarks.map((item) => item.id)).toEqual([
+      "shared",
+      "extension-add",
+      "local-add",
+    ])
+  })
+
+  it("honors a local delete and a cloud delete", () => {
+    const base = stateWithBookmarks(["keep", "local-deleted", "cloud-deleted"])
+    const local = stateWithBookmarks(["keep", "cloud-deleted"])
+    const cloud = stateWithBookmarks(["keep", "local-deleted"])
+    const merged = threeWayMergeWorkspaceStates(base, local, cloud)
+    expect(merged.bookmarks.map((item) => item.id)).toEqual(["keep"])
+  })
+
+  it("lets the cloud win when both sides changed the same entity", () => {
+    const base = stateWithFolder("same", "base-name")
+    const local = stateWithFolder("same", "local-name")
+    const cloud = stateWithFolder("same", "cloud-name")
+    const merged = threeWayMergeWorkspaceStates(base, local, cloud)
+    expect(merged.folders[0]?.name).toBe("cloud-name")
   })
 })

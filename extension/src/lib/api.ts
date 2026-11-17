@@ -18,7 +18,18 @@ export type SaveBookmarkResult =
   | { ok: false; reason: "conflict" }
   | { ok: false; reason: "error"; message?: string }
 
-async function request(
+async function refreshStoredSession(): Promise<boolean> {
+  try {
+    const result = await chrome.runtime.sendMessage({
+      type: "markx-refresh-session",
+    })
+    return result?.ok === true
+  } catch {
+    return false
+  }
+}
+
+async function requestOnce(
   path: string,
   init: RequestInit = {}
 ): Promise<{ response: Response; data: unknown } | { network: true }> {
@@ -46,6 +57,18 @@ async function request(
   } catch {
     return { network: true }
   }
+}
+
+async function request(
+  path: string,
+  init: RequestInit = {}
+): Promise<{ response: Response; data: unknown } | { network: true }> {
+  const result = await requestOnce(path, init)
+  if ("network" in result) return result
+  if (result.response.status !== 401) return result
+  const refreshed = await refreshStoredSession()
+  if (!refreshed) return result
+  return requestOnce(path, init)
 }
 
 export async function fetchSession(): Promise<

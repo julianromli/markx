@@ -1,41 +1,55 @@
-type SessionPayload = {
-  user?: { id: string; email: string } | null
-  session?: { token?: string | null } | null
-}
-
-function readSession(payload: unknown): {
-  token: string
-  user: { id: string; email: string }
-} | null {
-  if (!payload || typeof payload !== "object") return null
-  const root = payload as SessionPayload & { data?: SessionPayload }
-  const data = root.data ?? root
-  const user = data.user
-  const token = data.session?.token
-  if (!user?.id || !user.email || !token) return null
-  return { token, user: { id: user.id, email: user.email } }
-}
+import { captureSession } from "./lib/session"
 
 async function reportSession(): Promise<void> {
-  try {
-    const response = await fetch("/api/auth/get-session", {
-      credentials: "include",
-      headers: { Accept: "application/json" },
-    })
-    if (!response.ok) {
-      void chrome.runtime.sendMessage({ type: "markx-session" })
-      return
-    }
-    const payload: unknown = await response.json()
-    const session = readSession(payload)
+  const capture = await captureSession()
+  if (capture.kind === "unavailable") return
+  if (capture.kind === "signed-out") {
     void chrome.runtime.sendMessage({
       type: "markx-session",
-      token: session?.token ?? null,
-      user: session?.user ?? null,
+      signedOut: true,
     })
-  } catch {
-    // Leave whatever the extension already stored.
+    return
   }
+  void chrome.runtime.sendMessage({
+    type: "markx-session",
+    token: capture.token,
+    user: capture.user,
+  })
 }
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (
+    !message ||
+    typeof message !== "object" ||
+    (message as { type?: unknown }).type !== "markx-request-session"
+  ) {
+    return
+  }
+  void (async () => {
+    const capture = await captureSession()
+    if (capture.kind === "signed-in") {
+      void chrome.runtime.sendMessage({
+        type: "markx-session",
+        token: capture.token,
+        user: capture.user,
+      })
+    } else if (capture.kind === "signed-out") {
+      void chrome.runtime.sendMessage({
+        type: "markx-session",
+        signedOut: true,
+      })
+    }
+    sendResponse(capture)
+  })()
+  return true
+})
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") void reportSession()
+})
+
+window.addEventListener("focus", () => {
+  void reportSession()
+})
 
 void reportSession()

@@ -28,6 +28,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useAuthSession } from "@/lib/markx/hooks"
 import { signOut } from "@/lib/markx/auth-actions"
+import {
+  decideUpgradeIntent,
+  hasUpgradeParam,
+  replaceUpgradeQueryInHistory,
+} from "@/lib/markx/upgrade-query"
 import { cn } from "@/lib/utils"
 import {
   getEntitlements,
@@ -53,6 +58,7 @@ export function AccountMenu() {
   const [entitlements, setEntitlements] = useState<UserEntitlements | null>(
     null
   )
+  const [entitlementsReady, setEntitlementsReady] = useState(false)
   const [mobile, setMobile] = useState("")
   const [checkoutLoading, setCheckoutLoading] = useState(false)
   const [session, setSession] = useState<ProCheckoutSession | null>(null)
@@ -70,9 +76,11 @@ export function AccountMenu() {
   useEffect(() => {
     if (!user) {
       setEntitlements(null)
+      setEntitlementsReady(false)
       return
     }
     let cancelled = false
+    setEntitlementsReady(false)
     void getEntitlements()
       .then((e) => {
         if (!cancelled) setEntitlements(e)
@@ -80,10 +88,30 @@ export function AccountMenu() {
       .catch(() => {
         if (!cancelled) setEntitlements(null)
       })
+      .finally(() => {
+        if (!cancelled) setEntitlementsReady(true)
+      })
     return () => {
       cancelled = true
     }
   }, [user])
+
+  // /?upgrade=1 from the Chrome extension: open the existing checkout
+  // dialog for a signed-in free user, then strip the query so refresh
+  // does not reopen it. Pro / billing-off just strip.
+  useEffect(() => {
+    if (!user || !entitlementsReady) return
+    if (!hasUpgradeParam()) return
+    const intent = decideUpgradeIntent({
+      hasParam: true,
+      authPending: false,
+      signedIn: true,
+      entitlements,
+      entitlementsReady: true,
+    })
+    if (intent === "open") setUpgradeOpen(true)
+    replaceUpgradeQueryInHistory()
+  }, [user, entitlements, entitlementsReady])
 
   useEffect(() => {
     function onEntityLimit(event: Event) {

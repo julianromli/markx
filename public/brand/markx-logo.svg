@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none" role="img" aria-label="markx">
+  <defs>
+    <linearGradient id="markx-base" x1="10" y1="1" x2="10" y2="19" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4F4F4F"/>
+      <stop offset="1" stop-color="#202020" stop-opacity="0.85"/>
+    </linearGradient>
+    <filter id="markx-depth" x="0" y="0" width="20" height="20" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feMorphology radius="1" operator="dilate" in="SourceAlpha" result="ring"/>
+      <feComposite in="ring" in2="SourceAlpha" operator="out" result="ringOut"/>
+      <feColorMatrix in="ringOut" values="0 0 0 0 0.251 0 0 0 0 0.251 0 0 0 0 0.251 0 0 0 0.12 0" result="outerRing"/>
+      <feMerge result="withRing"><feMergeNode in="outerRing"/><feMergeNode in="SourceGraphic"/></feMerge>
+      <feOffset in="SourceAlpha" dy="-0.5" result="shadeOff"/>
+      <feGaussianBlur in="shadeOff" stdDeviation="1" result="shadeBlur"/>
+      <feComposite in="shadeBlur" in2="SourceAlpha" operator="arithmetic" k2="-1" k3="1" result="shadeIn"/>
+      <feColorMatrix in="shadeIn" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0" result="innerShade"/>
+      <feOffset in="SourceAlpha" dy="2" result="hiOff"/>
+      <feComposite in="hiOff" in2="SourceAlpha" operator="arithmetic" k2="-1" k3="1" result="hiIn"/>
+      <feColorMatrix in="hiIn" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.4 0" result="innerHighlight"/>
+      <feMerge><feMergeNode in="withRing"/><feMergeNode in="innerShade"/><feMergeNode in="innerHighlight"/></feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#markx-depth)">
+    <rect x="1" y="1" width="18" height="18" rx="4.5" fill="url(#markx-base)"/>
+    <rect x="1" y="1" width="18" height="18" rx="4.5" fill="#202020" fill-opacity="0.8"/>
+    <rect x="1.5" y="1.5" width="17" height="17" rx="4" stroke="#383838"/>
+  </g>
+  <rect x="5.5" y="5.5" width="3.9375" height="3.9375" rx="1.125" fill="#fff"/>
+  <circle cx="12.53125" cy="7.46875" r="1.96875" fill="#fff" fill-opacity="0.25"/>
+  <rect x="5.5" y="10.5625" width="3.9375" height="3.9375" rx="1.125" fill="#fff" fill-opacity="0.75"/>
+  <rect x="10.5625" y="10.5625" width="3.9375" height="3.9375" rx="1.125" fill="#fff" fill-opacity="0.5"/>
+</svg>

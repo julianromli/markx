@@ -28,3 +28,4 @@ playwright-report/
 
 # Chrome extension build output
 extension/dist/
+extension/*.zip
